@@ -10,6 +10,7 @@ import fnmatch
 import optparse
 import os
 import re
+import shlex
 import sys
 import time
 from dataclasses import dataclass
@@ -361,10 +362,11 @@ def run(cmd, exit_on_fail=True, do_print=True):
 
 def patch(patchfile, reverse=False, silent=False):
     """Run a patch file"""
+    patchfile_arg = shlex.quote(patchfile)
     if reverse:
-        cmd = f"patch -p1 -R -i {patchfile}"
+        cmd = f"patch -p1 -R -i {patchfile_arg}"
     else:
-        cmd = f"patch -p1 -i {patchfile}"
+        cmd = f"patch -p1 -i {patchfile_arg}"
     if silent:
         cmd += ' > /dev/null'
     else:
@@ -392,4 +394,3 @@ __all__ = [
 if __name__ == '__main__':
     print('This is a module, not meant to be called directly.')
     sys.exit(1)
-

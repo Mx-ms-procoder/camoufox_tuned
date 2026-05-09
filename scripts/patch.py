@@ -34,6 +34,9 @@ from _mixin import (
 )
 
 options, args = get_options()
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.dirname(SCRIPT_DIR)
+PATCH_ROOT = os.path.join(REPO_ROOT, 'patches')
 
 """
 Main patcher functions
@@ -52,7 +55,7 @@ class Patcher:
         Apply all patches
         """
         version, release = extract_args()
-        patch_root = './patches' if options.validate_only else '../patches'
+        patch_root = PATCH_ROOT
 
         # Check-conflicts mode: detect and report conflicts, then exit
         if getattr(options, 'check_conflicts', False):
@@ -82,7 +85,7 @@ class Patcher:
             print(f"\n--- Applying bundle: {', '.join(features)} ---")
             print(f"    Patches: {len(patch_files)}")
 
-        with temp_cd(find_src_dir('.', version, release)):
+        with temp_cd(find_src_dir(REPO_ROOT, version, release)):
             # Create the base mozconfig file
             run('cp -v ../assets/base.mozconfig mozconfig')
             # Set cross building target
@@ -207,7 +210,8 @@ if __name__ == "__main__":
     _update_rustup(TARGET)
 
     # Check if the folder exists
-    if not os.path.exists(f'camoufox-{VERSION}-{RELEASE}/configure.py'):
+    source_configure = os.path.join(REPO_ROOT, f'camoufox-{VERSION}-{RELEASE}', 'configure.py')
+    if not os.path.exists(source_configure):
         sys.stderr.write('error: folder doesn\'t look like a Firefox folder.')
         sys.exit(1)
 
