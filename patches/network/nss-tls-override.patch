@@ -1,5 +1,4 @@
 diff --git a/security/manager/ssl/nsNSSComponent.cpp b/security/manager/ssl/nsNSSComponent.cpp
-index 0000000000..1111111111 100644
 --- a/security/manager/ssl/nsNSSComponent.cpp
 +++ b/security/manager/ssl/nsNSSComponent.cpp
 @@ -1,6 +1,8 @@
@@ -15,19 +14,18 @@ index 0000000000..1111111111 100644
    SSL_OptionSetDefault(SSL_ENABLE_0RTT_DATA, true);
    SSL_OptionSetDefault(SSL_ENABLE_POST_HANDSHAKE_AUTH, true);
 
-+  // ── Camoufox TLS Override ────────────────────────────────────────
++  // Camoufox TLS Override
 +  // Apply CAMOU_TLS_* environment variable overrides AFTER NSS is fully
 +  // initialized but BEFORE any connections are attempted. This ensures
 +  // the TLS Client Hello matches the identity selected by the
 +  // IdentityCoherenceEngine.
 +  CamouTLSOverride::ApplyAll();
-+  // ────────────────────────────────────────────────────────────────
++  // End Camoufox TLS Override
 +
    rv = CommonInit();
 
    MOZ_LOG(gPIPNSSLog, LogLevel::Debug, ("NSS Initialization done\n"));
 diff --git a/security/manager/ssl/moz.build b/security/manager/ssl/moz.build
-index 0000000000..1111111111 100644
 --- a/security/manager/ssl/moz.build
 +++ b/security/manager/ssl/moz.build
 @@ -230,3 +230,6 @@ if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":

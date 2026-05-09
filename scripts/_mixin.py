@@ -101,6 +101,7 @@ class PatchManifestError(ValueError):
 
 
 HUNK_HEADER_RE = re.compile(r'^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@')
+ZERO_OLD_INDEX_RE = re.compile(r'^index 0+\.\.[0-9a-fA-F]+')
 
 
 def _expected_hunk_count(value):
@@ -167,6 +168,23 @@ def _validate_unified_diff_hunks(patch_path, contents):
                 f'Malformed patch hunk in {patch_path}:{hunk_line}; '
                 f'header expects -{old_expected} +{new_expected} lines, '
                 f'but hunk has -{old_count} +{new_count}'
+            )
+
+
+def _validate_git_diff_headers(patch_path, contents):
+    """Reject git diff metadata that makes GNU patch treat edits as file creation."""
+    lines = contents.splitlines()
+    for index, line in enumerate(lines):
+        if not ZERO_OLD_INDEX_RE.match(line):
+            continue
+        old_header = next(
+            (candidate for candidate in lines[index + 1:] if candidate.startswith('--- ')),
+            '',
+        )
+        if old_header and old_header != '--- /dev/null':
+            raise PatchManifestError(
+                f'Patch uses an all-zero old git index for an existing file: '
+                f'{patch_path}:{index + 1}'
             )
 
 
@@ -250,6 +268,7 @@ def validate_patch_file(patch_path):
         raise PatchManifestError(
             f'Patch contains placeholder hunk markers and cannot be applied safely: {patch_path}'
         )
+    _validate_git_diff_headers(patch_path, contents)
     _validate_unified_diff_hunks(patch_path, contents)
 
 
