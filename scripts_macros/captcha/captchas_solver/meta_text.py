@@ -19,7 +19,6 @@ try:
     from .base_solver import get_nvidia_vision_response, NVIDIA_API_KEY_Qwen
 except (ImportError, ValueError):
     import sys
-    import os
     # Add current directory to path to support direct execution
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from base_solver import get_nvidia_vision_response, NVIDIA_API_KEY_Qwen  # type: ignore
@@ -138,11 +137,26 @@ class MetaTextSolver:
         return None
 
     def _extract_code(self, raw_response: str) -> str:
-        """Spezialisierte Extraktion für Meta-Codes."""
-        match = re.search(r'[`"\']?([A-Za-z0-9]{4,10})[`"\']?', raw_response)
-        if match: return match.group(1).strip()
+        """Spezialisierte Extraktion für Meta-Codes.
+        
+        Sucht zuerst nach dem vom Prompt geforderten Format 'Line: XXXXXX',
+        dann Fallback auf reine Ziffernfolge (6 Zeichen), dann allgemeiner.
+        """
+        # Primär: Prompt-Format "Line: 123456"
+        match = re.search(r'Line:\s*([A-Za-z0-9]{4,10})', raw_response, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        # Sekundär: Isolierte 6-stellige Ziffernfolge (häufigstes Format)
+        match = re.search(r'\b(\d{6})\b', raw_response)
+        if match:
+            return match.group(1)
+        # Tertiär: Jede 4-10 stellige Ziffernfolge
+        match = re.search(r'\b(\d{4,10})\b', raw_response)
+        if match:
+            return match.group(1)
+        # Letzter Fallback: Alles nicht-alphanumerische entfernen
         cleaned = re.sub(r'[^A-Za-z0-9]', '', raw_response)
-        return cleaned[:10]
+        return cleaned[:10] if cleaned else ''
 
     async def _human_type(self, selector: str, text: str):
         """Simuliert menschliches Tippen."""

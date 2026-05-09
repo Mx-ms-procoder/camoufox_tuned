@@ -19,7 +19,6 @@ try:
     from .base_solver import AsyncCaptchaSolver, get_nvidia_vision_response
 except (ImportError, ValueError):
     import sys
-    import os
     # Add current directory to path to support direct execution
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     from base_solver import AsyncCaptchaSolver, get_nvidia_vision_response  # type: ignore
@@ -105,28 +104,31 @@ class Object3DSolver(AsyncCaptchaSolver):
             return False
 
         if not coords:
-            print("  ⚠️   [Object3DSolver] Konnte keine gültigen x1,y1 und x2,y2 Koordinaten extrahieren.")
+            print("  ⚠️   [Object3DSolver] Konnte keine gültigen x,y Koordinaten extrahieren.")
             return False
 
-        x1, y1, x2, y2 = coords
-        
         # Boundary Safety Check
-        if not (box_x <= x1 <= box_x_end and box_y <= y1 <= box_y_end) or \
-           not (box_x <= x2 <= box_x_end and box_y <= y2 <= box_y_end):
-            print(f"  ⚠️   [Object3DSolver] Koordinaten ({x1},{y1}) o. ({x2},{y2}) außerhalb der Box!")
+        valid_coords = []
+        for x, y in coords:
+            if box_x <= x <= box_x_end and box_y <= y <= box_y_end:
+                valid_coords.append((x, y))
+            else:
+                print(f"  ⚠️   [Object3DSolver] Koordinate ({x},{y}) außerhalb der Box! Wird ignoriert.")
+        
+        if not valid_coords:
+            print("  ⚠️   [Object3DSolver] Keine validen Koordinaten innerhalb der Box gefunden.")
             return False
 
-        print(f"  🎯  [Object3DSolver] Ziele validiert: ({x1}, {y1}) und ({x2}, {y2})")
+        print(f"  🎯  [Object3DSolver] Ziele validiert: {valid_coords}")
 
         # ── Schritt 3/4: Ausführen der Klicks mit BehavioralHelper ────────────
         print(f"  🖱️   [Object3DSolver] Führe Klicks aus…")
         
-        # Klick 1
-        await self._humanized_move_and_click(x1, y1)
-        await asyncio.sleep(random.uniform(0.4, 0.9)) # Kurze Menschliche Pause zw. Klicks
+        for i, (tx, ty) in enumerate(valid_coords):
+            await self._humanized_move_and_click(tx, ty)
+            if i < len(valid_coords) - 1:
+                await asyncio.sleep(random.uniform(0.4, 0.9)) # Kurze Menschliche Pause zw. Klicks
         
-        # Klick 2
-        await self._humanized_move_and_click(x2, y2)
         await asyncio.sleep(1.0)
         
         # Submit Button (falls nötig, ansonsten geht es automatisch)
@@ -145,13 +147,14 @@ class Object3DSolver(AsyncCaptchaSolver):
             print(f"  ❌  [Object3DSolver] Versuch fehlgeschlagen. Übergebe an Agenten...")
             return False
 
-    def _extract_coordinates(self, text: str) -> Optional[tuple[int, int, int, int]]:
-        """Extrahiert x1, y1, x2, y2 aus dem Output Format."""
-        # Sucht flexibel nach Zahlen, egal ob da x1: ... steht oder nicht
-        match = re.search(r'x1:\s*(\d+),\s*y1:\s*(\d+)\s*;\s*x2:\s*(\d+),\s*y2:\s*(\d+)', text, re.IGNORECASE)
-        if match:
-            return (int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4)))
-        return None
+    def _extract_coordinates(self, text: str) -> list[tuple[int, int]]:
+        """Extrahiert alle gefundenen x,y Paare aus dem Output Format."""
+        # Sucht flexibel nach allen x,y Paaren
+        matches = re.findall(r'x\d*:\s*(\d+),\s*y\d*:\s*(\d+)', text, re.IGNORECASE)
+        coords = []
+        for match in matches:
+            coords.append((int(match[0]), int(match[1])))
+        return coords
 
     async def _humanized_move_and_click(self, target_x: int, target_y: int):
         """Maus-Flow zu einem Punkt via Playwright (Camoufox injected)."""

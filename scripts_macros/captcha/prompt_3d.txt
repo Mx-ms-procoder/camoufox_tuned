@@ -10,10 +10,10 @@ To ensure sub-pixel precision on this full-page screenshot, use the following Bo
 - Bottom-Right Corner: [X: {box_x_end}, Y: {box_y_end}]
 
 ### Analysis Protocol
-1. Locate the first identical symbol. Calculate its center (X1, Y1) relative to the full page, using the provided Bounding Box as a visual anchor.
-2. Locate the second identical symbol. Calculate its center (X2, Y2) relative to the full page.
-3. Verify: Do both coordinates fall strictly within the Bounding Box?
+1. Locate all identical symbols that match the identity rule.
+2. Calculate the center (X, Y) for each symbol relative to the full page.
+3. Verify: Do all coordinates fall strictly within the Bounding Box?
 
 ### Output Format (Strictly Enforced)
-Reasoning: [1 sentence: "Identified two 'e' symbols at positions..."]
-Coordinates: x1: [int], y1: [int] ; x2: [int], y2: [int]
+Reasoning: [1 sentence: "Identified N 'e' symbols at positions..."]
+Coordinates: x1: [int], y1: [int] ; x2: [int], y2: [int] ; x3: ...

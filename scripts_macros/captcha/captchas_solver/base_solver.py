@@ -168,17 +168,17 @@ async def get_nvidia_vision_response(
                 chunk = json.loads(decoded)
                 delta = chunk.get("choices", [{}])[0].get("delta", {})
                 
-                # Check for standard content or reasoning_content
+                # Only accumulate actual content, NOT reasoning_content
+                # reasoning_content contains internal thinking tokens that
+                # would corrupt coordinate/code extraction
                 content = delta.get("content", "")
-                reasoning = delta.get("reasoning_content", "")
-                
-                if content: full_text += content
-                if reasoning: full_text += reasoning
+                if content:
+                    full_text += content
             except: continue
         return full_text
 
     # Ausführung im Executor, da 'requests' blockierend ist
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     full_text = await loop.run_in_executor(None, _sync_fetch)
 
     # Strip any <think> tags if they exist to get the cleaner output

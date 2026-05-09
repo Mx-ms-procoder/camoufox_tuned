@@ -44,6 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     # CA certificates for TLS
     ca-certificates \
+    # HTTP client for health checks
+    curl \
     # Process management
     tini \
     && apt-get clean \

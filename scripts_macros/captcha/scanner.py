@@ -170,9 +170,10 @@ function collectDocs(win, depth) {
 
 // ── Einmalige Datensammlung ──────────────────────────────────────
 
-let allDocs = [];
-let iframeSrcs = [];
-let scriptSrcs = [];
+var allDocs = [];
+var iframeSrcs = [];
+var scriptSrcs = [];
+var allText = "";
 let currentPath = "";
 let currentHostname = "";
 
@@ -180,6 +181,7 @@ function updateGlobals() {
     allDocs = collectDocs(window, 0);
     iframeSrcs = [];
     scriptSrcs = [];
+    allText = document.body ? document.body.textContent.toLowerCase() : "";
     for (const doc of allDocs) {
         try {
             for (const fr of doc.querySelectorAll("iframe[src]")) {
@@ -1306,6 +1308,8 @@ async def scan_page(page) -> list[dict]:
         return []
 
 
+MAX_SOLVER_RETRIES = 3
+
 async def auto_solve_captcha(cap: dict, page) -> bool:
     """
     Routet das Cap-Dict an den entsprechenden automatischen Solver.
@@ -1314,6 +1318,7 @@ async def auto_solve_captcha(cap: dict, page) -> bool:
     fällt auf lokale Importe zurück.
     """
     import importlib
+    import asyncio
 
     name = cap.get("name", "")
     desc = cap.get("description", "").lower()
@@ -1327,39 +1332,46 @@ async def auto_solve_captcha(cap: dict, page) -> bool:
         else:
             return importlib.import_module(f"captchas_solver.{module_name}")
 
-    try:
-        # 1. TikTok 3D Objects
-        if "3d objects" in name.lower() or "identische objekte" in desc:
-            solver_mod = _import_solver("object_3d")
-            return await solver_mod.solve(page)
+    for _attempt in range(MAX_SOLVER_RETRIES):
+        try:
+            # 1. TikTok 3D Objects
+            if "3d objects" in name.lower() or "identische objekte" in desc:
+                solver_mod = _import_solver("object_3d")
+                return await solver_mod.solve(page)
 
-        # 2. TikTok Rotate
-        elif "rotate" in name.lower():
-            solver_mod = _import_solver("rotate")
-            return await solver_mod.solve(page)
+            # 2. TikTok Rotate
+            elif "rotate" in name.lower():
+                solver_mod = _import_solver("rotate")
+                return await solver_mod.solve(page)
 
-        # 3. TikTok Puzzle Slide oder GeeTest Slider
-        elif "puzzle slide" in name.lower() or "slide" in name.lower() or "geetest" in name.lower():
-            solver_mod = _import_solver("slide")
-            return await solver_mod.solve(page)
+            # 3. TikTok Puzzle Slide oder GeeTest Slider
+            elif "puzzle slide" in name.lower() or "slide" in name.lower() or "geetest" in name.lower():
+                solver_mod = _import_solver("slide")
+                return await solver_mod.solve(page)
 
-        # 4. reCAPTCHA v2
-        elif "recaptcha v2" in name.lower():
-            solver_mod = _import_solver("recapctha_v2")
-            return await solver_mod.solve(page)
+            # 4. reCAPTCHA v2
+            elif "recaptcha v2" in name.lower():
+                solver_mod = _import_solver("recapctha_v2")
+                return await solver_mod.solve(page)
 
-        # 5. Text-Captcha (Meta)
-        elif "text-captcha" in name.lower() and ("meta" in name.lower() or "instagram" in name.lower() or "facebook" in name.lower()):
-            solver_mod = _import_solver("meta_text")
-            return await solver_mod.solve(page)
+            # 5. Text-Captcha (Meta)
+            elif "text-captcha" in name.lower() and ("meta" in name.lower() or "instagram" in name.lower() or "facebook" in name.lower()):
+                solver_mod = _import_solver("meta_text")
+                return await solver_mod.solve(page)
 
-        else:
-            print(f"  ⏭️  [AutoSolver] Kein passender Auto-Solver für '{name}' gefunden.")
-            return False
+            else:
+                print(f"  ⏭️  [AutoSolver] Kein passender Auto-Solver für '{name}' gefunden.")
+                return False
 
-    except Exception as e:
-        print(f"  ❌  [AutoSolver] Fehler beim Import/Ausführen des Solvers: {e}")
-        return False
+        except Exception as e:
+            print(f"  ❌  [AutoSolver] Fehler beim Import/Ausführen des Solvers (Versuch {_attempt+1}/{MAX_SOLVER_RETRIES}): {e}")
+            if _attempt < MAX_SOLVER_RETRIES - 1:
+                print(f"  ⏳  [AutoSolver] Warte vor nächstem Versuch...")
+                await asyncio.sleep(2)
+            else:
+                return False
+
+    return False
 
 
 async def live_scan(

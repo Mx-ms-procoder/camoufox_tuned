@@ -110,21 +110,23 @@ class GoldenFlow:
         return browser, context
 
     async def new_page(self, context: BrowserContext) -> Page:
-        """
-        Öffnet eine neue Page.
-        """
         page = await context.new_page()
+        await self.maximize_window(page)
         return page
 
     async def maximize_window(self, page: Page) -> None:
-        """Maximiert das Browserfenster (funktioniert für Firefox/Camoufox out of the box oft über window bounds, oder wird ignoriert)."""
-        pass
-
-
-
-# ══════════════════════════════════════════════════════════════════
-#  STANDALONE TEST  (python golden_flow.py)
-# ══════════════════════════════════════════════════════════════════
+        """Maximizes the window via CDP."""
+        try:
+            client = await page.context.new_cdp_session(page)
+            window_info = await client.send("Browser.getWindowForTarget")
+            window_id = window_info["windowId"]
+            await client.send("Browser.setWindowBounds", {
+                "windowId": window_id,
+                "bounds": {"windowState": "maximized"}
+            })
+            await client.detach()
+        except Exception as e:
+            print(f"  ⚠️   [GoldenFlow] Konnte Fenster nicht maximieren: {e}")
 
 async def _run_test() -> None:
     test_url = "https://bot.sannysoft.com/"

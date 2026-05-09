@@ -19,7 +19,6 @@ try:
     from .base_solver import AsyncCaptchaSolver
 except (ImportError, ValueError):
     import sys
-    import os
     # Add current and parent directory to path to support direct execution
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

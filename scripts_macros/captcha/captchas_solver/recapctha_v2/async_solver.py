@@ -51,7 +51,7 @@ class AsyncAudioFile(speech_recognition.AudioFile):
         executor: Optional[ThreadPoolExecutor] = None,
     ) -> None:
         super().__init__(file)
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         self._executor = executor
 
     async def __aenter__(self) -> AsyncAudioFile:
@@ -144,7 +144,7 @@ class AsyncSolver(BaseSolver[Page]):
             The reCAPTCHA audio text.
             Returns None if the audio could not be converted.
         """
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await self._page.request.get(audio_url)
 
         wav_audio = BytesIO()
