@@ -1,0 +1,441 @@
+From 1632d961a0d9a3a34ef4eae569592c89d9f0510b Mon Sep 17 00:00:00 2001
+From: Mx-ms-procoder <maximilian.maskus@icloud.com>
+Date: Sat, 9 May 2026 16:39:35 +0200
+Subject: [PATCH] Audit & Fix CAPTCHA system: Fix scanner JS ReferenceError,
+ broken retry loop, missing api_config, and incomplete golden_flow
+
+---
+ Dockerfile.slim                               |  2 +
+ bundle/utls_proxy.go                          |  1 +
+ .../captcha/captchas_solver/api_config.py     |  8 ++
+ .../captcha/captchas_solver/base_solver.py    | 12 +--
+ .../captcha/captchas_solver/meta_text.py      | 24 ++++--
+ .../captcha/captchas_solver/object_3d.py      | 43 +++++-----
+ .../recapctha_v2/async_solver.py              |  4 +-
+ .../captcha/captchas_solver/rotate.py         |  1 -
+ .../captcha/captchas_solver/slide.py          |  1 -
+ scripts_macros/captcha/golden_flow.py         | 24 +++---
+ scripts_macros/captcha/prompt_3d.txt          | 10 +--
+ scripts_macros/captcha/scanner.py             | 80 +++++++++++--------
+ 12 files changed, 125 insertions(+), 85 deletions(-)
+ create mode 100644 scripts_macros/captcha/captchas_solver/api_config.py
+
+diff --git a/Dockerfile.slim b/Dockerfile.slim
+index 96b5dcd..a7003a5 100644
+--- a/Dockerfile.slim
++++ b/Dockerfile.slim
+@@ -44,6 +44,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
+     xvfb \
+     # CA certificates for TLS
+     ca-certificates \
++    # HTTP client for health checks
++    curl \
+     # Process management
+     tini \
+     && apt-get clean \
+diff --git a/bundle/utls_proxy.go b/bundle/utls_proxy.go
+index 8809905..ee7342e 100644
+--- a/bundle/utls_proxy.go
++++ b/bundle/utls_proxy.go
+@@ -19,6 +19,7 @@ Environment variables:
+ package main
+ 
+ import (
++	"context"
+ 	"crypto"
+ 	"crypto/ecdsa"
+ 	"crypto/elliptic"
+diff --git a/scripts_macros/captcha/captchas_solver/api_config.py b/scripts_macros/captcha/captchas_solver/api_config.py
+new file mode 100644
+index 0000000..58b0d03
+--- /dev/null
++++ b/scripts_macros/captcha/captchas_solver/api_config.py
+@@ -0,0 +1,8 @@
++import os
++
++# CapSolver API Key for ReCaptcha solving
++CAPSOLVER_API_KEY = os.environ.get("CAPSOLVER_API_KEY", "")
++
++# Nvidia API Keys for Vision Models
++NVIDIA_API_KEY_Qwen = os.environ.get("NVIDIA_API_KEY_Qwen", os.environ.get("NVIDIA_API_KEY", ""))
++NVIDIA_API_KEY_Gemma = os.environ.get("NVIDIA_API_KEY_Gemma", os.environ.get("NVIDIA_API_KEY", ""))
+diff --git a/scripts_macros/captcha/captchas_solver/base_solver.py b/scripts_macros/captcha/captchas_solver/base_solver.py
+index 70f3654..789e385 100644
+--- a/scripts_macros/captcha/captchas_solver/base_solver.py
++++ b/scripts_macros/captcha/captchas_solver/base_solver.py
+@@ -168,17 +168,17 @@ async def get_nvidia_vision_response(
+                 chunk = json.loads(decoded)
+                 delta = chunk.get("choices", [{}])[0].get("delta", {})
+                 
+-                # Check for standard content or reasoning_content
++                # Only accumulate actual content, NOT reasoning_content
++                # reasoning_content contains internal thinking tokens that
++                # would corrupt coordinate/code extraction
+                 content = delta.get("content", "")
+-                reasoning = delta.get("reasoning_content", "")
+-                
+-                if content: full_text += content
+-                if reasoning: full_text += reasoning
++                if content:
++                    full_text += content
+             except: continue
+         return full_text
+ 
+     # Ausführung im Executor, da 'requests' blockierend ist
+-    loop = asyncio.get_event_loop()
++    loop = asyncio.get_running_loop()
+     full_text = await loop.run_in_executor(None, _sync_fetch)
+ 
+     # Strip any <think> tags if they exist to get the cleaner output
+diff --git a/scripts_macros/captcha/captchas_solver/meta_text.py b/scripts_macros/captcha/captchas_solver/meta_text.py
+index 281ea32..7cef338 100644
+--- a/scripts_macros/captcha/captchas_solver/meta_text.py
++++ b/scripts_macros/captcha/captchas_solver/meta_text.py
+@@ -19,7 +19,6 @@ try:
+     from .base_solver import get_nvidia_vision_response, NVIDIA_API_KEY_Qwen
+ except (ImportError, ValueError):
+     import sys
+-    import os
+     # Add current directory to path to support direct execution
+     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+     from base_solver import get_nvidia_vision_response, NVIDIA_API_KEY_Qwen  # type: ignore
+@@ -138,11 +137,26 @@ class MetaTextSolver:
+         return None
+ 
+     def _extract_code(self, raw_response: str) -> str:
+-        """Spezialisierte Extraktion für Meta-Codes."""
+-        match = re.search(r'[`"\']?([A-Za-z0-9]{4,10})[`"\']?', raw_response)
+-        if match: return match.group(1).strip()
++        """Spezialisierte Extraktion für Meta-Codes.
++        
++        Sucht zuerst nach dem vom Prompt geforderten Format 'Line: XXXXXX',
++        dann Fallback auf reine Ziffernfolge (6 Zeichen), dann allgemeiner.
++        """
++        # Primär: Prompt-Format "Line: 123456"
++        match = re.search(r'Line:\s*([A-Za-z0-9]{4,10})', raw_response, re.IGNORECASE)
++        if match:
++            return match.group(1).strip()
++        # Sekundär: Isolierte 6-stellige Ziffernfolge (häufigstes Format)
++        match = re.search(r'\b(\d{6})\b', raw_response)
++        if match:
++            return match.group(1)
++        # Tertiär: Jede 4-10 stellige Ziffernfolge
++        match = re.search(r'\b(\d{4,10})\b', raw_response)
++        if match:
++            return match.group(1)
++        # Letzter Fallback: Alles nicht-alphanumerische entfernen
+         cleaned = re.sub(r'[^A-Za-z0-9]', '', raw_response)
+-        return cleaned[:10]
++        return cleaned[:10] if cleaned else ''
+ 
+     async def _human_type(self, selector: str, text: str):
+         """Simuliert menschliches Tippen."""
+diff --git a/scripts_macros/captcha/captchas_solver/object_3d.py b/scripts_macros/captcha/captchas_solver/object_3d.py
+index 6bb7ceb..73dc014 100644
+--- a/scripts_macros/captcha/captchas_solver/object_3d.py
++++ b/scripts_macros/captcha/captchas_solver/object_3d.py
+@@ -19,7 +19,6 @@ try:
+     from .base_solver import AsyncCaptchaSolver, get_nvidia_vision_response
+ except (ImportError, ValueError):
+     import sys
+-    import os
+     # Add current directory to path to support direct execution
+     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+     from base_solver import AsyncCaptchaSolver, get_nvidia_vision_response  # type: ignore
+@@ -105,28 +104,31 @@ class Object3DSolver(AsyncCaptchaSolver):
+             return False
+ 
+         if not coords:
+-            print("  ⚠️   [Object3DSolver] Konnte keine gültigen x1,y1 und x2,y2 Koordinaten extrahieren.")
++            print("  ⚠️   [Object3DSolver] Konnte keine gültigen x,y Koordinaten extrahieren.")
+             return False
+ 
+-        x1, y1, x2, y2 = coords
+-        
+         # Boundary Safety Check
+-        if not (box_x <= x1 <= box_x_end and box_y <= y1 <= box_y_end) or \
+-           not (box_x <= x2 <= box_x_end and box_y <= y2 <= box_y_end):
+-            print(f"  ⚠️   [Object3DSolver] Koordinaten ({x1},{y1}) o. ({x2},{y2}) außerhalb der Box!")
++        valid_coords = []
++        for x, y in coords:
++            if box_x <= x <= box_x_end and box_y <= y <= box_y_end:
++                valid_coords.append((x, y))
++            else:
++                print(f"  ⚠️   [Object3DSolver] Koordinate ({x},{y}) außerhalb der Box! Wird ignoriert.")
++        
++        if not valid_coords:
++            print("  ⚠️   [Object3DSolver] Keine validen Koordinaten innerhalb der Box gefunden.")
+             return False
+ 
+-        print(f"  🎯  [Object3DSolver] Ziele validiert: ({x1}, {y1}) und ({x2}, {y2})")
++        print(f"  🎯  [Object3DSolver] Ziele validiert: {valid_coords}")
+ 
+         # ── Schritt 3/4: Ausführen der Klicks mit BehavioralHelper ────────────
+         print(f"  🖱️   [Object3DSolver] Führe Klicks aus…")
+         
+-        # Klick 1
+-        await self._humanized_move_and_click(x1, y1)
+-        await asyncio.sleep(random.uniform(0.4, 0.9)) # Kurze Menschliche Pause zw. Klicks
++        for i, (tx, ty) in enumerate(valid_coords):
++            await self._humanized_move_and_click(tx, ty)
++            if i < len(valid_coords) - 1:
++                await asyncio.sleep(random.uniform(0.4, 0.9)) # Kurze Menschliche Pause zw. Klicks
+         
+-        # Klick 2
+-        await self._humanized_move_and_click(x2, y2)
+         await asyncio.sleep(1.0)
+         
+         # Submit Button (falls nötig, ansonsten geht es automatisch)
+@@ -145,13 +147,14 @@ class Object3DSolver(AsyncCaptchaSolver):
+             print(f"  ❌  [Object3DSolver] Versuch fehlgeschlagen. Übergebe an Agenten...")
+             return False
+ 
+-    def _extract_coordinates(self, text: str) -> Optional[tuple[int, int, int, int]]:
+-        """Extrahiert x1, y1, x2, y2 aus dem Output Format."""
+-        # Sucht flexibel nach Zahlen, egal ob da x1: ... steht oder nicht
+-        match = re.search(r'x1:\s*(\d+),\s*y1:\s*(\d+)\s*;\s*x2:\s*(\d+),\s*y2:\s*(\d+)', text, re.IGNORECASE)
+-        if match:
+-            return (int(match.group(1)), int(match.group(2)), int(match.group(3)), int(match.group(4)))
+-        return None
++    def _extract_coordinates(self, text: str) -> list[tuple[int, int]]:
++        """Extrahiert alle gefundenen x,y Paare aus dem Output Format."""
++        # Sucht flexibel nach allen x,y Paaren
++        matches = re.findall(r'x\d*:\s*(\d+),\s*y\d*:\s*(\d+)', text, re.IGNORECASE)
++        coords = []
++        for match in matches:
++            coords.append((int(match[0]), int(match[1])))
++        return coords
+ 
+     async def _humanized_move_and_click(self, target_x: int, target_y: int):
+         """Maus-Flow zu einem Punkt via Playwright (Camoufox injected)."""
+diff --git a/scripts_macros/captcha/captchas_solver/recapctha_v2/async_solver.py b/scripts_macros/captcha/captchas_solver/recapctha_v2/async_solver.py
+index 646e5ad..0290501 100644
+--- a/scripts_macros/captcha/captchas_solver/recapctha_v2/async_solver.py
++++ b/scripts_macros/captcha/captchas_solver/recapctha_v2/async_solver.py
+@@ -51,7 +51,7 @@ class AsyncAudioFile(speech_recognition.AudioFile):
+         executor: Optional[ThreadPoolExecutor] = None,
+     ) -> None:
+         super().__init__(file)
+-        self._loop = asyncio.get_event_loop()
++        self._loop = asyncio.get_running_loop()
+         self._executor = executor
+ 
+     async def __aenter__(self) -> AsyncAudioFile:
+@@ -144,7 +144,7 @@ class AsyncSolver(BaseSolver[Page]):
+             The reCAPTCHA audio text.
+             Returns None if the audio could not be converted.
+         """
+-        loop = asyncio.get_event_loop()
++        loop = asyncio.get_running_loop()
+         response = await self._page.request.get(audio_url)
+ 
+         wav_audio = BytesIO()
+diff --git a/scripts_macros/captcha/captchas_solver/rotate.py b/scripts_macros/captcha/captchas_solver/rotate.py
+index 435cc27..f3570da 100644
+--- a/scripts_macros/captcha/captchas_solver/rotate.py
++++ b/scripts_macros/captcha/captchas_solver/rotate.py
+@@ -19,7 +19,6 @@ try:
+     from .base_solver import AsyncCaptchaSolver
+ except (ImportError, ValueError):
+     import sys
+-    import os
+     # Add current and parent directory to path to support direct execution
+     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+diff --git a/scripts_macros/captcha/captchas_solver/slide.py b/scripts_macros/captcha/captchas_solver/slide.py
+index 25195e7..765ed4d 100644
+--- a/scripts_macros/captcha/captchas_solver/slide.py
++++ b/scripts_macros/captcha/captchas_solver/slide.py
+@@ -18,7 +18,6 @@ try:
+     from .base_solver import AsyncCaptchaSolver
+ except (ImportError, ValueError):
+     import sys
+-    import os
+     # Add current and parent directory to path to support direct execution
+     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+diff --git a/scripts_macros/captcha/golden_flow.py b/scripts_macros/captcha/golden_flow.py
+index be6febf..eb67783 100644
+--- a/scripts_macros/captcha/golden_flow.py
++++ b/scripts_macros/captcha/golden_flow.py
+@@ -110,21 +110,23 @@ class GoldenFlow:
+         return browser, context
+ 
+     async def new_page(self, context: BrowserContext) -> Page:
+-        """
+-        Öffnet eine neue Page.
+-        """
+         page = await context.new_page()
++        await self.maximize_window(page)
+         return page
+ 
+     async def maximize_window(self, page: Page) -> None:
+-        """Maximiert das Browserfenster (funktioniert für Firefox/Camoufox out of the box oft über window bounds, oder wird ignoriert)."""
+-        pass
+-
+-
+-
+-# ══════════════════════════════════════════════════════════════════
+-#  STANDALONE TEST  (python golden_flow.py)
+-# ══════════════════════════════════════════════════════════════════
++        """Maximizes the window via CDP."""
++        try:
++            client = await page.context.new_cdp_session(page)
++            window_info = await client.send("Browser.getWindowForTarget")
++            window_id = window_info["windowId"]
++            await client.send("Browser.setWindowBounds", {
++                "windowId": window_id,
++                "bounds": {"windowState": "maximized"}
++            })
++            await client.detach()
++        except Exception as e:
++            print(f"  ⚠️   [GoldenFlow] Konnte Fenster nicht maximieren: {e}")
+ 
+ async def _run_test() -> None:
+     test_url = "https://bot.sannysoft.com/"
+diff --git a/scripts_macros/captcha/prompt_3d.txt b/scripts_macros/captcha/prompt_3d.txt
+index 78fd381..6b2e6a6 100644
+--- a/scripts_macros/captcha/prompt_3d.txt
++++ b/scripts_macros/captcha/prompt_3d.txt
+@@ -10,10 +10,10 @@ To ensure sub-pixel precision on this full-page screenshot, use the following Bo
+ - Bottom-Right Corner: [X: {box_x_end}, Y: {box_y_end}]
+ 
+ ### Analysis Protocol
+-1. Locate the first identical symbol. Calculate its center (X1, Y1) relative to the full page, using the provided Bounding Box as a visual anchor.
+-2. Locate the second identical symbol. Calculate its center (X2, Y2) relative to the full page.
+-3. Verify: Do both coordinates fall strictly within the Bounding Box?
++1. Locate all identical symbols that match the identity rule.
++2. Calculate the center (X, Y) for each symbol relative to the full page.
++3. Verify: Do all coordinates fall strictly within the Bounding Box?
+ 
+ ### Output Format (Strictly Enforced)
+-Reasoning: [1 sentence: "Identified two 'e' symbols at positions..."]
+-Coordinates: x1: [int], y1: [int] ; x2: [int], y2: [int]
+\ No newline at end of file
++Reasoning: [1 sentence: "Identified N 'e' symbols at positions..."]
++Coordinates: x1: [int], y1: [int] ; x2: [int], y2: [int] ; x3: ...
+\ No newline at end of file
+diff --git a/scripts_macros/captcha/scanner.py b/scripts_macros/captcha/scanner.py
+index 1e7194c..a53dfeb 100644
+--- a/scripts_macros/captcha/scanner.py
++++ b/scripts_macros/captcha/scanner.py
+@@ -170,9 +170,10 @@ function collectDocs(win, depth) {
+ 
+ // ── Einmalige Datensammlung ──────────────────────────────────────
+ 
+-let allDocs = [];
+-let iframeSrcs = [];
+-let scriptSrcs = [];
++var allDocs = [];
++var iframeSrcs = [];
++var scriptSrcs = [];
++var allText = "";
+ let currentPath = "";
+ let currentHostname = "";
+ 
+@@ -180,6 +181,7 @@ function updateGlobals() {
+     allDocs = collectDocs(window, 0);
+     iframeSrcs = [];
+     scriptSrcs = [];
++    allText = document.body ? document.body.textContent.toLowerCase() : "";
+     for (const doc of allDocs) {
+         try {
+             for (const fr of doc.querySelectorAll("iframe[src]")) {
+@@ -1306,6 +1308,8 @@ async def scan_page(page) -> list[dict]:
+         return []
+ 
+ 
++MAX_SOLVER_RETRIES = 3
++
+ async def auto_solve_captcha(cap: dict, page) -> bool:
+     """
+     Routet das Cap-Dict an den entsprechenden automatischen Solver.
+@@ -1314,6 +1318,7 @@ async def auto_solve_captcha(cap: dict, page) -> bool:
+     fällt auf lokale Importe zurück.
+     """
+     import importlib
++    import asyncio
+ 
+     name = cap.get("name", "")
+     desc = cap.get("description", "").lower()
+@@ -1327,39 +1332,46 @@ async def auto_solve_captcha(cap: dict, page) -> bool:
+         else:
+             return importlib.import_module(f"captchas_solver.{module_name}")
+ 
+-    try:
+-        # 1. TikTok 3D Objects
+-        if "3d objects" in name.lower() or "identische objekte" in desc:
+-            solver_mod = _import_solver("object_3d")
+-            return await solver_mod.solve(page)
+-
+-        # 2. TikTok Rotate
+-        elif "rotate" in name.lower():
+-            solver_mod = _import_solver("rotate")
+-            return await solver_mod.solve(page)
+-
+-        # 3. TikTok Puzzle Slide oder GeeTest Slider
+-        elif "puzzle slide" in name.lower() or "slide" in name.lower() or "geetest" in name.lower():
+-            solver_mod = _import_solver("slide")
+-            return await solver_mod.solve(page)
+-
+-        # 4. reCAPTCHA v2
+-        elif "recaptcha v2" in name.lower():
+-            solver_mod = _import_solver("recapctha_v2")
+-            return await solver_mod.solve(page)
+-
+-        # 5. Text-Captcha (Meta)
+-        elif "text-captcha" in name.lower() and ("meta" in name.lower() or "instagram" in name.lower() or "facebook" in name.lower()):
+-            solver_mod = _import_solver("meta_text")
+-            return await solver_mod.solve(page)
++    for _attempt in range(MAX_SOLVER_RETRIES):
++        try:
++            # 1. TikTok 3D Objects
++            if "3d objects" in name.lower() or "identische objekte" in desc:
++                solver_mod = _import_solver("object_3d")
++                return await solver_mod.solve(page)
++
++            # 2. TikTok Rotate
++            elif "rotate" in name.lower():
++                solver_mod = _import_solver("rotate")
++                return await solver_mod.solve(page)
++
++            # 3. TikTok Puzzle Slide oder GeeTest Slider
++            elif "puzzle slide" in name.lower() or "slide" in name.lower() or "geetest" in name.lower():
++                solver_mod = _import_solver("slide")
++                return await solver_mod.solve(page)
++
++            # 4. reCAPTCHA v2
++            elif "recaptcha v2" in name.lower():
++                solver_mod = _import_solver("recapctha_v2")
++                return await solver_mod.solve(page)
++
++            # 5. Text-Captcha (Meta)
++            elif "text-captcha" in name.lower() and ("meta" in name.lower() or "instagram" in name.lower() or "facebook" in name.lower()):
++                solver_mod = _import_solver("meta_text")
++                return await solver_mod.solve(page)
+ 
+-        else:
+-            print(f"  ⏭️  [AutoSolver] Kein passender Auto-Solver für '{name}' gefunden.")
+-            return False
++            else:
++                print(f"  ⏭️  [AutoSolver] Kein passender Auto-Solver für '{name}' gefunden.")
++                return False
+ 
+-    except Exception as e:
+-        print(f"  ❌  [AutoSolver] Fehler beim Import/Ausführen des Solvers: {e}")
+-        return False
++        except Exception as e:
++            print(f"  ❌  [AutoSolver] Fehler beim Import/Ausführen des Solvers (Versuch {_attempt+1}/{MAX_SOLVER_RETRIES}): {e}")
++            if _attempt < MAX_SOLVER_RETRIES - 1:
++                print(f"  ⏳  [AutoSolver] Warte vor nächstem Versuch...")
++                await asyncio.sleep(2)
++            else:
++                return False
++
++    return False
+ 
+ 
+ async def live_scan(
+-- 
+2.54.0.windows.1
+

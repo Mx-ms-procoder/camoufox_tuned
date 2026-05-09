@@ -28,6 +28,29 @@ index 1cfa4b8497..bdf8d7202e 100644
        // When the fingerprinting resistance is enabled, making sure that we don't
        // have a maximum window to interfere with generating rounded window dimensions.
        document.documentElement.setAttribute("sizemode", "normal");
+@@ -109,6 +119,22 @@ var gBrowserInit = {
+     window.TabBarVisibility.update();
+     TabsInTitlebar.init();
+ 
++    // If a list of languages were passed, use them.
++    let camouLocale = ChromeUtils.camouGetString("locale:all")
++      || ChromeUtils.camouGetString("navigator.language");
++    // If locale:all was NOT passed, but locale:language and locale:region was,
++    // fall back to it instead.
++    if (!camouLocale) {
++      let language = ChromeUtils.camouGetString("locale:language");
++      let region = ChromeUtils.camouGetString("locale:region");
++      if (language && region) {
++        camouLocale = language + "-" + region + ", " + language;
++      }
++    }
++    // Set the locale if it was found.
++    if (camouLocale)
++      Services.prefs.setCharPref("intl.accept_languages", camouLocale);
++
+     new LightweightThemeConsumer(document);
+ 
+     if (
 @@ -310,6 +320,22 @@ var gBrowserInit = {
      // Update UI if browser is under remote control.
      gRemoteControl.updateVisualCue();

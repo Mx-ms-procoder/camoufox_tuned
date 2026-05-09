@@ -11,6 +11,12 @@ index 575205158bb8..e0c76c682a7d 100644
        }
        return queryScorer;
      });
--- 
-2.37.3
-
+@@ -494,7 +494,7 @@ class ProviderInterventions extends UrlbarProvider {
+    * @returns {boolean} Whether this provider should be invoked for the search.
+    */
+   isActive(queryContext) {
+-    if (
++    if (true ||
+       !queryContext.searchString ||
+       queryContext.searchString.length > UrlbarUtils.MAX_TEXT_LENGTH ||
+       lazy.UrlbarTokenizer.REGEXP_LIKE_PROTOCOL.test(
