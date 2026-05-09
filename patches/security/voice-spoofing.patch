@@ -43,7 +43,7 @@ index e5a1353d6b..4a4a5b080b 100644
      }
    }
  
-@@ -305,6 +320,8 @@ nsSynthVoiceRegistry::AddVoice(nsISpeechService* aService,
+@@ -305,6 +320,10 @@ nsSynthVoiceRegistry::AddVoice(nsISpeechService* aService,
      return NS_ERROR_NOT_AVAILABLE;
    }
  

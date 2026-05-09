@@ -100,6 +100,76 @@ class PatchManifestError(ValueError):
     """Raised when the patch manifest graph is inconsistent or unsafe."""
 
 
+HUNK_HEADER_RE = re.compile(r'^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@')
+
+
+def _expected_hunk_count(value):
+    return int(value) if value is not None else 1
+
+
+def _validate_unified_diff_hunks(patch_path, contents):
+    """Check that unified diff hunk headers match the lines in each hunk."""
+    lines = contents.splitlines()
+    index = 0
+    while index < len(lines):
+        header = HUNK_HEADER_RE.match(lines[index])
+        if not header:
+            index += 1
+            continue
+
+        hunk_line = index + 1
+        old_expected = _expected_hunk_count(header.group(1))
+        new_expected = _expected_hunk_count(header.group(2))
+        old_count = 0
+        new_count = 0
+        index += 1
+
+        while index < len(lines):
+            line = lines[index]
+            if old_count == old_expected and new_count == new_expected:
+                if line.startswith('\\'):
+                    index += 1
+                    continue
+                break
+            if line.startswith('@@ ') or line.startswith('diff --git '):
+                break
+            if line.startswith('\\'):
+                index += 1
+                continue
+            if not line:
+                old_count += 1
+                new_count += 1
+            elif line[0] == ' ':
+                old_count += 1
+                new_count += 1
+            elif line[0] == '-':
+                old_count += 1
+            elif line[0] == '+':
+                new_count += 1
+            elif old_count == old_expected and new_count == new_expected:
+                break
+            else:
+                raise PatchManifestError(
+                    f'Malformed patch hunk in {patch_path}:{hunk_line}; '
+                    f'unexpected line at {index + 1}: {line}'
+                )
+
+            if old_count > old_expected or new_count > new_expected:
+                raise PatchManifestError(
+                    f'Malformed patch hunk in {patch_path}:{hunk_line}; '
+                    f'header expects -{old_expected} +{new_expected} lines, '
+                    f'but hunk exceeds that at line {index + 1}'
+                )
+            index += 1
+
+        if old_count != old_expected or new_count != new_expected:
+            raise PatchManifestError(
+                f'Malformed patch hunk in {patch_path}:{hunk_line}; '
+                f'header expects -{old_expected} +{new_expected} lines, '
+                f'but hunk has -{old_count} +{new_count}'
+            )
+
+
 def _strip_wrapping_quotes(value):
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1]
@@ -180,6 +250,7 @@ def validate_patch_file(patch_path):
         raise PatchManifestError(
             f'Patch contains placeholder hunk markers and cannot be applied safely: {patch_path}'
         )
+    _validate_unified_diff_hunks(patch_path, contents)
 
 
 def list_patches(root_dir='../patches', suffix='*.patch', features=None, validate=True):

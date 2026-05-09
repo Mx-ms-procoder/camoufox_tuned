@@ -22,7 +22,7 @@ index 807cb4ec25..3df0e0f70f 100644
  
  #include <inttypes.h>
  #include <initializer_list>
-@@ -984,6 +985,18 @@ nsRect Element::GetClientAreaRect() {
+@@ -984,6 +985,17 @@ nsRect Element::GetClientAreaRect() {
    Document* doc = OwnerDoc();
    nsPresContext* presContext = doc->GetPresContext();
  
@@ -52,7 +52,7 @@ index 8e577bd9fd..3ed748a75f 100644
  #include "nsIXULAppInfo.h"
  #include "nsPluginArray.h"
  #include "nsMimeTypeArray.h"
-@@ -267,6 +268,8 @@ void Navigator::Invalidate() {
+@@ -267,6 +268,12 @@ void Navigator::Invalidate() {
  
  void Navigator::GetUserAgent(nsAString& aUserAgent, CallerType aCallerType,
                               ErrorResult& aRv) const {
@@ -65,7 +65,7 @@ index 8e577bd9fd..3ed748a75f 100644
    nsCOMPtr<nsPIDOMWindowInner> window;
  
    if (mWindow) {
-@@ -293,6 +296,8 @@ void Navigator::GetUserAgent(nsAString& aUserAgent, CallerType aCallerType,
+@@ -293,6 +296,12 @@ void Navigator::GetUserAgent(nsAString& aUserAgent, CallerType aCallerType,
  }
  
  void Navigator::GetAppCodeName(nsAString& aAppCodeName, ErrorResult& aRv) {
@@ -78,7 +78,7 @@ index 8e577bd9fd..3ed748a75f 100644
    nsresult rv;
  
    nsCOMPtr<nsIHttpProtocolHandler> service(
-@@ -314,6 +319,8 @@ void Navigator::GetAppCodeName(nsAString& aAppCodeName, ErrorResult& aRv) {
+@@ -314,6 +319,12 @@ void Navigator::GetAppCodeName(nsAString& aAppCodeName, ErrorResult& aRv) {
  
  void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
                                ErrorResult& aRv) const {
@@ -91,7 +91,7 @@ index 8e577bd9fd..3ed748a75f 100644
    nsCOMPtr<Document> doc = mWindow->GetExtantDoc();
  
    nsresult rv = GetAppVersion(
-@@ -325,6 +332,8 @@ void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
+@@ -325,6 +332,12 @@ void Navigator::GetAppVersion(nsAString& aAppVersion, CallerType aCallerType,
  }
  
  void Navigator::GetAppName(nsAString& aAppName) const {
@@ -104,7 +104,7 @@ index 8e577bd9fd..3ed748a75f 100644
    aAppName.AssignLiteral("Netscape");
  }
  
-@@ -350,6 +359,15 @@ void Navigator::GetAcceptLanguages(const nsString* aLanguageOverride,
+@@ -350,6 +359,14 @@ void Navigator::GetAcceptLanguages(const nsString* aLanguageOverride,
  
    aLanguages.Clear();
  
@@ -119,7 +119,7 @@ index 8e577bd9fd..3ed748a75f 100644
    // E.g. "de-de, en-us,en".
    nsAutoString acceptLang;
    if (aLanguageOverride && aLanguageOverride->Length())
-@@ -400,6 +418,8 @@ void Navigator::GetAcceptLanguages(const nsString* aLanguageOverride,
+@@ -400,6 +418,12 @@ void Navigator::GetAcceptLanguages(const nsString* aLanguageOverride,
   * Full details above in GetAcceptLanguages.
   */
  void Navigator::GetLanguage(nsAString& aLanguage) {
@@ -132,7 +132,7 @@ index 8e577bd9fd..3ed748a75f 100644
    nsTArray<nsString> languages;
    GetLanguages(languages);
    MOZ_ASSERT(languages.Length() >= 1);
-@@ -423,6 +443,8 @@ void Navigator::GetLanguages(nsTArray<nsString>& aLanguages) {
+@@ -423,6 +443,12 @@ void Navigator::GetLanguages(nsTArray<nsString>& aLanguages) {
  
  void Navigator::GetPlatform(nsAString& aPlatform, CallerType aCallerType,
                              ErrorResult& aRv) const {
@@ -145,7 +145,7 @@ index 8e577bd9fd..3ed748a75f 100644
    if (mWindow) {
      BrowsingContext* bc = mWindow->GetBrowsingContext();
      nsString customPlatform;
-@@ -449,6 +471,8 @@ void Navigator::GetPlatform(nsAString& aPlatform, CallerType aCallerType,
+@@ -449,6 +471,12 @@ void Navigator::GetPlatform(nsAString& aPlatform, CallerType aCallerType,
  void Navigator::GetOscpu(nsAString& aOSCPU, CallerType aCallerType,
                           ErrorResult& aRv) const {
    if (aCallerType != CallerType::System) {
@@ -158,7 +158,7 @@ index 8e577bd9fd..3ed748a75f 100644
      // If fingerprinting resistance is on, we will spoof this value. See
      // nsRFPService.h for details about spoofed values.
      if (nsContentUtils::ShouldResistFingerprinting(GetDocShell(),
-@@ -488,10 +512,14 @@ void Navigator::GetVendor(nsAString& aVendor) { aVendor.Truncate(); }
+@@ -488,10 +512,22 @@ void Navigator::GetVendor(nsAString& aVendor) { aVendor.Truncate(); }
  void Navigator::GetVendorSub(nsAString& aVendorSub) { aVendorSub.Truncate(); }
  
  void Navigator::GetProduct(nsAString& aProduct) {
@@ -213,7 +213,7 @@ index 8e577bd9fd..3ed748a75f 100644
    if (mWindow) {
      // Check if this tab is set to be offline.
      BrowsingContext* bc = mWindow->GetBrowsingContext();
-@@ -603,6 +640,8 @@ bool Navigator::OnLine() {
+@@ -603,6 +640,12 @@ bool Navigator::OnLine() {
  void Navigator::GetBuildID(nsAString& aBuildID, CallerType aCallerType,
                             ErrorResult& aRv) const {
    if (aCallerType != CallerType::System) {
@@ -226,7 +226,7 @@ index 8e577bd9fd..3ed748a75f 100644
      // If fingerprinting resistance is on, we will spoof this value. See
      // nsRFPService.h for details about spoofed values.
      if (nsContentUtils::ShouldResistFingerprinting(
-@@ -659,6 +698,8 @@ void Navigator::GetBuildID(nsAString& aBuildID, CallerType aCallerType,
+@@ -659,6 +698,12 @@ void Navigator::GetBuildID(nsAString& aBuildID, CallerType aCallerType,
  }
  
  void Navigator::GetDoNotTrack(nsAString& aResult) {
@@ -239,7 +239,7 @@ index 8e577bd9fd..3ed748a75f 100644
    bool doNotTrack = StaticPrefs::privacy_donottrackheader_enabled();
    if (!doNotTrack) {
      nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(mWindow);
-@@ -673,6 +714,9 @@ void Navigator::GetDoNotTrack(nsAString& aResult) {
+@@ -673,6 +714,10 @@ void Navigator::GetDoNotTrack(nsAString& aResult) {
  }
  
  bool Navigator::GlobalPrivacyControl() {
@@ -250,7 +250,7 @@ index 8e577bd9fd..3ed748a75f 100644
    bool gpcStatus = StaticPrefs::privacy_globalprivacycontrol_enabled();
    if (!gpcStatus) {
      nsCOMPtr<nsILoadContext> loadContext = do_GetInterface(mWindow);
-@@ -684,6 +728,8 @@ bool Navigator::GlobalPrivacyControl() {
+@@ -684,6 +728,10 @@ bool Navigator::GlobalPrivacyControl() {
  }
  
  uint64_t Navigator::HardwareConcurrency() {
@@ -261,7 +261,7 @@ index 8e577bd9fd..3ed748a75f 100644
    workerinternals::RuntimeService* rts =
        workerinternals::RuntimeService::GetOrCreateService();
    if (!rts) {
-@@ -882,6 +928,8 @@ bool Navigator::Vibrate(const nsTArray<uint32_t>& aPattern) {
+@@ -882,6 +928,10 @@ bool Navigator::Vibrate(const nsTArray<uint32_t>& aPattern) {
  //*****************************************************************************
  
  uint32_t Navigator::MaxTouchPoints(CallerType aCallerType) {
@@ -296,7 +296,7 @@ index 3678ebc59c..03a72fe242 100644
  
  #include <inttypes.h>
  #include <stdio.h>
-@@ -3410,6 +3411,8 @@ void nsGlobalWindowInner::SetName(const nsAString& aName,
+@@ -3410,6 +3411,9 @@ void nsGlobalWindowInner::SetName(const nsAString& aName,
  }
  
  double nsGlobalWindowInner::GetInnerWidth(ErrorResult& aError) {
@@ -306,7 +306,7 @@ index 3678ebc59c..03a72fe242 100644
    FORWARD_TO_OUTER_OR_THROW(GetInnerWidthOuter, (aError), aError, 0);
  }
  
-@@ -3421,6 +3424,8 @@ nsresult nsGlobalWindowInner::GetInnerWidth(double* aWidth) {
+@@ -3421,6 +3424,9 @@ nsresult nsGlobalWindowInner::GetInnerWidth(double* aWidth) {
  }
  
  double nsGlobalWindowInner::GetInnerHeight(ErrorResult& aError) {
@@ -316,7 +316,7 @@ index 3678ebc59c..03a72fe242 100644
    // We ignore aCallerType; we only have that argument because some other things
    // called by GetReplaceableWindowCoord need it.  If this ever changes, fix
    //   nsresult nsGlobalWindowInner::GetInnerHeight(double* aInnerWidth)
-@@ -3437,12 +3442,16 @@ nsresult nsGlobalWindowInner::GetInnerHeight(double* aHeight) {
+@@ -3437,12 +3442,20 @@ nsresult nsGlobalWindowInner::GetInnerHeight(double* aHeight) {
  
  int32_t nsGlobalWindowInner::GetOuterWidth(CallerType aCallerType,
                                             ErrorResult& aError) {
@@ -337,7 +337,7 @@ index 3678ebc59c..03a72fe242 100644
    FORWARD_TO_OUTER_OR_THROW(GetOuterHeightOuter, (aCallerType, aError), aError,
                              0);
  }
-@@ -3457,11 +3466,13 @@ double nsGlobalWindowInner::ScreenEdgeSlopY() const {
+@@ -3457,11 +3466,17 @@ double nsGlobalWindowInner::ScreenEdgeSlopY() const {
  
  int32_t nsGlobalWindowInner::GetScreenX(CallerType aCallerType,
                                          ErrorResult& aError) {
@@ -355,7 +355,7 @@ index 3678ebc59c..03a72fe242 100644
    FORWARD_TO_OUTER_OR_THROW(GetScreenYOuter, (aCallerType, aError), aError, 0);
  }
  
-@@ -3495,6 +3506,8 @@ static nsPresContext* GetPresContextForRatio(Document* aDoc) {
+@@ -3495,6 +3506,10 @@ static nsPresContext* GetPresContextForRatio(Document* aDoc) {
  double nsGlobalWindowInner::GetDevicePixelRatio(CallerType aCallerType,
                                                  ErrorResult& aError) {
    ENSURE_ACTIVE_DOCUMENT(aError, 0.0);
@@ -366,7 +366,7 @@ index 3678ebc59c..03a72fe242 100644
  
    RefPtr<nsPresContext> presContext = GetPresContextForRatio(mDoc);
    if (NS_WARN_IF(!presContext)) {
-@@ -3565,26 +3578,38 @@ already_AddRefed<MediaQueryList> nsGlobalWindowInner::MatchMedia(
+@@ -3565,26 +3578,44 @@ already_AddRefed<MediaQueryList> nsGlobalWindowInner::MatchMedia(
  }
  
  int32_t nsGlobalWindowInner::GetScrollMinX(ErrorResult& aError) {
@@ -423,7 +423,7 @@ index 99994a73cc..837214d872 100644
  
  #include "jsapi.h"
  #include "nsCOMPtr.h"
-@@ -55,6 +56,8 @@ JSObject* nsHistory::WrapObject(JSContext* aCx,
+@@ -55,6 +56,9 @@ JSObject* nsHistory::WrapObject(JSContext* aCx,
  }
  
  uint32_t nsHistory::GetLength(ErrorResult& aRv) const {
@@ -456,7 +456,7 @@ index 4bd1e0c964..a5a95d3fdf 100644
    // Return 24 to prevent fingerprinting.
    if (ShouldResistFingerprinting(RFPTarget::ScreenPixelDepth)) {
      return 24;
-@@ -89,6 +94,12 @@ CSSIntRect nsScreen::GetRect() {
+@@ -89,6 +94,14 @@ CSSIntRect nsScreen::GetRect() {
  }
  
  CSSIntRect nsScreen::GetAvailRect() {
@@ -483,7 +483,7 @@ index a42ac3017d..fadae4a714 100644
  #include "Constants.h"
  #include "mozilla/DOMEventTargetHelper.h"
  #include "mozilla/Hal.h"
-@@ -51,6 +52,9 @@ JSObject* BatteryManager::WrapObject(JSContext* aCx,
+@@ -51,6 +52,10 @@ JSObject* BatteryManager::WrapObject(JSContext* aCx,
  
  bool BatteryManager::Charging() const {
    MOZ_ASSERT(NS_IsMainThread());
@@ -494,7 +494,7 @@ index a42ac3017d..fadae4a714 100644
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default", false)) {
      return true;
-@@ -67,6 +71,8 @@ bool BatteryManager::Charging() const {
+@@ -67,6 +71,10 @@ bool BatteryManager::Charging() const {
  
  double BatteryManager::DischargingTime() const {
    MOZ_ASSERT(NS_IsMainThread());
@@ -505,7 +505,7 @@ index a42ac3017d..fadae4a714 100644
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default", false)) {
      return std::numeric_limits<double>::infinity();
-@@ -84,6 +90,8 @@ double BatteryManager::DischargingTime() const {
+@@ -84,6 +90,9 @@ double BatteryManager::DischargingTime() const {
  
  double BatteryManager::ChargingTime() const {
    MOZ_ASSERT(NS_IsMainThread());
@@ -515,7 +515,7 @@ index a42ac3017d..fadae4a714 100644
    // For testing, unable to report the battery status information
    if (Preferences::GetBool("dom.battery.test.default", false)) {
      return 0.0;
-@@ -101,6 +109,7 @@ double BatteryManager::ChargingTime() const {
+@@ -101,6 +109,9 @@ double BatteryManager::ChargingTime() const {
  
  double BatteryManager::Level() const {
    MOZ_ASSERT(NS_IsMainThread());
@@ -549,7 +549,7 @@ index b05e409a84..8e0f7ea657 100644
  
  #include <utility>
  
-@@ -92,6 +93,9 @@ JSObject* WorkerNavigator::WrapObject(JSContext* aCx,
+@@ -92,6 +93,10 @@ JSObject* WorkerNavigator::WrapObject(JSContext* aCx,
  }
  
  bool WorkerNavigator::GlobalPrivacyControl() const {
@@ -560,7 +560,7 @@ index b05e409a84..8e0f7ea657 100644
    bool gpcStatus = StaticPrefs::privacy_globalprivacycontrol_enabled();
    if (!gpcStatus) {
      JSObject* jso = GetWrapper();
-@@ -114,6 +118,8 @@ void WorkerNavigator::SetLanguages(const nsTArray<nsString>& aLanguages) {
+@@ -114,6 +118,12 @@ void WorkerNavigator::SetLanguages(const nsTArray<nsString>& aLanguages) {
  void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
                                      CallerType aCallerType,
                                      ErrorResult& aRv) const {
@@ -573,7 +573,7 @@ index b05e409a84..8e0f7ea657 100644
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
    MOZ_ASSERT(workerPrivate);
  
-@@ -136,6 +142,8 @@ void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
+@@ -136,6 +142,12 @@ void WorkerNavigator::GetAppVersion(nsString& aAppVersion,
  
  void WorkerNavigator::GetPlatform(nsString& aPlatform, CallerType aCallerType,
                                    ErrorResult& aRv) const {
@@ -586,7 +586,7 @@ index b05e409a84..8e0f7ea657 100644
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
    MOZ_ASSERT(workerPrivate);
  
-@@ -200,6 +208,8 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
+@@ -200,6 +208,12 @@ class GetUserAgentRunnable final : public WorkerMainThreadRunnable {
  
  void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
                                     ErrorResult& aRv) const {
@@ -599,7 +599,7 @@ index b05e409a84..8e0f7ea657 100644
    WorkerPrivate* workerPrivate = GetCurrentThreadWorkerPrivate();
    MOZ_ASSERT(workerPrivate);
  
-@@ -211,6 +221,8 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
+@@ -211,6 +221,10 @@ void WorkerNavigator::GetUserAgent(nsString& aUserAgent, CallerType aCallerType,
  }
  
  uint64_t WorkerNavigator::HardwareConcurrency() const {

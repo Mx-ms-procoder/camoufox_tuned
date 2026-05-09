@@ -11,7 +11,7 @@ index 13d65c2d3e..c51f1da030 100644
  
  #include "nsAppDirectoryServiceDefs.h"
  #include "nsExceptionHandler.h"
-@@ -446,6 +448,9 @@ void GlobalStyleSheetCache::InitFromProfile() {
+@@ -446,6 +448,11 @@ void GlobalStyleSheetCache::InitFromProfile() {
    if (!Preferences::GetBool(PREF_LEGACY_STYLESHEET_CUSTOMIZATION)) {
      return;
    }

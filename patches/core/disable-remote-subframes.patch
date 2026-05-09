@@ -10,7 +10,7 @@ index 2471976f64..d14edc9195 100644
  
  #include "AutoplayPolicy.h"
  #include "GVAutoplayRequestStatusIPC.h"
-@@ -1772,7 +1773,10 @@ NS_IMETHODIMP BrowsingContext::SetRemoteSubframes(bool aUseRemoteSubframes) {
+@@ -1772,7 +1773,12 @@ NS_IMETHODIMP BrowsingContext::SetRemoteSubframes(bool aUseRemoteSubframes) {
      return NS_ERROR_UNEXPECTED;
    }
  
