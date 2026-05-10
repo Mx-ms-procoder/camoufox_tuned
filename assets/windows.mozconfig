@@ -1,5 +1,6 @@
 ac_add_options --disable-maintenance-service
 ac_add_options --disable-update-agent
+ac_add_options --disable-accessibility
 
 if [ "$BUILD_TARGET" = "windows,i686" ]; then
     MINGW_TRIPLE=i686-w64-mingw32
