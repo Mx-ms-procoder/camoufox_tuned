@@ -1,5 +1,4 @@
 ac_add_options --disable-update-agent
-ac_add_options --disable-alsa
 
 # Packaging related
 # #export DSYMUTIL="$MOZBUILD/clang/bin/dsymutil"

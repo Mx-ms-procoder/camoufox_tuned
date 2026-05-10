@@ -51,19 +51,19 @@ jobs:
       - name: Remove unwanted tools
         # Originally from here: https://github.com/AdityaGarg8/remove-unwanted-software/blob/master/action.yml
         run: |
-          sudo apt-get remove -y '^aspnetcore-.*' > /dev/null
-          sudo apt-get remove -y '^dotnet-.*' > /dev/null
-          sudo apt-get remove -y '^llvm-.*' > /dev/null
-          sudo apt-get remove -y 'php.*' > /dev/null
-          sudo apt-get remove -y '^mongodb-.*' > /dev/null
-          sudo apt-get remove -y '^mysql-.*' > /dev/null
-          sudo apt-get remove -y azure-cli google-chrome-stable firefox ${POWERSHELL} mono-devel libgl1-mesa-dri --fix-missing > /dev/null
-          if [[ (${CODENAME} = focal) || (${CODENAME} = jammy) ]]; then
-            sudo apt-get remove -y google-cloud-sdk --fix-missing > /dev/null
-            sudo apt-get remove -y google-cloud-cli --fix-missing > /dev/null
+          sudo apt-get remove -y '^aspnetcore-.*' > /dev/null || true
+          sudo apt-get remove -y '^dotnet-.*' > /dev/null || true
+          sudo apt-get remove -y '^llvm-.*' > /dev/null || true
+          sudo apt-get remove -y 'php.*' > /dev/null || true
+          sudo apt-get remove -y '^mongodb-.*' > /dev/null || true
+          sudo apt-get remove -y '^mysql-.*' > /dev/null || true
+          sudo apt-get remove -y azure-cli google-chrome-stable firefox ${POWERSHELL:-} mono-devel libgl1-mesa-dri --fix-missing > /dev/null || true
+          if [[ (${CODENAME:-} = focal) || (${CODENAME:-} = jammy) ]]; then
+            sudo apt-get remove -y google-cloud-sdk --fix-missing > /dev/null || true
+            sudo apt-get remove -y google-cloud-cli --fix-missing > /dev/null || true
           fi
-          sudo apt-get autoremove -y > /dev/null
-          sudo apt-get clean > /dev/null
+          sudo apt-get autoremove -y > /dev/null || true
+          sudo apt-get clean > /dev/null || true
 
       - uses: actions/checkout@v4
         with:
@@ -92,6 +92,7 @@ jobs:
           sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
           sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
+          sudo update-alternatives --install /usr/bin/lld-link lld-link /usr/bin/lld-link-18 100
 
       - name: Check disk space
         run: df -h
@@ -102,9 +103,9 @@ jobs:
             sudo dpkg --add-architecture i386
           fi
           sudo apt-get update
-          sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip nasm yasm nodejs pkg-config libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
+          sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip nasm yasm nodejs pkg-config libasound2-dev libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
           if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
-            sudo apt-get install -y libgtk-3-dev:i386 libdbus-glib-1-dev:i386 libpulse-dev:i386 libx11-xcb-dev:i386 libxt-dev:i386
+            sudo apt-get install -y libasound2-dev:i386 libgtk-3-dev:i386 libdbus-glib-1-dev:i386 libpulse-dev:i386 libx11-xcb-dev:i386 libxt-dev:i386
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
             sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
