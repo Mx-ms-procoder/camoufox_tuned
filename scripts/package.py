@@ -13,6 +13,52 @@ from _mixin import find_src_dir, get_moz_target, list_files, run, temp_cd
 UNNEEDED_PATHS = {'uninstall', 'pingsender.exe', 'pingsender', 'vaapitest', 'glxtest'}
 
 
+def add_includes_to_tree(temp_dir, includes, fonts, new_file, target):
+    if target == 'macos':
+        target_dir = os.path.join(temp_dir, 'Camoufox.app', 'Contents', 'Resources')
+    else:
+        target_dir = temp_dir
+
+    # Add includes
+    for include in includes or []:
+        if os.path.exists(include):
+            if os.path.isdir(include):
+                shutil.copytree(
+                    include,
+                    os.path.join(target_dir, os.path.basename(include)),
+                    dirs_exist_ok=True,
+                )
+            else:
+                shutil.copy2(include, target_dir)
+
+    # Add the font folders under fonts/
+    fonts_dir = os.path.join(target_dir, 'fonts')
+    if target == 'linux':
+        for font in fonts or []:
+            shutil.copytree(
+                os.path.join('bundle', 'fonts', font),
+                os.path.join(fonts_dir, font),
+                dirs_exist_ok=True,
+            )
+    # Non-linux systems cannot read fonts within subfolders.
+    # Instead, we walk the fonts/ directory and copy all files.
+    else:
+        os.makedirs(fonts_dir, exist_ok=True)
+        for font in fonts or []:
+            for file in list_files(root_dir=os.path.join('bundle', 'fonts', font), suffix='*'):
+                shutil.copy2(file, os.path.join(fonts_dir, os.path.basename(file)))
+
+    # Remove unneeded paths
+    for path in UNNEEDED_PATHS:
+        if os.path.isdir(os.path.join(target_dir, path)):
+            shutil.rmtree(os.path.join(target_dir, path), ignore_errors=True)
+        elif os.path.exists(os.path.join(target_dir, path)):
+            os.remove(os.path.join(target_dir, path))
+
+    # Update package
+    run(join(['7z', 'u', new_file, f'{temp_dir}/*', '-r', '-mx=9']))
+
+
 def add_includes_to_package(package_file, includes, fonts, new_file, target):
     with tempfile.TemporaryDirectory() as temp_dir:
         # Extract package
@@ -49,50 +95,25 @@ def add_includes_to_package(package_file, includes, fonts, new_file, target):
                     shutil.move(os.path.join(camoufox_dir, item), temp_dir)
                 os.rmdir(camoufox_dir)
 
-        # Create target_dir
-        if target == 'macos':
-            target_dir = os.path.join(temp_dir, 'Camoufox.app', 'Contents', 'Resources')
-        else:
-            target_dir = temp_dir
+        add_includes_to_tree(temp_dir, includes, fonts, new_file, target)
 
-        # Add includes
-        for include in includes or []:
-            if os.path.exists(include):
-                if os.path.isdir(include):
-                    shutil.copytree(
-                        include,
-                        os.path.join(target_dir, os.path.basename(include)),
-                        dirs_exist_ok=True,
-                    )
-                else:
-                    shutil.copy2(include, target_dir)
 
-        # Add the font folders under fonts/
-        fonts_dir = os.path.join(target_dir, 'fonts')
-        if target == 'linux':
-            for font in fonts or []:
-                shutil.copytree(
-                    os.path.join('bundle', 'fonts', font),
-                    os.path.join(fonts_dir, font),
-                    dirs_exist_ok=True,
-                )
-        # Non-linux systems cannot read fonts within subfolders.
-        # Instead, we walk the fonts/ directory and copy all files.
-        else:
-            os.makedirs(fonts_dir, exist_ok=True)
-            for font in fonts or []:
-                for file in list_files(root_dir=os.path.join('bundle', 'fonts', font), suffix='*'):
-                    shutil.copy2(file, os.path.join(fonts_dir, os.path.basename(file)))
+def package_macos_app_bundle(src_dir, moz_target, includes, fonts, new_file):
+    dist_dir = os.path.abspath(os.path.join(src_dir, f'obj-{moz_target}', 'dist'))
+    app_candidates = [
+        os.path.join(dist_dir, 'Camoufox.app'),
+        os.path.join(dist_dir, 'Nightly.app'),
+        os.path.join(dist_dir, 'Firefox.app'),
+        *glob.glob(os.path.join(dist_dir, '*.app')),
+    ]
+    app_bundle = next((path for path in app_candidates if os.path.isdir(path)), None)
+    if not app_bundle:
+        return False
 
-        # Remove unneeded paths
-        for path in UNNEEDED_PATHS:
-            if os.path.isdir(os.path.join(target_dir, path)):
-                shutil.rmtree(os.path.join(target_dir, path), ignore_errors=True)
-            elif os.path.exists(os.path.join(target_dir, path)):
-                os.remove(os.path.join(target_dir, path))
-
-        # Update package
-        run(join(['7z', 'u', new_file, f'{temp_dir}/*', '-r', '-mx=9']))
+    with tempfile.TemporaryDirectory() as temp_dir:
+        shutil.copytree(app_bundle, os.path.join(temp_dir, 'Camoufox.app'), symlinks=True)
+        add_includes_to_tree(temp_dir, includes, fonts, new_file, 'macos')
+    return True
 
 
 def get_args():
@@ -124,6 +145,18 @@ def main():
     # Build the package
     src_dir = find_src_dir('.', args.version, args.release)
     moz_target = get_moz_target(target=args.os, arch=args.arch)
+    new_name = f'camoufox-{args.version}-{args.release}-{args.os[:3]}.{args.arch}.zip'
+
+    if args.os == 'macos' and package_macos_app_bundle(
+        src_dir=src_dir,
+        moz_target=moz_target,
+        includes=args.includes,
+        fonts=args.fonts,
+        new_file=new_name,
+    ):
+        print(f"Packaging complete for {args.os}")
+        return
+
     with temp_cd(src_dir):
         # Create package files
         run('./mach package')
@@ -154,7 +187,6 @@ def main():
     package_file = package_files[0]
 
     # Add includes to the package
-    new_name = f'camoufox-{args.version}-{args.release}-{args.os[:3]}.{args.arch}.zip'
     add_includes_to_package(
         package_file=package_file,
         includes=args.includes,

@@ -1,2 +1,14 @@
 ac_add_options --disable-maintenance-service
 ac_add_options --disable-update-agent
+
+if [ "$BUILD_TARGET" = "windows,i686" ]; then
+    MINGW_TRIPLE=i686-w64-mingw32
+else
+    MINGW_TRIPLE=x86_64-w64-mingw32
+fi
+
+export CC="clang --target=$MINGW_TRIPLE"
+export CXX="clang++ --target=$MINGW_TRIPLE"
+export WINDRES="$MINGW_TRIPLE-windres"
+export AR="$MINGW_TRIPLE-ar"
+export RANLIB="$MINGW_TRIPLE-ranlib"

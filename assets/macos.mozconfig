@@ -1,5 +1,5 @@
 ac_add_options --disable-update-agent
-# ac_add_options --disable-alsa
+ac_add_options --disable-alsa
 
 # Packaging related
 # #export DSYMUTIL="$MOZBUILD/clang/bin/dsymutil"
@@ -7,14 +7,21 @@ ac_add_options --disable-update-agent
 # export HFS_TOOL="$MOZBUILD/dmg/hfsplus"
 
 # Build related
-# CROSS=$MOZBUILD
-# CCTOOLS=$CROSS/cctools
-# mk_add_options "export PATH=$MOZBUILD/clang/bin:$CCTOOLS/bin:$CROSS/binutils/bin:$CROSS/dmg:$PATH"
-# mk_add_options "export LD_LIBRARY_PATH=$MOZBUILD/clang/lib:$CCTOOLS/lib"
-# export CC="$CROSS/clang/bin/clang"
-# export CXX="$CROSS/clang/bin/clang++"
-# export HOST_CC="$CROSS/clang/bin/clang"
-# export HOST_CXX="$CROSS/cla   ng/bin/clang++"
+if [ -n "$OSXCROSS_ROOT" ]; then
+    mk_add_options "export PATH=$OSXCROSS_ROOT/bin:$PATH"
+    mk_add_options "export LD_LIBRARY_PATH=$OSXCROSS_ROOT/lib:$LD_LIBRARY_PATH"
+    export HOST_CC="${HOST_CC:-/usr/bin/clang}"
+    export HOST_CXX="${HOST_CXX:-/usr/bin/clang++}"
 
-# Only temporary
-# ac_add_options --with-macos-sdk="$MOZBUILD/MacOSX14.4.sdk"
+    if [ "$BUILD_TARGET" = "macos,arm64" ]; then
+        export CC="$OSXCROSS_ROOT/bin/oa64-clang"
+        export CXX="$OSXCROSS_ROOT/bin/oa64-clang++"
+    else
+        export CC="$OSXCROSS_ROOT/bin/o64-clang"
+        export CXX="$OSXCROSS_ROOT/bin/o64-clang++"
+    fi
+
+    if [ -n "$MACOS_SDK_DIR" ]; then
+        ac_add_options --with-macos-sdk="$MACOS_SDK_DIR"
+    fi
+fi

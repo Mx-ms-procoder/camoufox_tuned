@@ -1,1 +1,8 @@
-# ac_add_options --enable-alsa
+# GitHub's cross targets do not have matching ALSA pkg-config metadata.
+# PulseAudio remains enabled through libpulse, so avoid the hard ALSA check.
+ac_add_options --disable-alsa
+
+if [ "$BUILD_TARGET" = "linux,i686" ]; then
+    export PKG_CONFIG_LIBDIR="/usr/lib/i386-linux-gnu/pkgconfig:/usr/share/pkgconfig"
+    export PKG_CONFIG_PATH=
+fi

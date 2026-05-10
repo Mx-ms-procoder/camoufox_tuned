@@ -8,19 +8,32 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target: [linux, windows, macos]
-        arch: [x86_64, arm64, i686]
-        exclude:
-          # Fails (.mozbuild does not include clang++-cl)
-          - target: windows
+        include:
+          - target: linux
+            arch: x86_64
+            runner: ubuntu-24.04
+          - target: linux
             arch: arm64
-          # Unsuported
-          - target: macos
+            runner: ubuntu-24.04-arm
+          - target: linux
             arch: i686
+            runner: ubuntu-24.04
+          - target: windows
+            arch: x86_64
+            runner: ubuntu-24.04
+          - target: windows
+            arch: i686
+            runner: ubuntu-24.04
+          - target: macos
+            arch: x86_64
+            runner: ubuntu-24.04
+          - target: macos
+            arch: arm64
+            runner: ubuntu-24.04
 
     steps:
       - name: Maximize build space
@@ -72,7 +85,7 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 18
           sudo apt-get install -y lld-18 clang-18
-          if [ "${{ matrix.arch }}" != "x86_64" ]; then
+          if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
             sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
           fi
           sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
@@ -85,8 +98,47 @@ jobs:
 
       - name: Install dependencies
         run: |
+          if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
+            sudo dpkg --add-architecture i386
+          fi
           sudo apt-get update
           sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip nasm yasm nodejs pkg-config libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
+          if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
+            sudo apt-get install -y libgtk-3-dev:i386 libdbus-glib-1-dev:i386 libpulse-dev:i386 libx11-xcb-dev:i386 libxt-dev:i386
+          fi
+          if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
+            sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+          fi
+          if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "i686" ]; then
+            sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
+          fi
+          if [ "${{ matrix.target }}" = "macos" ]; then
+            sudo apt-get install -y autoconf automake cmake git libbz2-dev libgmp-dev liblzma-dev libmpc-dev libmpfr-dev libssl-dev libtool libxml2-dev uuid-dev zlib1g-dev
+          fi
+
+      - name: Cache macOS cross toolchain
+        if: matrix.target == 'macos'
+        uses: actions/cache@v4
+        with:
+          path: ~/.mozbuild/osxcross
+          key: osxcross-macosx14.4-v1
+
+      - name: Set up macOS cross toolchain
+        if: matrix.target == 'macos'
+        run: |
+          set -eux
+          OSXCROSS_DIR="$HOME/.mozbuild/osxcross"
+          SDK_URL="https://github.com/joseluisq/macosx-sdks/releases/download/14.4/MacOSX14.4.sdk.tar.xz"
+          if [ ! -x "$OSXCROSS_DIR/target/bin/o64-clang" ] || [ ! -x "$OSXCROSS_DIR/target/bin/oa64-clang" ]; then
+            rm -rf "$OSXCROSS_DIR"
+            git clone --depth 1 https://github.com/tpoechtrager/osxcross.git "$OSXCROSS_DIR"
+            mkdir -p "$OSXCROSS_DIR/tarballs"
+            curl -L --retry 5 "$SDK_URL" -o "$OSXCROSS_DIR/tarballs/MacOSX14.4.sdk.tar.xz"
+            cd "$OSXCROSS_DIR"
+            UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build.sh
+          fi
+          echo "OSXCROSS_ROOT=$OSXCROSS_DIR/target" >> "$GITHUB_ENV"
+          echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX14.4.sdk" >> "$GITHUB_ENV"
 
       - name: Fetch source
         env:
