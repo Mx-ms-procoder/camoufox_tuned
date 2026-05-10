@@ -14,3 +14,9 @@ export RC="$MINGW_TRIPLE-windres"
 export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
 export RANLIB="$MINGW_TRIPLE-ranlib"
+
+if command -v llvm-dlltool >/dev/null 2>&1; then
+    export LLVM_DLLTOOL=llvm-dlltool
+elif command -v llvm-dlltool-18 >/dev/null 2>&1; then
+    export LLVM_DLLTOOL=llvm-dlltool-18
+fi

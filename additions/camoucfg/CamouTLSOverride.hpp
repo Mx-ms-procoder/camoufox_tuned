@@ -26,8 +26,10 @@
 #pragma once
 
 #include <cstdint>
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <climits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -83,13 +85,15 @@ inline std::vector<uint16_t> ParseHexList(const std::string& csv) {
     token = token.substr(start, end - start + 1);
     if (token.empty()) continue;
 
-    // Parse hex (with or without 0x prefix)
-    try {
-      unsigned long val = std::stoul(token, nullptr, 16);
-      if (val <= 0xFFFF) {
-        result.push_back(static_cast<uint16_t>(val));
-      }
-    } catch (...) {
+    // Parse hex (with or without 0x prefix). Firefox builds with C++
+    // exceptions disabled, so avoid std::stoul here.
+    errno = 0;
+    char* end = nullptr;
+    unsigned long val = std::strtoul(token.c_str(), &end, 16);
+    if (errno == 0 && end != token.c_str() && *end == '\0' &&
+        val <= 0xFFFFUL) {
+      result.push_back(static_cast<uint16_t>(val));
+    } else {
       printf_stderr(
           "CamouTLSOverride: failed to parse hex value '%s'\n",
           token.c_str());
@@ -242,7 +246,7 @@ inline void ApplyNamedGroupOverride() {
 
 // ── Signature algorithm override ────────────────────────────────────
 //
-// SSL_SignatureSchemeConfig() sets the preference order for signature
+// SSL_SignatureSchemePrefSet() sets the preference order for signature
 // algorithms in the signature_algorithms TLS extension.
 
 inline void ApplySignatureAlgorithmOverride() {
@@ -263,14 +267,14 @@ inline void ApplySignatureAlgorithmOverride() {
     schemes.push_back(static_cast<SSLSignatureScheme>(code));
   }
 
-  SECStatus rv = SSL_SignatureSchemeConfig(
+  SECStatus rv = SSL_SignatureSchemePrefSet(
       nullptr,  // nullptr = process-wide default
       schemes.data(),
       static_cast<unsigned int>(schemes.size()));
 
   if (rv != SECSuccess) {
     printf_stderr(
-        "CamouTLSOverride: SSL_SignatureSchemeConfig() failed\n");
+        "CamouTLSOverride: SSL_SignatureSchemePrefSet() failed\n");
   }
 }
 
