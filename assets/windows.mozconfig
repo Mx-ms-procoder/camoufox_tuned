@@ -9,6 +9,7 @@ fi
 
 export CC="clang --target=$MINGW_TRIPLE"
 export CXX="clang++ --target=$MINGW_TRIPLE"
+export RC="$MINGW_TRIPLE-windres"
 export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
 export RANLIB="$MINGW_TRIPLE-ranlib"

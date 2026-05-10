@@ -26,6 +26,11 @@ ac_add_options --with-unsigned-addon-scopes=app,system
 # clang/lld locally, so avoid trying to fetch bootstrapped toolchains.
 ac_add_options --disable-bootstrap
 
+if [ -d "/usr/lib/llvm-18/lib" ]; then
+    ac_add_options --with-libclang-path=/usr/lib/llvm-18/lib
+    export LIBCLANG_PATH=/usr/lib/llvm-18/lib
+fi
+
 export MOZ_REQUIRE_SIGNING=
 
 mk_add_options MOZ_CRASHREPORTER=0

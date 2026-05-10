@@ -84,7 +84,7 @@ jobs:
           wget https://apt.llvm.org/llvm.sh
           chmod +x llvm.sh
           sudo ./llvm.sh 18
-          sudo apt-get install -y lld-18 clang-18
+          sudo apt-get install -y lld-18 clang-18 llvm-18 libclang-18-dev
           if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
             sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
           fi
@@ -93,6 +93,11 @@ jobs:
           sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
           sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
           sudo update-alternatives --install /usr/bin/lld-link lld-link /usr/bin/lld-link-18 100
+          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-18 100
+          sudo update-alternatives --install /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-18 100
+          sudo update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-18 100
+          sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-18 100
+          sudo update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-18 100
 
       - name: Check disk space
         run: df -h
@@ -109,9 +114,15 @@ jobs:
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
             sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+            sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/windres
+            sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-mingw32-windres
+            sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-pc-mingw32-windres
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "i686" ]; then
             sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
+            sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/windres
+            sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
+            sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-pc-mingw32-windres
           fi
           if [ "${{ matrix.target }}" = "macos" ]; then
             sudo apt-get install -y autoconf automake cmake git libbz2-dev libgmp-dev liblzma-dev libmpc-dev libmpfr-dev libssl-dev libtool libxml2-dev uuid-dev zlib1g-dev
