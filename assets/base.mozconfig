@@ -22,7 +22,9 @@ ac_add_options --with-branding=browser/branding/camoufox
 
 ac_add_options --with-unsigned-addon-scopes=app,system
 
-ac_add_options --enable-bootstrap=no-update
+# Old Mozilla release toolchain artifacts expire from Taskcluster. CI installs
+# clang/lld locally, so avoid trying to fetch bootstrapped toolchains.
+ac_add_options --disable-bootstrap
 
 export MOZ_REQUIRE_SIGNING=
 
