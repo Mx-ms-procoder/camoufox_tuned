@@ -131,6 +131,16 @@ jobs:
             sudo apt-get install -y autoconf automake cmake git libbz2-dev libgmp-dev liblzma-dev libmpc-dev libmpfr-dev libssl-dev libtool libxml2-dev uuid-dev zlib1g-dev
           fi
 
+      - name: Set up Windows Rust crate
+        if: matrix.target == 'windows'
+        run: |
+          set -eux
+          cargo install cargo-download
+          mkdir -p "$HOME/windows-rs"
+          cd "$HOME/windows-rs"
+          cargo download -x windows=0.58.0
+          echo "MOZ_WINDOWS_RS_DIR=$HOME/windows-rs/windows-0.58.0" >> "$GITHUB_ENV"
+
       - name: Set up Windows shader compiler
         if: matrix.target == 'windows'
         run: |
@@ -166,7 +176,7 @@ jobs:
           path: ~/.mozbuild/osxcross
           key: osxcross-macosx14.4-compiler-rt-v1
 
-      - name: Set up macOS cross toolchain
+      - name: Setup macos toolchain
         if: matrix.target == 'macos'
         run: |
           set -eux
@@ -195,6 +205,13 @@ jobs:
             done
           }
           build_osxcross_compiler_rt() {
+            # Pre-create the compiler-rt install directories to avoid permission errors.
+            # osxcross's build_compiler_rt.sh installs into the host LLVM tree,
+            # which is owned by root on GitHub Actions runners.
+            sudo mkdir -p /usr/lib/llvm-18/lib/clang/18/lib/darwin
+            sudo chmod 777 /usr/lib/llvm-18/lib/clang/18/lib/darwin
+            sudo mkdir -p /usr/lib/llvm-18/lib/clang/18/include
+            sudo chmod 777 /usr/lib/llvm-18/lib/clang/18/include
             local attempt=1
             local max_attempts=5
             until env ENABLE_COMPILER_RT_INSTALL=1 UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build_compiler_rt.sh; do
