@@ -108,19 +108,20 @@ jobs:
             sudo dpkg --add-architecture i386
           fi
           sudo apt-get update
-          sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip zstd nasm yasm nodejs pkg-config libasound2-dev libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
+          sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip nasm yasm nodejs pkg-config libasound2-dev libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
           if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
             sudo apt-get install -y libasound2-dev:i386 libgtk-3-dev:i386 libdbus-glib-1-dev:i386 libpulse-dev:i386 libx11-xcb-dev:i386 libxt-dev:i386
           fi
+          if [ "${{ matrix.target }}" = "windows" ]; then
+            sudo apt-get install -y --no-install-recommends wine wine64 zstd
+          fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
-            sudo apt-get install -y --no-install-recommends wine64
             sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-mingw32-windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-pc-mingw32-windres
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "i686" ]; then
-            sudo apt-get install -y --no-install-recommends wine64
             sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
@@ -142,15 +143,28 @@ jobs:
           echo "$FXC2_SHA256  $tmpdir/fxc2.pkg.tar.zst" | sha256sum -c -
           tar -C "$tmpdir" -xf "$tmpdir/fxc2.pkg.tar.zst" mingw64/bin/fxc.exe
           sudo install -m 0755 "$tmpdir/mingw64/bin/fxc.exe" /usr/local/bin/fxc2.exe
+          if command -v wine64 >/dev/null 2>&1; then
+            WINE_BIN="$(command -v wine64)"
+          elif command -v wine >/dev/null 2>&1; then
+            WINE_BIN="$(command -v wine)"
+          elif [ -x /usr/lib/wine/wine64 ]; then
+            WINE_BIN="/usr/lib/wine/wine64"
+          else
+            echo "wine executable not found"
+            exit 1
+          fi
+          sudo ln -sf "$WINE_BIN" /usr/local/bin/wine64
+          sudo ln -sf "$WINE_BIN" /usr/local/bin/wine
+          echo "WINE=$WINE_BIN" >> "$GITHUB_ENV"
           command -v fxc2.exe
-          command -v wine64 || command -v wine
+          "$WINE_BIN" --version
 
       - name: Cache macOS cross toolchain
         if: matrix.target == 'macos'
         uses: actions/cache@v4
         with:
           path: ~/.mozbuild/osxcross
-          key: osxcross-macosx14.4-v1
+          key: osxcross-macosx14.4-compiler-rt-v1
 
       - name: Set up macOS cross toolchain
         if: matrix.target == 'macos'
@@ -180,6 +194,18 @@ jobs:
               attempt=$((attempt + 1))
             done
           }
+          build_osxcross_compiler_rt() {
+            local attempt=1
+            local max_attempts=5
+            until env ENABLE_COMPILER_RT_INSTALL=1 UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build_compiler_rt.sh; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                return 1
+              fi
+              rm -rf build/compiler-rt
+              sleep $((attempt * 10))
+              attempt=$((attempt + 1))
+            done
+          }
           OSXCROSS_DIR="$HOME/.mozbuild/osxcross"
           SDK_URL="https://github.com/joseluisq/macosx-sdks/releases/download/14.4/MacOSX14.4.sdk.tar.xz"
           if [ ! -x "$OSXCROSS_DIR/target/bin/o64-clang" ] || [ ! -x "$OSXCROSS_DIR/target/bin/oa64-clang" ]; then
@@ -190,6 +216,14 @@ jobs:
             cd "$OSXCROSS_DIR"
             build_osxcross
           fi
+          cd "$OSXCROSS_DIR"
+          CLANG_RT_OSX="$("$OSXCROSS_DIR/target/bin/o64-clang" -print-file-name=libclang_rt.osx.a || true)"
+          if [ ! -f "$CLANG_RT_OSX" ]; then
+            build_osxcross_compiler_rt
+            CLANG_RT_OSX="$("$OSXCROSS_DIR/target/bin/o64-clang" -print-file-name=libclang_rt.osx.a || true)"
+          fi
+          test -f "$CLANG_RT_OSX"
+          echo "CLANG_RT_OSX=$CLANG_RT_OSX" >> "$GITHUB_ENV"
           echo "OSXCROSS_ROOT=$OSXCROSS_DIR/target" >> "$GITHUB_ENV"
           echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX14.4.sdk" >> "$GITHUB_ENV"
 

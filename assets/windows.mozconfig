@@ -25,8 +25,12 @@ if command -v fxc2.exe >/dev/null 2>&1; then
     export FXC="$(command -v fxc2.exe)"
 fi
 
-if command -v wine64 >/dev/null 2>&1; then
-    export WINE="$(command -v wine64)"
-elif command -v wine >/dev/null 2>&1; then
-    export WINE="$(command -v wine)"
+if [ -z "$WINE" ]; then
+    if command -v wine64 >/dev/null 2>&1; then
+        export WINE="$(command -v wine64)"
+    elif command -v wine >/dev/null 2>&1; then
+        export WINE="$(command -v wine)"
+    elif [ -x /usr/lib/wine/wine64 ]; then
+        export WINE=/usr/lib/wine/wine64
+    fi
 fi

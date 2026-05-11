@@ -23,4 +23,8 @@ if [ -n "$OSXCROSS_ROOT" ]; then
     if [ -n "$MACOS_SDK_DIR" ]; then
         ac_add_options --with-macos-sdk="$MACOS_SDK_DIR"
     fi
+
+    if [ -n "$CLANG_RT_OSX" ] && [ -f "$CLANG_RT_OSX" ]; then
+        export LDFLAGS="${LDFLAGS:+$LDFLAGS }$CLANG_RT_OSX"
+    fi
 fi
