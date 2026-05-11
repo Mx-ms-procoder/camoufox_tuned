@@ -88,9 +88,9 @@ inline std::vector<uint16_t> ParseHexList(const std::string& csv) {
     // Parse hex (with or without 0x prefix). Firefox builds with C++
     // exceptions disabled, so avoid std::stoul here.
     errno = 0;
-    char* end = nullptr;
-    unsigned long val = std::strtoul(token.c_str(), &end, 16);
-    if (errno == 0 && end != token.c_str() && *end == '\0' &&
+    char* parseEnd = nullptr;
+    unsigned long val = std::strtoul(token.c_str(), &parseEnd, 16);
+    if (errno == 0 && parseEnd != token.c_str() && *parseEnd == '\0' &&
         val <= 0xFFFFUL) {
       result.push_back(static_cast<uint16_t>(val));
     } else {
