@@ -108,17 +108,19 @@ jobs:
             sudo dpkg --add-architecture i386
           fi
           sudo apt-get update
-          sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip nasm yasm nodejs pkg-config libasound2-dev libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
+          sudo apt-get install -y build-essential cbindgen msitools p7zip-full aria2 zip unzip zstd nasm yasm nodejs pkg-config libasound2-dev libgtk-3-dev libdbus-glib-1-dev libpulse-dev libx11-xcb-dev libxt-dev
           if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
             sudo apt-get install -y libasound2-dev:i386 libgtk-3-dev:i386 libdbus-glib-1-dev:i386 libpulse-dev:i386 libx11-xcb-dev:i386 libxt-dev:i386
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
+            sudo apt-get install -y --no-install-recommends wine64
             sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-mingw32-windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-pc-mingw32-windres
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "i686" ]; then
+            sudo apt-get install -y --no-install-recommends wine64
             sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
@@ -127,6 +129,21 @@ jobs:
           if [ "${{ matrix.target }}" = "macos" ]; then
             sudo apt-get install -y autoconf automake cmake git libbz2-dev libgmp-dev liblzma-dev libmpc-dev libmpfr-dev libssl-dev libtool libxml2-dev uuid-dev zlib1g-dev
           fi
+
+      - name: Set up Windows shader compiler
+        if: matrix.target == 'windows'
+        run: |
+          set -eux
+          FXC2_URL="https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-fxc2-r19.807d26f-1-any.pkg.tar.zst"
+          FXC2_SHA256="d6f5edf6cf73ced93cb515921a11f032cd3aa8276a7270cd97b12059898ab75c"
+          tmpdir="$(mktemp -d)"
+          trap 'rm -rf "$tmpdir"' EXIT
+          curl -fsSL --retry 5 --retry-all-errors "$FXC2_URL" -o "$tmpdir/fxc2.pkg.tar.zst"
+          echo "$FXC2_SHA256  $tmpdir/fxc2.pkg.tar.zst" | sha256sum -c -
+          tar -C "$tmpdir" -xf "$tmpdir/fxc2.pkg.tar.zst" mingw64/bin/fxc.exe
+          sudo install -m 0755 "$tmpdir/mingw64/bin/fxc.exe" /usr/local/bin/fxc2.exe
+          command -v fxc2.exe
+          command -v wine64 || command -v wine
 
       - name: Cache macOS cross toolchain
         if: matrix.target == 'macos'
@@ -139,15 +156,39 @@ jobs:
         if: matrix.target == 'macos'
         run: |
           set -eux
+          clone_osxcross() {
+            local attempt=1
+            local max_attempts=5
+            until git clone --depth 1 https://github.com/tpoechtrager/osxcross.git "$OSXCROSS_DIR"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                return 1
+              fi
+              rm -rf "$OSXCROSS_DIR"
+              sleep $((attempt * 10))
+              attempt=$((attempt + 1))
+            done
+          }
+          build_osxcross() {
+            local attempt=1
+            local max_attempts=5
+            until env UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build.sh; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                return 1
+              fi
+              rm -rf build/apple-libtapi
+              sleep $((attempt * 10))
+              attempt=$((attempt + 1))
+            done
+          }
           OSXCROSS_DIR="$HOME/.mozbuild/osxcross"
           SDK_URL="https://github.com/joseluisq/macosx-sdks/releases/download/14.4/MacOSX14.4.sdk.tar.xz"
           if [ ! -x "$OSXCROSS_DIR/target/bin/o64-clang" ] || [ ! -x "$OSXCROSS_DIR/target/bin/oa64-clang" ]; then
             rm -rf "$OSXCROSS_DIR"
-            git clone --depth 1 https://github.com/tpoechtrager/osxcross.git "$OSXCROSS_DIR"
+            clone_osxcross
             mkdir -p "$OSXCROSS_DIR/tarballs"
-            curl -L --retry 5 "$SDK_URL" -o "$OSXCROSS_DIR/tarballs/MacOSX14.4.sdk.tar.xz"
+            curl -fsSL --retry 5 --retry-all-errors "$SDK_URL" -o "$OSXCROSS_DIR/tarballs/MacOSX14.4.sdk.tar.xz"
             cd "$OSXCROSS_DIR"
-            UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build.sh
+            build_osxcross
           fi
           echo "OSXCROSS_ROOT=$OSXCROSS_DIR/target" >> "$GITHUB_ENV"
           echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX14.4.sdk" >> "$GITHUB_ENV"

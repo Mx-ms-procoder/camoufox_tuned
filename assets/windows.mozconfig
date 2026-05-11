@@ -20,3 +20,13 @@ if command -v llvm-dlltool >/dev/null 2>&1; then
 elif command -v llvm-dlltool-18 >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool-18
 fi
+
+if command -v fxc2.exe >/dev/null 2>&1; then
+    export FXC="$(command -v fxc2.exe)"
+fi
+
+if command -v wine64 >/dev/null 2>&1; then
+    export WINE="$(command -v wine64)"
+elif command -v wine >/dev/null 2>&1; then
+    export WINE="$(command -v wine)"
+fi
