@@ -165,7 +165,13 @@ jobs:
           fi
           sudo ln -sf "$WINE_BIN" /usr/local/bin/wine64
           sudo ln -sf "$WINE_BIN" /usr/local/bin/wine
+          # Override /usr/bin/wine to use wine64 (wine32 unavailable on Ubuntu 24.04 runners)
+          sudo ln -sf "$WINE_BIN" /usr/bin/wine
+          # Pre-initialize a 64-bit wine prefix to avoid wine32 init errors during build
+          WINEARCH=win64 WINEPREFIX="$HOME/.wine64" WINEDEBUG=-all "$WINE_BIN" wineboot --init 2>/dev/null || true
           echo "WINE=$WINE_BIN" >> "$GITHUB_ENV"
+          echo "WINEARCH=win64" >> "$GITHUB_ENV"
+          echo "WINEPREFIX=$HOME/.wine64" >> "$GITHUB_ENV"
           command -v fxc2.exe
           "$WINE_BIN" --version
 
@@ -209,9 +215,9 @@ jobs:
             # osxcross's build_compiler_rt.sh installs into the host LLVM tree,
             # which is owned by root on GitHub Actions runners.
             sudo mkdir -p /usr/lib/llvm-18/lib/clang/18/lib/darwin
-            sudo chmod 777 /usr/lib/llvm-18/lib/clang/18/lib/darwin
+            sudo chmod -R 777 /usr/lib/llvm-18/lib/clang/18/lib/darwin
             sudo mkdir -p /usr/lib/llvm-18/lib/clang/18/include
-            sudo chmod 777 /usr/lib/llvm-18/lib/clang/18/include
+            sudo chmod -R 777 /usr/lib/llvm-18/lib/clang/18/include
             local attempt=1
             local max_attempts=5
             until env ENABLE_COMPILER_RT_INSTALL=1 UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build_compiler_rt.sh; do
