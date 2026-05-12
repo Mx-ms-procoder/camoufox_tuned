@@ -153,6 +153,28 @@ jobs:
           echo "$FXC2_SHA256  $tmpdir/fxc2.pkg.tar.zst" | sha256sum -c -
           tar -C "$tmpdir" -xf "$tmpdir/fxc2.pkg.tar.zst" mingw64/bin/fxc.exe
           sudo install -m 0755 "$tmpdir/mingw64/bin/fxc.exe" /usr/local/bin/fxc2.exe
+          # fxc2.cpp calls LoadLibrary() with an absolute path built from its own exe
+          # directory, so d3dcompiler_47.dll MUST sit next to fxc2.exe. The msys2 fxc2
+          # package does not ship the DLL, so we reuse wine's bundled copy.
+          # The error message from fxc2 goes to stdout, which genshaders.py captures
+          # via subprocess.check_output and discards on failure -- so a missing DLL
+          # surfaces only as "non-zero exit status 1" with no diagnostic in the log.
+          WINE_D3DCOMPILER=""
+          for candidate in \
+              /usr/lib/x86_64-linux-gnu/wine/x86_64-windows/d3dcompiler_47.dll \
+              /usr/lib/wine/x86_64-windows/d3dcompiler_47.dll \
+              /usr/lib64/wine/x86_64-windows/d3dcompiler_47.dll; do
+            if [ -f "$candidate" ]; then
+              WINE_D3DCOMPILER="$candidate"
+              break
+            fi
+          done
+          if [ -z "$WINE_D3DCOMPILER" ]; then
+            echo "d3dcompiler_47.dll not found in wine install paths"
+            dpkg -L libwine 2>/dev/null | grep -i d3dcompiler || true
+            exit 1
+          fi
+          sudo install -m 0644 "$WINE_D3DCOMPILER" /usr/local/bin/d3dcompiler_47.dll
           # On Ubuntu 24.04, the wine64 binary is shipped at /usr/lib/wine/wine64
           # (not in PATH). Prefer it over /usr/bin/wine, which is the wine-launcher
           # wrapper that pulls in wine32 (unavailable on GitHub Actions runners).
