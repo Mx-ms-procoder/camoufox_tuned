@@ -153,20 +153,26 @@ jobs:
           echo "$FXC2_SHA256  $tmpdir/fxc2.pkg.tar.zst" | sha256sum -c -
           tar -C "$tmpdir" -xf "$tmpdir/fxc2.pkg.tar.zst" mingw64/bin/fxc.exe
           sudo install -m 0755 "$tmpdir/mingw64/bin/fxc.exe" /usr/local/bin/fxc2.exe
+          # On Ubuntu 24.04, the wine64 binary is shipped at /usr/lib/wine/wine64
+          # (not in PATH). Prefer it over /usr/bin/wine, which is the wine-launcher
+          # wrapper that pulls in wine32 (unavailable on GitHub Actions runners).
           if command -v wine64 >/dev/null 2>&1; then
             WINE_BIN="$(command -v wine64)"
-          elif command -v wine >/dev/null 2>&1; then
-            WINE_BIN="$(command -v wine)"
           elif [ -x /usr/lib/wine/wine64 ]; then
             WINE_BIN="/usr/lib/wine/wine64"
+          elif command -v wine >/dev/null 2>&1; then
+            WINE_BIN="$(command -v wine)"
           else
             echo "wine executable not found"
             exit 1
           fi
           sudo ln -sf "$WINE_BIN" /usr/local/bin/wine64
           sudo ln -sf "$WINE_BIN" /usr/local/bin/wine
-          # Override /usr/bin/wine to use wine64 (wine32 unavailable on Ubuntu 24.04 runners)
-          sudo ln -sf "$WINE_BIN" /usr/bin/wine
+          # Override /usr/bin/wine to use wine64 (wine32 unavailable on Ubuntu 24.04 runners).
+          # Skip when WINE_BIN is /usr/bin/wine itself, otherwise the symlink would loop on itself.
+          if [ "$WINE_BIN" != "/usr/bin/wine" ]; then
+            sudo ln -sf "$WINE_BIN" /usr/bin/wine
+          fi
           # Pre-initialize a 64-bit wine prefix to avoid wine32 init errors during build
           WINEARCH=win64 WINEPREFIX="$HOME/.wine64" WINEDEBUG=-all "$WINE_BIN" wineboot --init 2>/dev/null || true
           echo "WINE=$WINE_BIN" >> "$GITHUB_ENV"
