@@ -197,52 +197,29 @@ jobs:
           fi
           # Pre-initialize a 64-bit wine prefix to avoid wine32 init errors during build
           WINEARCH=win64 WINEPREFIX="$HOME/.wine64" WINEDEBUG=-all "$WINE_BIN" wineboot --init 2>/dev/null || true
-          # Install a wine wrapper that rewrites Unix-style .hlsl arguments into
-          # wine Z:-drive paths with backslashes. Wine's d3dcompiler resolves the
-          # source-file directory for relative #include via strrchr(path, '\\'),
-          # so forward-slash paths break Mozilla's HLSL build with E4002
-          # ("Failed to open BlendShaderConstants.h") even when the file is on
-          # disk next to CompositorD3D11.hlsl. Translating only .hlsl inputs
-          # keeps every other argument (flags, output spec, defines) untouched.
-          sudo tee /usr/local/bin/wine-fxc-wrapper >/dev/null <<'WRAPPER_EOF'
-          #!/bin/bash
-          set -eu
-          REAL_WINE=""
-          for candidate in /usr/lib/wine/wine64 /usr/lib/x86_64-linux-gnu/wine/wine64 /usr/bin/wine64; do
-              if [ -x "$candidate" ]; then
-                  REAL_WINE="$candidate"
-                  break
-              fi
-          done
-          if [ -z "$REAL_WINE" ]; then
-              echo "wine-fxc-wrapper: cannot find real wine64 binary" >&2
-              exit 1
-          fi
-          args=()
-          for arg in "$@"; do
-              case "$arg" in
-                  *.hlsl|*.hlsli)
-                      if [ -f "$arg" ]; then
-                          abs="$(readlink -f -- "$arg")"
-                          args+=("Z:${abs//\//\\}")
-                      else
-                          args+=("$arg")
-                      fi
-                      ;;
-                  *)
-                      args+=("$arg")
-                      ;;
-              esac
-          done
-          exec "$REAL_WINE" "${args[@]}"
-          WRAPPER_EOF
-          sudo chmod 0755 /usr/local/bin/wine-fxc-wrapper
+          # Install the wine-fxc-wrapper from a checked-in script file. We used
+          # to inline this via a here-document, but YAML's block-scalar handling
+          # made the resulting script fragile (and surfaces obscure failures
+          # like ENOEXEC on the shebang line). Reading from a known-good file
+          # avoids any indentation/escaping surprises.
+          sudo install -m 0755 "$GITHUB_WORKSPACE/scripts/wine-fxc-wrapper.sh" /usr/local/bin/wine-fxc-wrapper
+          # Also drop d3dcompiler_47.dll into the wine prefix's system32 so
+          # LoadLibrary() can resolve it via DLL search order even when wine
+          # falls back from the exe-adjacent path lookup.
+          mkdir -p "$HOME/.wine64/drive_c/windows/system32"
+          install -m 0644 "$WINE_D3DCOMPILER" "$HOME/.wine64/drive_c/windows/system32/d3dcompiler_47.dll"
           echo "WINE=/usr/local/bin/wine-fxc-wrapper" >> "$GITHUB_ENV"
           echo "WINEARCH=win64" >> "$GITHUB_ENV"
           echo "WINEPREFIX=$HOME/.wine64" >> "$GITHUB_ENV"
+          echo "WINEDEBUG=-all" >> "$GITHUB_ENV"
           command -v fxc2.exe
           "$WINE_BIN" --version
           /usr/local/bin/wine-fxc-wrapper --version
+          # Sanity-check the wrapper is invocable through execve (not just via
+          # bash fallback). Python's subprocess uses execve directly, so a
+          # broken shebang would cause the build to silently fall back to a
+          # raw wine binary and re-introduce the HLSL path bug.
+          python3 -c "import subprocess; print(subprocess.check_output(['/usr/local/bin/wine-fxc-wrapper', '--version']).decode().strip())"
 
       - name: Cache macOS cross toolchain
         if: matrix.target == 'macos'
@@ -344,8 +321,35 @@ jobs:
           sudo swapon /swapfile
           free -h
 
+      - name: Pre-build diagnostics
+        if: matrix.target == 'windows'
+        run: |
+          echo "=== WINE configuration ==="
+          echo "WINE=${WINE:-<unset>}"
+          echo "WINEARCH=${WINEARCH:-<unset>}"
+          echo "WINEPREFIX=${WINEPREFIX:-<unset>}"
+          echo "FXC env=${FXC:-<unset>}"
+          ls -la /usr/local/bin/wine-fxc-wrapper /usr/local/bin/fxc2.exe /usr/local/bin/d3dcompiler_47.dll || true
+          echo "=== Wrapper execve check ==="
+          python3 -c "import subprocess; print(subprocess.check_output(['/usr/local/bin/wine-fxc-wrapper', '--version']).decode().strip())"
+
       - name: Build
-        run: python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}
+        # Tee the entire build log to disk so we can attach it as an artifact
+        # on failure. Without this, GitHub's UI truncates long output and the
+        # actual error (often early C++ compile failures hidden behind a long
+        # parallel rust build) is lost. Use PIPESTATUS to surface the real
+        # exit code, since `tee` always succeeds.
+        run: |
+          set -o pipefail
+          mkdir -p build-logs
+          python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }} 2>&1 | tee "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: BuildLog-${{ matrix.target }}-${{ matrix.arch }}
+          path: build-logs/*
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

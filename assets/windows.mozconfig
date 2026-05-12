@@ -25,7 +25,15 @@ if command -v fxc2.exe >/dev/null 2>&1; then
     export FXC="$(command -v fxc2.exe)"
 fi
 
-if [ -z "$WINE" ]; then
+# Wine's d3dcompiler uses strrchr(path, '\\') to find the source-file
+# directory for resolving relative #include directives. Unix forward-slash
+# paths break Mozilla's HLSL build with E4002 errors. The wine-fxc-wrapper
+# translates .hlsl/.hlsli arguments to Z:-drive backslash paths. Prefer the
+# wrapper unconditionally when present, even if WINE was pre-set in env, so
+# we never bypass the path translation by accident.
+if [ -x /usr/local/bin/wine-fxc-wrapper ]; then
+    export WINE=/usr/local/bin/wine-fxc-wrapper
+elif [ -z "$WINE" ]; then
     if command -v wine64 >/dev/null 2>&1; then
         export WINE="$(command -v wine64)"
     elif command -v wine >/dev/null 2>&1; then
