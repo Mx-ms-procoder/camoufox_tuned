@@ -203,6 +203,29 @@ jobs:
           # like ENOEXEC on the shebang line). Reading from a known-good file
           # avoids any indentation/escaping surprises.
           sudo install -m 0755 "$GITHUB_WORKSPACE/scripts/wine-fxc-wrapper.sh" /usr/local/bin/wine-fxc-wrapper
+          # Despite setting WINE=/usr/local/bin/wine-fxc-wrapper in the env and
+          # the mozconfig, mach's check_prog('WINE', ...) in Firefox 135 was
+          # observed picking up /usr/lib/wine/wine64 directly and baking that
+          # raw path into the generated makefiles (see build log:
+          # "checking for wine... /usr/lib/wine/wine64"). genshaders.py then
+          # invokes that raw wine, the .hlsl source paths stay forward-slash,
+          # and d3dcompiler's strrchr('\\') include-resolution fails with E4002
+          # ("Failed to open BlendShaderConstants.h"). To make the wrapper
+          # unbypassable, we move the real wine64 binary aside and install the
+          # wrapper AT the path mach hardcodes. The wrapper itself prefers
+          # *.real candidates and skips self-references, so the resulting chain
+          # is: caller -> /usr/lib/wine/wine64 (wrapper) -> /usr/lib/wine/wine64.real (real).
+          for real_wine in /usr/lib/wine/wine64 /usr/lib/x86_64-linux-gnu/wine/wine64; do
+            if [ -f "$real_wine" ] && [ ! -L "$real_wine" ]; then
+              # Only move if it's a real binary and we haven't already moved it.
+              if [ ! -e "${real_wine}.real" ]; then
+                sudo mv "$real_wine" "${real_wine}.real"
+              else
+                sudo rm -f "$real_wine"
+              fi
+              sudo install -m 0755 "$GITHUB_WORKSPACE/scripts/wine-fxc-wrapper.sh" "$real_wine"
+            fi
+          done
           # Also drop d3dcompiler_47.dll into the wine prefix's system32 so
           # LoadLibrary() can resolve it via DLL search order even when wine
           # falls back from the exe-adjacent path lookup.
@@ -328,8 +351,15 @@ jobs:
           echo "WINEPREFIX=${WINEPREFIX:-<unset>}"
           echo "FXC env=${FXC:-<unset>}"
           ls -la /usr/local/bin/wine-fxc-wrapper /usr/local/bin/fxc2.exe /usr/local/bin/d3dcompiler_47.dll || true
-          echo "=== Wrapper execve check ==="
+          echo "=== /usr/lib/wine/ contents (verify .real backup + wrapper install) ==="
+          ls -la /usr/lib/wine/wine64 /usr/lib/wine/wine64.real 2>/dev/null || true
+          ls -la /usr/lib/x86_64-linux-gnu/wine/wine64 /usr/lib/x86_64-linux-gnu/wine/wine64.real 2>/dev/null || true
+          echo "=== Wrapper execve check (canonical path) ==="
           python3 -c "import subprocess; print(subprocess.check_output(['/usr/local/bin/wine-fxc-wrapper', '--version']).decode().strip())"
+          echo "=== Wrapper execve check (intercept path: /usr/lib/wine/wine64) ==="
+          # If our intercept install worked, this MUST also exec through the
+          # wrapper. If wine reports a normal --version output, the chain works.
+          python3 -c "import subprocess; print(subprocess.check_output(['/usr/lib/wine/wine64', '--version']).decode().strip())" || echo "intercept exec failed"
 
       - name: Build
         # Tee the entire build log to disk so we can attach it as an artifact
