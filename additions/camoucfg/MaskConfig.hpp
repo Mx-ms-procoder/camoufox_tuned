@@ -9,7 +9,6 @@ Written by daijro.
 #include <string>
 #include <tuple>
 #include <optional>
-#include <codecvt>
 #include "mozilla/glue/Debug.h"
 #include <cstdlib>
 #include <cstdio>
@@ -36,9 +35,14 @@ inline std::optional<std::string> get_env_utf8(const std::string& name) {
   GetEnvironmentVariableW(wName.c_str(), buffer.data(), size);
   std::wstring wValue(buffer.data());
 
-  // Convert UTF-16 to UTF-8
-  std::wstring_convert<std::codecvt_utf8_utf16<wchar_t>> converter;
-  return converter.to_bytes(wValue);
+  // Convert UTF-16 to UTF-8 using Win32 (std::wstring_convert removed in C++26)
+  int utf8Size = WideCharToMultiByte(CP_UTF8, 0, wValue.c_str(), -1,
+                                     nullptr, 0, nullptr, nullptr);
+  if (utf8Size <= 0) return std::nullopt;
+  std::string result(utf8Size - 1, '\0');
+  WideCharToMultiByte(CP_UTF8, 0, wValue.c_str(), -1,
+                      result.data(), utf8Size, nullptr, nullptr);
+  return result;
 #else
   const char* value = std::getenv(name.c_str());
   if (!value) return std::nullopt;

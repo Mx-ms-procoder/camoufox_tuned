@@ -141,6 +141,57 @@ jobs:
           cargo download -x windows=0.58.0
           echo "MOZ_WINDOWS_RS_DIR=$HOME/windows-rs/windows-0.58.0" >> "$GITHUB_ENV"
 
+      - name: Fix GCC 13 MinGW headers for clang cross-compilation
+        if: matrix.target == 'windows'
+        run: |
+          set -eux
+          # Ubuntu 24.04 ships GCC 13 MinGW headers which have two breaking changes
+          # that clang 16+ exposes when building Firefox 135's winlauncher/freestanding:
+          #
+          # Issue 1: bits/requires_hosted.h (new in GCC 13) emits a hard #error when
+          #   any hosted C++ header (<ostream>, <algorithm>, …) is included while the
+          #   compiler is in freestanding mode (-ffreestanding / __STDC_HOSTED__=0).
+          #   Firefox 135's freestanding build includes such headers (e.g. <ostream>
+          #   via mozilla/Maybe.h). GCC itself silently accepted this; clang surfaces it.
+          #   Fixed upstream in Firefox 146 (bug 1884973). Stub the file here so builds
+          #   against GCC 13 MinGW headers still work.
+          #
+          # Issue 2: GCC 13 cstdlib re-declares abort() and _Exit() with
+          #   _GLIBCXX_NOTHROW (= noexcept), but MinGW's own process.h declares them
+          #   without any exception spec. Clang 16+ treats this as a hard error;
+          #   GCC silently ignores it. Remove _GLIBCXX_NOTHROW from the two conflicting
+          #   declarations in cstdlib so the specs are consistent with process.h.
+          ARCH="${{ matrix.arch }}"
+          case "$ARCH" in
+            x86_64) MINGW_TRIPLETS="x86_64-w64-mingw32" ;;
+            i686)   MINGW_TRIPLETS="i686-w64-mingw32" ;;
+            *)      MINGW_TRIPLETS="" ;;
+          esac
+          for triplet in $MINGW_TRIPLETS; do
+            for model in 13-win32 13-posix; do
+              GCC_DIR="/usr/lib/gcc/$triplet/$model"
+              [ -d "$GCC_DIR" ] || continue
+              # Fix 1: stub out requires_hosted.h
+              HOSTED_H="$GCC_DIR/include/c++/bits/requires_hosted.h"
+              if [ -f "$HOSTED_H" ]; then
+                printf '// Camoufox: stub — bypasses GCC 13 freestanding restriction\n// for clang MinGW cross-compilation (fixed upstream in Firefox 146).\n' \
+                  | sudo tee "$HOSTED_H" > /dev/null
+                echo "Stubbed $HOSTED_H"
+              fi
+              # Fix 2: remove noexcept from abort() and _Exit() in cstdlib
+              CSTDLIB="$GCC_DIR/include/c++/cstdlib"
+              if [ -f "$CSTDLIB" ]; then
+                sudo sed -i \
+                  's/extern "C" void abort(void) _GLIBCXX_NOTHROW _GLIBCXX_NORETURN;/extern "C" void abort(void) _GLIBCXX_NORETURN;/g' \
+                  "$CSTDLIB"
+                sudo sed -i \
+                  's/extern "C" void _Exit(int) _GLIBCXX_NOTHROW _GLIBCXX_NORETURN;/extern "C" void _Exit(int) _GLIBCXX_NORETURN;/g' \
+                  "$CSTDLIB"
+                echo "Patched $CSTDLIB"
+              fi
+            done
+          done
+
       - name: Set up Windows shader compiler
         if: matrix.target == 'windows'
         run: |
