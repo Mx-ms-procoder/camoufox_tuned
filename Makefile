@@ -52,8 +52,7 @@ fetch:
 			echo "Fetching private patches..."; \
 			mkdir -p patches/closedsrc; \
 			if ! aria2c --dry-run "https://camoufox.com/pipeline/rev-$(closedsrc_rev).7z" 2>/dev/null; then \
-				echo "No private patches found for this version"; \
-				exit 1; \
+				echo "No private patches found for this version, continuing without them"; \
 			else \
 				aria2c -o rev-$(closedsrc_rev).7z "https://camoufox.com/pipeline/rev-$(closedsrc_rev).7z" && \
 				7z x -p"$$CAMOUFOX_PASSWD" rev-$(closedsrc_rev).7z -o./patches/closedsrc && \

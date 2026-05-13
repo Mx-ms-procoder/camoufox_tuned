@@ -297,8 +297,6 @@ jobs:
           echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX14.4.sdk" >> "$GITHUB_ENV"
 
       - name: Fetch source
-        env:
-          CAMOUFOX_PASSWD: ${{ secrets.CAMOUFOX_PASSWD }}
         run: |
           make fetch
 
