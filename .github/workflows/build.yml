@@ -131,6 +131,39 @@ jobs:
             sudo apt-get install -y autoconf automake cmake git libbz2-dev libgmp-dev liblzma-dev libmpc-dev libmpfr-dev libssl-dev libtool libxml2-dev uuid-dev zlib1g-dev
           fi
 
+      - name: Install Rust 1.83.0 toolchain
+        # Firefox 135 was tested and released with Rust 1.83.0 (see
+        # https://firefox-source-docs.mozilla.org/writing-rust-code/update-policy.html).
+        # The Ubuntu 24.04 GitHub runner image ships Rust 1.94.1, which
+        # introduced several new lints between 1.84 and 1.94 that fire
+        # in Firefox 135's generated bindgen code and patched crates:
+        #   - dangerous_implicit_autorefs (warn 1.84, deny-by-default 1.89)
+        #   - mismatched_lifetime_syntaxes (warn 1.89)
+        #   - unnecessary_transmutes (warn 1.88)
+        # On Windows cross-compile, the bindgen-generated style/structs.rs
+        # for the x86_64-pc-windows-gnu / i686-pc-windows-gnu targets
+        # triggers a failure at the libgkrust.a stage that does not occur
+        # for the Linux/macOS targets. Pinning to the exact upstream-tested
+        # Rust version eliminates the lint mismatch entirely. See Mozilla
+        # bugs 1966563, 1988171, 1988468, 1989313 for the upstream history.
+        run: |
+          set -eux
+          rustup toolchain install 1.83.0 --profile minimal
+          rustup default 1.83.0
+          # Install the cross-compile std library for the matrix target.
+          # Native targets (linux x86_64 on x86_64 runner, linux arm64 on
+          # arm64 runner) need no extra target install.
+          case "${{ matrix.target }}-${{ matrix.arch }}" in
+            linux-i686)     rustup target add i686-unknown-linux-gnu ;;
+            windows-x86_64) rustup target add x86_64-pc-windows-gnu ;;
+            windows-i686)   rustup target add i686-pc-windows-gnu ;;
+            macos-x86_64)   rustup target add x86_64-apple-darwin ;;
+            macos-arm64)    rustup target add aarch64-apple-darwin ;;
+          esac
+          rustc --version
+          cargo --version
+          rustup target list --installed
+
       - name: Set up Windows Rust crate
         if: matrix.target == 'windows'
         run: |
