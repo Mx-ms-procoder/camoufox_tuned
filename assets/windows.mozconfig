@@ -15,6 +15,13 @@ export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
 export RANLIB="$MINGW_TRIPLE-ranlib"
 
+# Prevent check_binary from scanning the Windows cross-compile COFF archive for
+# networking symbols. check_binary is designed for Linux ELF binaries; Windows
+# socket API imports (WSAStartup, connect, etc.) are legitimate DLL imports in
+# COFF archives but trigger false positives. MOZ_LTO_RUST_CROSS=1 suppresses
+# the -Clto flag addition in rust.mk which gates whether check_binary runs.
+export MOZ_LTO_RUST_CROSS=1
+
 if command -v llvm-dlltool >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool
 elif command -v llvm-dlltool-18 >/dev/null 2>&1; then
