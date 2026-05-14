@@ -421,6 +421,123 @@ jobs:
           make setup-minimal
           mkdir -p dist
 
+      - name: Patch Maybe.h for freestanding cross-compile (Mozilla bug 1884973)
+        if: matrix.target == 'windows'
+        # Firefox 135's mfbt/Maybe.h unconditionally `#include <ostream>` and
+        # defines a `std::ostream& operator<<(...)` for Maybe<T>. Under
+        # GCC 13 MinGW headers + clang freestanding (-ffreestanding), pulling
+        # in <ostream> transitively includes <iosfwd>, which forward-declares
+        # `basic_string<_CharT, _Traits, _Alloc = allocator<_CharT>>`. Since
+        # <memory> is not available in freestanding mode, `allocator` is
+        # undefined and compilation of browser/app/winlauncher/freestanding
+        # fails with "no template named 'allocator'".
+        #
+        # Stubbing `bits/requires_hosted.h` (done in the next step) only
+        # silences GCC's polite #error guard; the underlying ill-formed
+        # include of hosted headers still breaks. The real fix — applied
+        # upstream in Firefox 146 — is to skip <ostream> and the ostream
+        # operator<< when __STDC_HOSTED__ == 0.
+        run: |
+          set -eux
+          # shellcheck disable=SC1091
+          source ./upstream.sh
+          CF_SRC="camoufox-${version}-${release}"
+          MAYBE_H="${CF_SRC}/mfbt/Maybe.h"
+          if [ ! -f "$MAYBE_H" ]; then
+            echo "ERROR: $MAYBE_H not found"
+            ls -la "${CF_SRC}/mfbt/" 2>/dev/null | head -40 || true
+            exit 1
+          fi
+          cp "$MAYBE_H" "${MAYBE_H}.orig"
+          python3 - "$MAYBE_H" <<'PYEOF'
+          import re, sys
+
+          path = sys.argv[1]
+          with open(path, "r", encoding="utf-8") as f:
+              src = f.read()
+
+          lines = src.split("\n")
+          out = []
+          i = 0
+          patched_include = False
+          patched_operator = False
+
+          while i < len(lines):
+              line = lines[i]
+
+              # 1) Guard the <ostream> include.
+              if not patched_include and re.match(
+                  r'^\s*#\s*include\s*<ostream>\s*$', line
+              ):
+                  indent = line[: len(line) - len(line.lstrip())]
+                  out.append(f"{indent}#if __STDC_HOSTED__")
+                  out.append(line)
+                  out.append(f"{indent}#endif")
+                  patched_include = True
+                  i += 1
+                  continue
+
+              # 2) Guard the ostream operator<< template. Detect by the
+              # `std::ostream& operator<<` line, then look back for the
+              # `template <...>` line(s) and forward for the matching
+              # closing brace at depth 0.
+              if (
+                  not patched_operator
+                  and "std::ostream" in line
+                  and "operator<<" in line
+              ):
+                  # Walk back to capture preceding `template <...>` line(s).
+                  start = i
+                  while start > 0 and re.match(
+                      r'^\s*template\s*<', lines[start - 1]
+                  ):
+                      start -= 1
+                  # Pop any previously-emitted lines that we are about
+                  # to re-emit inside the #if guard.
+                  pop = i - start
+                  if pop:
+                      del out[-pop:]
+                  out.append("#if __STDC_HOSTED__")
+                  depth = 0
+                  started = False
+                  j = start
+                  while j < len(lines):
+                      out.append(lines[j])
+                      for c in lines[j]:
+                          if c == "{":
+                              depth += 1
+                              started = True
+                          elif c == "}":
+                              depth -= 1
+                      j += 1
+                      if started and depth == 0:
+                          break
+                  out.append("#endif")
+                  patched_operator = True
+                  i = j
+                  continue
+
+              out.append(line)
+              i += 1
+
+          if not patched_include:
+              print("ERROR: <ostream> include not found in Maybe.h", file=sys.stderr)
+              sys.exit(2)
+          if not patched_operator:
+              print(
+                  "WARN: ostream operator<< not found in Maybe.h "
+                  "(forward-compatible: maybe already upstream-fixed)",
+                  file=sys.stderr,
+              )
+
+          with open(path, "w", encoding="utf-8") as f:
+              f.write("\n".join(out))
+          print(f"Patched: {path}")
+          PYEOF
+          echo "=== diff (orig -> patched) ==="
+          diff -u "${MAYBE_H}.orig" "$MAYBE_H" | head -80 || true
+          rm -f "${MAYBE_H}.orig"
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
