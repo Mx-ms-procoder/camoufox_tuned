@@ -168,10 +168,19 @@ jobs:
         if: matrix.target == 'windows'
         run: |
           set -eux
-          cargo install cargo-download
           mkdir -p "$HOME/windows-rs"
           cd "$HOME/windows-rs"
-          cargo download -x windows=0.58.0
+          # Download windows-0.58.0 directly from crates.io instead of using
+          # `cargo install cargo-download`. cargo-download v0.1.2 has a transitive
+          # dependency on idna_adapter v1.2.2, which requires edition2024 (stabilized
+          # in Rust 1.85.0). Cargo 1.83.0 cannot parse its manifest and fails with
+          # "feature `edition2024` is required". .crate files are standard tar+gzip
+          # archives that extract to a directory named {crate}-{version}/.
+          curl -fsSL --retry 5 --retry-all-errors \
+            "https://static.crates.io/crates/windows/windows-0.58.0.crate" \
+            -o windows-0.58.0.crate
+          tar -xzf windows-0.58.0.crate
+          rm windows-0.58.0.crate
           echo "MOZ_WINDOWS_RS_DIR=$HOME/windows-rs/windows-0.58.0" >> "$GITHUB_ENV"
 
       - name: Fix GCC 13 MinGW headers for clang cross-compilation
