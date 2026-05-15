@@ -587,6 +587,11 @@ jobs:
         # actual error (often early C++ compile failures hidden behind a long
         # parallel rust build) is lost. Use PIPESTATUS to surface the real
         # exit code, since `tee` always succeeds.
+        # MACH_BUILD_ARGS=--verbose is set for Windows so that mach passes
+        # --verbose to gmake, disabling the -s (silent) flag and surfacing the
+        # exact failing compiler/linker command in the artifact log.
+        env:
+          MACH_BUILD_ARGS: ${{ matrix.target == 'windows' && '--verbose' || '' }}
         run: |
           set -o pipefail
           mkdir -p build-logs

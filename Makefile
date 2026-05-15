@@ -130,7 +130,7 @@ build: unbusy
 	@if [ ! -f $(cf_source_dir)/_READY ]; then \
 		make dir; \
 	fi
-	cd $(cf_source_dir) && ./mach build $(_ARGS)
+	cd $(cf_source_dir) && ./mach build $(MACH_BUILD_ARGS) $(_ARGS)
 
 edits:
 	python3 ./scripts/developer.py $(version) $(release)
