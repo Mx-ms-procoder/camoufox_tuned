@@ -21,6 +21,7 @@ import sys
 from dataclasses import dataclass
 
 from _mixin import (
+    conflict_exit_code,
     detect_conflicts,
     find_src_dir,
     get_moz_target,
@@ -62,7 +63,7 @@ class Patcher:
             manifests = load_patch_manifests(root_dir=patch_root)
             conflicts = detect_conflicts(manifests, root_dir=patch_root)
             print_conflict_report(conflicts)
-            return
+            sys.exit(conflict_exit_code(conflicts, strict=getattr(options, 'strict', False)))
 
         # Determine which features/bundles to apply
         features = options.features
@@ -145,8 +146,9 @@ class Patcher:
 
 def add_rustup(*targets):
     """Add rust targets"""
+    rustup = os.path.expanduser('~/.cargo/bin/rustup')
     for rust_target in targets:
-        run(f'~/.cargo/bin/rustup target add "{rust_target}"')
+        run([rustup, 'target', 'add', rust_target])
 
 
 def _update_rustup(target):

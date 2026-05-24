@@ -1,5 +1,28 @@
+"""
+Cloud-native session broker (EXPERIMENTAL).
+
+STATUS: This module implements the metadata side of a session broker —
+session leases, snapshot storage, worker registration, and an HTTP API —
+but ``SessionBroker.create_session`` does NOT launch a browser, connect
+to a worker pod, or proxy traffic. The tracked ``k8s/*.yaml`` manifests
+run the same ``camoufox-slim`` image whose default command is
+``camoufox cloud-broker``, so worker pods are not yet distinct browser
+workers. See ``AUDIT_2026-05-18.md`` before treating this as a
+production-ready broker/worker platform.
+
+Lease state lives in ``SessionBroker._leases`` (in-process). The K8s
+Deployment is therefore pinned to ``replicas: 1``. Workers / snapshots
+are pluggable and can already talk to Redis or S3.
+
+Bearer-token enforcement: ``serve_broker`` aborts at startup if the
+broker binds to a non-loopback host without ``CAMOUFOX_BROKER_TOKEN``.
+The previously available ``CAMOUFOX_BROKER_ALLOW_UNAUTHENTICATED=1``
+escape hatch was removed in AUDIT_2026-05-18.md (K-5).
+"""
+
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -274,7 +297,8 @@ class RedisSnapshotStore:
     def health_check(self) -> bool:
         try:
             return self._client.ping()
-        except Exception:
+        except Exception as exc:  # redis raises a hierarchy of RedisError subclasses
+            logger.warning("Redis snapshot store health check failed: %s", exc)
             return False
 
 
@@ -322,50 +346,96 @@ class RedisPoolManager:
                     "egress_classes": "nss,utls-sidecar",
                 })
 
+    # Lua scripts make acquire/release atomic on the Redis side so two
+    # broker replicas can't double-book the same low-load worker and
+    # release can never push active_sessions below zero. They are
+    # evaluated via EVAL — Redis caches them by SHA on the first call,
+    # so latency stays comparable to plain HINCRBY round-trips.
+    _ACQUIRE_LUA = """
+        local lease_key = KEYS[1]
+        local prefix = ARGV[1]
+        local egress = ARGV[2]
+        local existing = redis.call("HGET", lease_key, "worker_id")
+        if existing then
+            local wk = prefix .. "worker:" .. existing
+            return {existing,
+                    redis.call("HGET", wk, "endpoint") or "",
+                    redis.call("HGET", wk, "egress_classes") or "",
+                    redis.call("HGET", wk, "active_sessions") or "0"}
+        end
+        local keys = redis.call("KEYS", prefix .. "worker:*")
+        local best_worker = nil
+        local best_sessions = -1
+        local best_endpoint = ""
+        local best_egress = ""
+        for _, key in ipairs(keys) do
+            local egress_classes = redis.call("HGET", key, "egress_classes") or ""
+            local matches = false
+            for cls in string.gmatch(egress_classes, "[^,]+") do
+                if cls == egress then matches = true break end
+            end
+            if matches then
+                local sessions = tonumber(redis.call("HGET", key, "active_sessions") or "0") or 0
+                if best_sessions < 0 or sessions < best_sessions then
+                    best_sessions = sessions
+                    best_worker = redis.call("HGET", key, "worker_id")
+                    best_endpoint = redis.call("HGET", key, "endpoint") or ""
+                    best_egress = egress_classes
+                end
+            end
+        end
+        if not best_worker then return nil end
+        local wk = prefix .. "worker:" .. best_worker
+        local new_sessions = redis.call("HINCRBY", wk, "active_sessions", 1)
+        redis.call("HSET", lease_key, "worker_id", best_worker)
+        return {best_worker, best_endpoint, best_egress, tostring(new_sessions)}
+    """
+
+    _RELEASE_LUA = """
+        local lease_key = KEYS[1]
+        local prefix = ARGV[1]
+        local worker_id = redis.call("HGET", lease_key, "worker_id")
+        if not worker_id then return 0 end
+        local wk = prefix .. "worker:" .. worker_id
+        local current = tonumber(redis.call("HGET", wk, "active_sessions") or "0") or 0
+        if current > 0 then
+            redis.call("HINCRBY", wk, "active_sessions", -1)
+        end
+        redis.call("DEL", lease_key)
+        return 1
+    """
+
     def acquire(self, session_id: str, egress_class: str) -> WorkerSlot:
-        # Find the worker with fewest active sessions
-        worker_keys = self._client.keys(f"{self._prefix}worker:*")
-        best_worker = None
-        best_sessions = float("inf")
-
-        for key in worker_keys:
-            data = self._client.hgetall(key)
-            egress_classes = data.get("egress_classes", "").split(",")
-            if egress_class not in egress_classes:
-                continue
-            sessions = int(data.get("active_sessions", "0"))
-            if sessions < best_sessions:
-                best_sessions = sessions
-                best_worker = data
-
-        if best_worker is None:
+        lease_key = f"{self._prefix}lease:{session_id}"
+        result = self._client.eval(
+            self._ACQUIRE_LUA, 1, lease_key, self._prefix, egress_class,
+        )
+        if result is None:
             raise RuntimeError(f"No worker available for egress class '{egress_class}'")
 
-        worker_id = best_worker["worker_id"]
-        worker_key = f"{self._prefix}worker:{worker_id}"
-        self._client.hincrby(worker_key, "active_sessions", 1)
-        self._client.hset(f"{self._prefix}lease:{session_id}", "worker_id", worker_id)
+        def _decode(v: Any) -> str:
+            return v.decode() if isinstance(v, (bytes, bytearray)) else str(v)
 
+        worker_id = _decode(result[0])
+        endpoint = _decode(result[1])
+        egress_raw = _decode(result[2])
+        active_sessions = int(_decode(result[3]) or "0")
         return WorkerSlot(
             worker_id=worker_id,
-            endpoint=best_worker["endpoint"],
-            egress_classes=best_worker.get("egress_classes", "").split(","),
-            active_sessions=int(best_worker.get("active_sessions", "0")) + 1,
+            endpoint=endpoint,
+            egress_classes=[c for c in egress_raw.split(",") if c],
+            active_sessions=active_sessions,
         )
 
     def release(self, session_id: str) -> None:
         lease_key = f"{self._prefix}lease:{session_id}"
-        worker_id = self._client.hget(lease_key, "worker_id")
-        if not worker_id:
-            return
-        worker_key = f"{self._prefix}worker:{worker_id}"
-        self._client.hincrby(worker_key, "active_sessions", -1)
-        self._client.delete(lease_key)
+        self._client.eval(self._RELEASE_LUA, 1, lease_key, self._prefix)
 
     def health_check(self) -> bool:
         try:
             return self._client.ping()
-        except Exception:
+        except Exception as exc:  # redis raises a hierarchy of RedisError subclasses
+            logger.warning("Redis pool manager health check failed: %s", exc)
             return False
 
 
@@ -421,7 +491,11 @@ class S3SnapshotStore:
             return json.loads(data)
         except self._s3.exceptions.NoSuchKey:
             return None
-        except Exception:
+        except (ValueError, OSError) as exc:
+            logger.warning("S3 snapshot %s could not be decoded: %s", snapshot_key, exc)
+            return None
+        except Exception as exc:  # botocore ClientError / BotoCoreError tree
+            logger.warning("S3 snapshot %s load failed: %s", snapshot_key, exc)
             return None
 
     def delete(self, snapshot_key: str) -> None:
@@ -430,14 +504,15 @@ class S3SnapshotStore:
                 Bucket=self._bucket,
                 Key=self._key(snapshot_key),
             )
-        except Exception:
-            pass
+        except Exception as exc:  # botocore ClientError / BotoCoreError tree
+            logger.warning("S3 snapshot %s delete failed: %s", snapshot_key, exc)
 
     def health_check(self) -> bool:
         try:
             self._s3.head_bucket(Bucket=self._bucket)
             return True
-        except Exception:
+        except Exception as exc:  # botocore ClientError / BotoCoreError tree
+            logger.warning("S3 health check failed: %s", exc)
             return False
 
 
@@ -590,6 +665,15 @@ def _empty_response(handler: BaseHTTPRequestHandler, status: HTTPStatus) -> None
 
 def _make_handler(broker: SessionBroker):
     expected_token = os.environ.get("CAMOUFOX_BROKER_TOKEN", "")
+
+    def _is_authorized(headers) -> bool:
+        if not expected_token:
+            return True
+        auth_header = headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return False
+        return hmac.compare_digest(auth_header[7:], expected_token)
+
     class SessionBrokerHandler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
             if self.path == "/healthz":
@@ -607,11 +691,9 @@ def _make_handler(broker: SessionBroker):
                 })
                 return
 
-            if expected_token:
-                auth_header = self.headers.get("Authorization", "")
-                if not auth_header.startswith("Bearer ") or auth_header[7:] != expected_token:
-                    _json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
-                    return
+            if not _is_authorized(self.headers):
+                _json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
 
             if self.path.startswith("/sessions/"):
                 session_id = self.path.rsplit("/", 1)[-1]
@@ -629,11 +711,9 @@ def _make_handler(broker: SessionBroker):
                 _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
 
-            if expected_token:
-                auth_header = self.headers.get("Authorization", "")
-                if not auth_header.startswith("Bearer ") or auth_header[7:] != expected_token:
-                    _json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
-                    return
+            if not _is_authorized(self.headers):
+                _json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
 
             try:
                 content_length = int(self.headers.get("Content-Length", "0"))
@@ -670,11 +750,9 @@ def _make_handler(broker: SessionBroker):
                 _json_response(self, HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
 
-            if expected_token:
-                auth_header = self.headers.get("Authorization", "")
-                if not auth_header.startswith("Bearer ") or auth_header[7:] != expected_token:
-                    _json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
-                    return
+            if not _is_authorized(self.headers):
+                _json_response(self, HTTPStatus.UNAUTHORIZED, {"error": "unauthorized"})
+                return
 
             session_id = self.path.rsplit("/", 1)[-1]
             if broker.release_session(session_id):
@@ -757,6 +835,24 @@ def serve_broker(
     snapshot_store = _create_snapshot_store(store_backend)
     pool_manager = _create_pool_manager(pool_backend, pool_size, worker_endpoints)
 
+    logger.warning(
+        "EXPERIMENTAL: SessionBroker only allocates leases and metadata; it "
+        "does not launch browsers or proxy traffic. See AUDIT_2026-05-18.md."
+    )
+    loopback_hosts = ("127.0.0.1", "localhost", "::1")
+    has_token = bool(os.environ.get("CAMOUFOX_BROKER_TOKEN"))
+    if not has_token and host not in loopback_hosts:
+        # K-5 (AUDIT_2026-05-18.md): the previous
+        # CAMOUFOX_BROKER_ALLOW_UNAUTHENTICATED=1 escape hatch let
+        # operators ship a tokenless broker on 0.0.0.0 by setting one
+        # env var. That bypass has been removed. Loopback binds remain
+        # tokenless-allowed for local development.
+        raise RuntimeError(
+            "CAMOUFOX_BROKER_TOKEN must be set when binding the broker to a "
+            f"non-loopback host (got host={host!r}). Set CAMOUFOX_BROKER_TOKEN "
+            "to a strong random value. There is no override; bind to a "
+            "loopback host if you really want a tokenless broker."
+        )
     logger.info(
         "Starting broker: store=%s pool=%s host=%s port=%d",
         type(snapshot_store).__name__,

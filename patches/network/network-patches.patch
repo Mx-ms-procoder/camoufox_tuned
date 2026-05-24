@@ -55,14 +55,19 @@ index d0aebdf965..01472ec205 100644
  
    mAcceptLanguagesIsDirty = false;
  
-@@ -1850,6 +1864,13 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
- 
+@@ -1850,6 +1864,15 @@ nsresult nsHttpHandler::SetAcceptLanguages() {
+
  nsresult nsHttpHandler::SetAcceptEncodings(const char* aAcceptEncodings,
                                             bool isSecure) {
++  // C-4 fix: the override must apply to BOTH HTTP and HTTPS slots.
++  // The previous version only assigned to mHttpsAcceptEncodings, which
++  // silently kept the upstream Firefox default for plain-HTTP requests
++  // — a trivially detectable cross-protocol header inconsistency.
 +  if (auto headerState = IdentityStateProvider::GetHeaderState()) {
 +    if (headerState->acceptEncoding) {
-+      mHttpsAcceptEncodings.Assign(
-+          nsCString(headerState->acceptEncoding->c_str()));
++      nsCString val(headerState->acceptEncoding->c_str());
++      mHttpsAcceptEncodings = val;
++      mHttpAcceptEncodings = val;
 +      return NS_OK;
 +    }
 +  }

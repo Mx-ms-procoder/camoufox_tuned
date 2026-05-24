@@ -6,5 +6,7 @@ patches:
   - core/disable-remote-subframes.patch
   - core/global-style-sheets.patch
   - core/macos-backgroundtasks-disabled.patch
+  - core/macos-sandbox-crash-fix.patch
   - core/windows-theming-bug-modified.patch
+  - core/cross-process-storage.patch
   - core/browser-init.patch

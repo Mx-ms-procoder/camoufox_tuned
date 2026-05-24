@@ -7,6 +7,8 @@ the same OS-scoped profile family so the resulting session state is
 internally consistent before it is serialized into MaskConfig.
 """
 
+import logging
+import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 from random import Random
@@ -15,6 +17,8 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import orjson
 
 from .coherence import validate_coherence
+
+logger = logging.getLogger("camoufox.device_profiles")
 
 _FONTS_PATH = Path(__file__).resolve().parents[1] / "fonts.json"
 
@@ -403,16 +407,23 @@ def sample_device_profile(
         try:
             from camoufox.webgl.sample import sample_webgl
 
+            # Derive a deterministic seed from the identity RNG so the WebGL
+            # pick is reproducible for a given identity instead of varying
+            # with the global numpy random state. Falls back to None (true
+            # randomness) when no caller-supplied generator is in play, but
+            # the generated_kwargs callers always provide one.
+            webgl_seed = generator.randrange(2**63)
             if webgl_config:
-                webgl_state = sample_webgl(os_family, *webgl_config)
+                webgl_state = sample_webgl(os_family, *webgl_config, seed=webgl_seed)
             else:
-                webgl_state = sample_webgl(os_family)
+                webgl_state = sample_webgl(os_family, seed=webgl_seed)
 
             enable_webgl2 = bool(webgl_state.pop("webGl2Enabled", False))
             webgl_data = webgl_state
             gpu_vendor = webgl_state.get("webGl:vendor", "")
             gpu_renderer = webgl_state.get("webGl:renderer", "")
-        except Exception:
+        except (FileNotFoundError, sqlite3.DatabaseError, ValueError, KeyError) as exc:
+            logger.warning("WebGL sampling failed (%s); continuing without WebGL data", exc)
             webgl_data = {}
 
     performance_tier = (

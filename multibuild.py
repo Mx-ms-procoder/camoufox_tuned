@@ -19,9 +19,11 @@ Since Camoufox is NOT meant to be used as a daily driver, no installers are prov
 import argparse
 import glob
 import os
+import shlex
+import subprocess
 import sys
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union
 import shutil
 
 # Constants
@@ -29,13 +31,23 @@ AVAILABLE_TARGETS = ["linux", "windows", "macos"]
 AVAILABLE_ARCHS = ["x86_64", "arm64", "i686"]
 
 
-def run(cmd, exit_on_fail=True):
-    print(f'\n------------\n{cmd}\n------------\n')
-    retval = os.system(cmd)
-    if retval != 0 and exit_on_fail:
-        print(f"fatal error: command '{cmd}' failed")
+def run(cmd: Union[str, List[str]], exit_on_fail: bool = True) -> int:
+    """Run ``cmd`` without a shell when possible.
+
+    A list ``cmd`` is passed straight to subprocess.run as argv; a string
+    is split with ``shlex`` so simple ``make foo bar=baz`` strings still
+    work without invoking /bin/sh.
+    """
+    if isinstance(cmd, str):
+        argv = shlex.split(cmd)
+    else:
+        argv = list(cmd)
+    print(f'\n------------\n{shlex.join(argv)}\n------------\n')
+    completed = subprocess.run(argv, shell=False, check=False)
+    if completed.returncode != 0 and exit_on_fail:
+        print(f"fatal error: command {argv!r} failed")
         sys.exit(1)
-    return retval
+    return completed.returncode
 
 
 @dataclass

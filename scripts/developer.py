@@ -5,6 +5,7 @@ GUI for managing Camoufox patches.
 """
 import os
 import re
+import subprocess
 import sys
 import easygui
 
@@ -107,7 +108,14 @@ def open_patch_workspace(selected_patch, stop_at_patch=False):
         message = "Successfully applied patch to the workspace.\n"
 
     # Run the selected patch
-    patch_result = os.popen(f'patch -p1 -i "{selected_patch}"').read()
+    patch_proc = subprocess.run(
+        ['patch', '-p1', '-i', selected_patch],
+        shell=False,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    patch_result = patch_proc.stdout + patch_proc.stderr
 
     # Find any line containing a file .rej
     if patch_broken:
@@ -139,12 +147,17 @@ def check_patch(patch_file):
     Checks if the patch can be applied or can be reversed
     Returns (can_apply, can_reverse, is_broken)
     """
-    can_apply = not bool(
-        os.system(f'patch -p1 --dry-run --force -i "{patch_file}" > /dev/null 2>&1')
-    )
-    can_reverse = not bool(
-        os.system(f'patch -p1 -R --dry-run --force -i "{patch_file}" > /dev/null 2>&1')
-    )
+    def _dry_run(extra_args):
+        return subprocess.run(
+            ['patch', '-p1', '--dry-run', '--force', *extra_args, '-i', patch_file],
+            shell=False,
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ).returncode == 0
+
+    can_apply = _dry_run([])
+    can_reverse = _dry_run(['-R'])
     return can_apply, can_reverse, not (can_apply or can_reverse)
 
 
@@ -155,10 +168,30 @@ def is_broken(patch_file):
 
 
 def get_rejects(patch_file):
-    """Get rejects from a patch file"""
-    cmd = f'patch -p1 -i "{patch_file}" | tee /dev/stderr | sed -n -E \'s/^.*saving rejects to file (.*\\.rej)$/\\1/p\''
-    result = os.popen(cmd).read().strip()
-    return result.split('\n') if result else []
+    """Apply ``patch_file`` and return the list of .rej files it created.
+
+    The previous implementation piped ``patch`` through ``tee`` and ``sed``
+    via a shell string; we now run patch with stderr captured and parse
+    its output in-process to drop the shell dependency.
+    """
+    proc = subprocess.run(
+        ['patch', '-p1', '-i', patch_file],
+        shell=False,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    # Mirror the old `tee /dev/stderr` so the user still sees patch output.
+    if proc.stdout:
+        sys.stdout.write(proc.stdout)
+    if proc.stderr:
+        sys.stderr.write(proc.stderr)
+    rejects = []
+    for line in proc.stdout.splitlines():
+        match = re.search(r'saving rejects to file (.*\.rej)$', line)
+        if match:
+            rejects.append(match.group(1))
+    return rejects
 
 
 # GUI Choicebox with options
@@ -335,7 +368,10 @@ def handle_choice(choice):
             )
 
         case "See current workspace":
-            result = os.popen('git diff').read()
+            result = subprocess.run(
+                ['git', 'diff'], shell=False, check=False,
+                capture_output=True, text=True,
+            ).stdout
             easygui.textbox("Diff", "Diff", result)
 
         case "Write workspace to patch":
@@ -348,8 +384,20 @@ def handle_choice(choice):
                 )
             if not file_path:
                 exit()
-            run(f'git diff > {file_path}')
-            easygui.msgbox(f"Patch has been written to {file_path}.", "Patch Written")
+            # Capture stdout in Python rather than relying on a shell '>' redirect,
+            # so file_path (which may contain spaces) is treated as a literal path
+            # and never re-parsed by the shell.
+            with open(file_path, 'w', encoding='utf-8') as fh:
+                completed = subprocess.run(
+                    ['git', 'diff'], shell=False, check=False, stdout=fh,
+                )
+            if completed.returncode != 0:
+                easygui.msgbox(
+                    f"'git diff' exited with status {completed.returncode}.",
+                    "Patch Write Failed",
+                )
+            else:
+                easygui.msgbox(f"Patch has been written to {file_path}.", "Patch Written")
 
         case _:
             print('No choice selected')

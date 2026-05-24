@@ -6,6 +6,7 @@ be flagged by advanced anti-bot systems doing cross-reference checks
 (e.g., Apple GPU on Windows, HiDPI on a low-end GPU, etc.).
 """
 
+import logging
 from typing import Any, Callable, List, Tuple
 
 # TYPE_CHECKING import to avoid circular imports
@@ -13,6 +14,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import DeviceProfile
+
+logger = logging.getLogger("camoufox.coherence")
 
 
 def validate_coherence(profile: 'DeviceProfile') -> List[str]:
@@ -28,8 +31,17 @@ def validate_coherence(profile: 'DeviceProfile') -> List[str]:
         try:
             if not rule_fn(profile):
                 issues.append(name)
-        except Exception:
-            pass  # Rule evaluation failure is not a coherence issue
+        except (AttributeError, TypeError, ValueError, ZeroDivisionError) as exc:
+            # A broken rule should be visible (logged + reported) instead of
+            # silently masking inconsistencies. We still keep going so one
+            # bad rule does not abort the whole check.
+            logger.warning(
+                "Coherence rule %r raised %s: %s — treating profile as failing this rule",
+                name,
+                type(exc).__name__,
+                exc,
+            )
+            issues.append(f"{name} [rule errored: {type(exc).__name__}]")
     return issues
 
 

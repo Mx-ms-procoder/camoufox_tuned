@@ -4,11 +4,11 @@
 
 "use strict";
 
-const {Helper, EventWatcher} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {NetUtil} = ChromeUtils.import('resource://gre/modules/NetUtil.jsm');
-const {NetworkObserver, PageNetwork} = ChromeUtils.import('chrome://juggler/content/NetworkObserver.js');
-const {PageTarget} = ChromeUtils.import('chrome://juggler/content/TargetRegistry.js');
-const {setTimeout} = ChromeUtils.import('resource://gre/modules/Timer.jsm');
+const {Helper, EventWatcher} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const {NetUtil} = ChromeUtils.importESModule('resource://gre/modules/NetUtil.sys.mjs');
+const {NetworkObserver, PageNetwork} = ChromeUtils.importESModule('chrome://juggler/content/NetworkObserver.js');
+const {PageTarget} = ChromeUtils.importESModule('chrome://juggler/content/TargetRegistry.js');
+const {setTimeout} = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
@@ -65,7 +65,7 @@ class WorkerHandler {
   }
 }
 
-class PageHandler {
+export class PageHandler {
   constructor(target, session, contentChannel) {
     this._session = session;
     this._contentChannel = contentChannel;
@@ -548,7 +548,8 @@ class PageHandler {
               continue;
             }
             await sendMouseEvent(type, currentX, currentY);
-            await new Promise(resolve => setTimeout(resolve, 10));
+            // Jitter step delay 7-15ms — fixed 10ms is a stable machine fingerprint
+            await new Promise(resolve => setTimeout(resolve, 7 + Math.floor(Math.random() * 9)));
           }
         } else {
           // Call the function for the current event
@@ -721,5 +722,3 @@ class PageHandler {
   }
 }
 
-var EXPORTED_SYMBOLS = ['PageHandler'];
-this.PageHandler = PageHandler;

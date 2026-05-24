@@ -1,6 +1,14 @@
 /*
 Camoufox uTLS Sidecar Proxy — MitM-capable TLS fingerprint proxy.
 
+STATUS: EXPERIMENTAL.
+No registered TLS profile in pythonlib/camoufox/tls_profiles.py currently sets
+transport_mode="utls-sidecar", so the standard Python launch path
+(launch_options()) never routes traffic through this binary. The sidecar
+builds and is invocable manually, but it is not part of the operational
+identity pipeline. See AUDIT_2026-05-15.md (priority fix #2) before depending
+on it for stealth claims.
+
 Modes (CAMOU_UTLS_MODE):
 
 	"transparent" — Raw TCP relay for CONNECT. Browser's NSS handles TLS. (default)
@@ -8,7 +16,7 @@ Modes (CAMOU_UTLS_MODE):
 
 Environment variables:
 
-	CAMOU_UTLS_PROFILE       : Fallback profile ID (default "firefox135")
+	CAMOU_UTLS_PROFILE       : Fallback profile ID (default "firefox150")
 	CAMOU_UTLS_LISTEN        : Listen address (default "127.0.0.1:8080")
 	CAMOU_UTLS_DEBUG         : "1" to enable debug logging
 	CAMOU_UTLS_MODE          : "transparent" or "mitm"
@@ -218,7 +226,9 @@ func buildCustomSpec(id *IdentityBlob) *utls.ClientHelloSpec {
 		alpn = []string{"h2", "http/1.1"}
 	}
 
-	// Build extensions list (Firefox 135 order)
+	// Build extensions list (Firefox 150 order — same as 135 baseline,
+	// no observed reordering in upstream Mozilla NSS handshake between
+	// 135 and 150. Re-capture if behavioural drift is suspected.)
 	extensions := []utls.TLSExtension{
 		&utls.SNIExtension{},
 		&utls.ExtendedMasterSecretExtension{},
@@ -269,10 +279,31 @@ type proxyServer struct {
 	transport     *http.Transport
 }
 
+// defaultProfileSpec maps Camoufox profile IDs to the closest static utls
+// ClientHello preset. Versions newer than utls' HelloFirefox_120 fall
+// back to that preset because utls does not yet ship native presets for
+// modern Firefox releases. This fallback is only ever the *parity floor*:
+// when CAMOU_UTLS_IDENTITY_JSON is supplied (the normal Camoufox launch
+// path), buildCustomSpec replaces it with a per-version ClientHelloSpec
+// derived from the Python NetworkProfile. See AUDIT_2026-05-17 D-003.
 var defaultProfileSpec = map[string]utls.ClientHelloID{
 	"firefox105": utls.HelloFirefox_105,
 	"firefox120": utls.HelloFirefox_120,
-	"firefox135": utls.HelloFirefox_120, // closest available preset
+	"firefox135": utls.HelloFirefox_120, // closest preset for legacy callers
+	"firefox140": utls.HelloFirefox_120,
+	"firefox146": utls.HelloFirefox_120,
+	"firefox150": utls.HelloFirefox_120, // upgrade target; refresh when utls ships HelloFirefox_150+
+}
+
+// approximateProfiles lists profile IDs that, in the absence of an
+// identity blob, fall through to HelloFirefox_120. Used to surface the
+// parity gap at startup so operators don't unknowingly ship a 120
+// fingerprint as Firefox 150.
+var approximateProfiles = map[string]bool{
+	"firefox135": true,
+	"firefox140": true,
+	"firefox146": true,
+	"firefox150": true,
 }
 
 func newProxyServer(profileName string, debug, mitmMode bool, ca *mitmCA) *proxyServer {
@@ -301,6 +332,18 @@ func newProxyServer(profileName string, debug, mitmMode bool, ca *mitmCA) *proxy
 			}
 		}
 	}
+
+	// Surface the parity gap when an operator selects a profile that has
+	// no native utls preset and did not pass an identity blob. Without
+	// one of those, we silently downgrade to HelloFirefox_120 — useful
+	// info to log so the operator knows the TLS fingerprint will not
+	// match real Firefox 140+ traffic. (AUDIT_2026-05-17 D-003.)
+	if ps.customSpec == nil && approximateProfiles[profileName] {
+		log.Printf("[WARN] Profile %q has no native utls preset and no "+
+			"CAMOU_UTLS_IDENTITY_JSON was supplied; falling back to "+
+			"HelloFirefox_120. ClientHello will NOT match real %s traffic.",
+			profileName, profileName)
+	}
 	
 	ps.transport = &http.Transport{
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -312,12 +355,27 @@ func newProxyServer(profileName string, debug, mitmMode bool, ca *mitmCA) *proxy
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
-	// Apply HTTP/2 SETTINGS parity if identity is available
-	if ps.identity != nil && ps.identity.HTTP2.HeaderTableSize > 0 {
+	// Apply HTTP/2 SETTINGS parity to the extent Go's stdlib http2 transport
+	// exposes them. Go's net/http does not speak HTTP/2 in a configurable way
+	// on its own — http2.ConfigureTransports upgrades the *http.Transport and
+	// returns a *http2.Transport for further tuning.
+	//
+	// Limitations (acknowledged, not silently ignored):
+	//   * SETTINGS_HEADER_TABLE_SIZE, SETTINGS_INITIAL_WINDOW_SIZE,
+	//     SETTINGS_MAX_FRAME_SIZE, SETTINGS_ENABLE_PUSH, and the connection
+	//     WINDOW_UPDATE increment are NOT exposed by the pinned x/net version.
+	//     Until we ship a hand-rolled http2.Framer transport, those bits of
+	//     the identity blob (EnablePush, InitialWindowSize, MaxFrameSize,
+	//     WindowUpdate) silently take Go's defaults. JA4H and HTTP/2-derived
+	//     fingerprints WILL diverge from a real Firefox client.
+	//   * Only SETTINGS_MAX_HEADER_LIST_SIZE is reachable via the public API.
+	//     We map IdentityBlob.HTTP2.HeaderTableSize onto it as a least-bad
+	//     proxy (existing callers expect "the field gets applied"); strictly
+	//     these are two distinct HTTP/2 settings.
+	if ps.identity != nil {
 		h2Transport, err := http2.ConfigureTransports(ps.transport)
-		if err == nil {
-			h2Transport.MaxHeaderListSize = uint32(ps.identity.HTTP2.HeaderTableSize)
-			// Apply other HTTP2 settings if available in future
+		if err == nil && h2Transport != nil && ps.identity.HTTP2.HeaderTableSize > 0 {
+			h2Transport.MaxHeaderListSize = ps.identity.HTTP2.HeaderTableSize
 		}
 	}
 
@@ -555,7 +613,7 @@ func (ps *proxyServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func main() {
 	profileName := os.Getenv("CAMOU_UTLS_PROFILE")
 	if profileName == "" {
-		profileName = "firefox135"
+		profileName = "firefox150"
 	}
 	listenAddr := os.Getenv("CAMOU_UTLS_LISTEN")
 	if listenAddr == "" {

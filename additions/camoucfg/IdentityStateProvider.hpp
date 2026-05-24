@@ -106,6 +106,31 @@ struct HeaderState {
   std::optional<std::string> acceptEncoding;
 };
 
+// K-21 (AUDIT_2026-05-18.md): HTTP/2 fingerprint state. Mirrors the
+// fields produced by `pythonlib/camoufox/tls_profiles.get_http2_config()`
+// when the experimental opt-in is set. Consumers should treat each
+// optional<> as "use upstream Firefox default when absent" — that way
+// the same accessor is safe to call even on a build whose
+// Http2Session.cpp has not yet been patched to honour the values.
+struct Http2State {
+  // SETTINGS frame values (RFC 7540 §6.5.2)
+  std::optional<uint32_t> headerTableSize;       // SETTINGS_HEADER_TABLE_SIZE (id 0x1)
+  std::optional<uint32_t> enablePush;            // SETTINGS_ENABLE_PUSH (id 0x2)
+  std::optional<uint32_t> initialWindowSize;     // SETTINGS_INITIAL_WINDOW_SIZE (id 0x4)
+  std::optional<uint32_t> maxFrameSize;          // SETTINGS_MAX_FRAME_SIZE (id 0x5)
+  std::optional<uint32_t> maxConcurrentStreams;  // SETTINGS_MAX_CONCURRENT_STREAMS (id 0x3)
+  std::optional<uint32_t> maxHeaderListSize;     // SETTINGS_MAX_HEADER_LIST_SIZE (id 0x6)
+
+  // Initial connection-level WINDOW_UPDATE increment that Firefox emits
+  // immediately after the preface + SETTINGS frame. Firefox 135 uses
+  // 12517377; other versions may differ.
+  std::optional<uint32_t> windowUpdate;
+
+  // Default stream weight used for HEADERS-frame PRIORITY hints (RFC
+  // 7540 §5.3.5 — value range 1..256 wire-encoded as N-1, Firefox uses 42).
+  std::optional<uint32_t> priorityWeight;
+};
+
 struct BatteryState {
   std::optional<bool> charging;
   std::optional<double> chargingTime;
@@ -143,6 +168,7 @@ struct IdentityBlob {
   std::optional<CanvasState> canvas;
   std::optional<FontState> fonts;
   std::optional<HeaderState> headers;
+  std::optional<Http2State> http2;
   std::optional<BatteryState> battery;
   std::optional<MediaDeviceState> mediaDevices;
   std::optional<VoiceState> voice;
@@ -331,7 +357,71 @@ inline std::optional<HeaderState> GetHeaderState() {
         MaskConfig::GetString("headers.Accept-Language"),
         MaskConfig::GetString("headers.Accept-Encoding"),
     };
+    // C-3 partial fix: cross-fill from navigator.* so HTTP headers and
+    // JS navigator.* stay consistent. The most common Cloudflare /
+    // DataDome / fingerprintjs-pro detection vector is HTTP-UA differing
+    // from navigator.userAgent. Same applies to Accept-Language vs
+    // navigator.languages[0]. We only fall back — explicit `headers.*`
+    // keys still take precedence, in case the operator intentionally
+    // wants a divergent set (e.g. testing detection robustness).
+    if (!state.userAgent) {
+      if (auto ua = MaskConfig::GetString("navigator.userAgent")) {
+        state.userAgent = std::move(ua);
+      }
+    }
+    if (!state.acceptLanguage) {
+      auto langs = MaskConfig::GetStringList("navigator.languages");
+      if (!langs.empty()) {
+        // Build Accept-Language with q-values matching Firefox's default
+        // formatting: "primary, secondary;q=0.7, tertiary;q=0.3, ...".
+        std::string al;
+        for (size_t i = 0; i < langs.size(); ++i) {
+          if (i > 0) al += ", ";
+          al += langs[i];
+          if (i > 0) {
+            // q drops by 0.3 per step, floored at 0.1, mirroring
+            // Firefox's nsHttpHandler::PrepareAcceptLanguages.
+            double q = std::max(0.1, 1.0 - 0.3 * static_cast<double>(i));
+            char buf[16];
+            std::snprintf(buf, sizeof(buf), ";q=%.1f", q);
+            al += buf;
+          }
+        }
+        state.acceptLanguage = std::move(al);
+      } else if (auto lang = MaskConfig::GetString("navigator.language")) {
+        state.acceptLanguage = std::move(lang);
+      }
+    }
     if (!state.userAgent && !state.acceptLanguage && !state.acceptEncoding) {
+      cache.value = std::nullopt;
+    } else {
+      cache.value = state;
+    }
+  });
+  return cache.value;
+}
+
+inline std::optional<Http2State> GetHttp2State() {
+  // K-21 (AUDIT_2026-05-18.md). Reads the HTTP/2 SETTINGS / initial
+  // WINDOW_UPDATE / default priority weight from MaskConfig. Returns
+  // nullopt when no http2:* keys are present, so the caller in
+  // Http2Session.cpp can short-circuit to upstream behaviour with one
+  // check.
+  static detail::CachedState<Http2State> cache;
+  std::call_once(cache.flag, []() {
+    Http2State state{
+        MaskConfig::GetUint32("http2:headerTableSize"),
+        MaskConfig::GetUint32("http2:enablePush"),
+        MaskConfig::GetUint32("http2:initialWindowSize"),
+        MaskConfig::GetUint32("http2:maxFrameSize"),
+        MaskConfig::GetUint32("http2:maxConcurrentStreams"),
+        MaskConfig::GetUint32("http2:maxHeaderListSize"),
+        MaskConfig::GetUint32("http2:windowUpdate"),
+        MaskConfig::GetUint32("http2:priorityWeight"),
+    };
+    if (!state.headerTableSize && !state.enablePush && !state.initialWindowSize &&
+        !state.maxFrameSize && !state.maxConcurrentStreams &&
+        !state.maxHeaderListSize && !state.windowUpdate && !state.priorityWeight) {
       cache.value = std::nullopt;
     } else {
       cache.value = state;
@@ -429,6 +519,7 @@ inline const IdentityBlob& GetIdentityBlob() {
     blob.canvas = GetCanvasState();
     blob.fonts = GetFontState();
     blob.headers = GetHeaderState();
+    blob.http2 = GetHttp2State();
     blob.battery = GetBatteryState();
     blob.mediaDevices = GetMediaDeviceState();
     blob.voice = GetVoiceState();

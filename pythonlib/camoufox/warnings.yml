@@ -49,3 +49,19 @@ custom_fonts_only: >-
 
 disable_coop: >-
     Disabling Cross-Origin-Opener-Policy (COOP) handling can potentially be detected by sophisticated WAFs.
+
+http2_profile_inert: >-
+    The HTTP/2 fingerprint template was supplied but Camoufox no longer
+    consumes it (K-2). The browser will emit Firefox-native HTTP/2
+    SETTINGS. If exact HTTP/2 parity is required, you need an
+    Http2Session.cpp patch wired to IdentityStateProvider — see
+    AUDIT_2026-05-18.md.
+
+sidecar_mitm_ca_not_auto_trusted: >-
+    The uTLS sidecar was selected (transport_mode='utls-sidecar') but
+    Camoufox no longer auto-enables `security.enterprise_roots.enabled`
+    on your behalf — that pref widens trust to every CA the host OS has
+    accumulated (enterprise MDM, AV-injected roots) and is a real bypass
+    surface. You must explicitly trust the sidecar's CA via Firefox's
+    cert9.db or via `firefox_user_prefs`. See K-3 / K-16 in
+    AUDIT_2026-05-18.md.

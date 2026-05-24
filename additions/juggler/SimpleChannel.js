@@ -78,8 +78,14 @@ class SimpleChannel {
   }
 
   _setTimeout(cb, timeout) {
-    // Lazy load on first call.
-    this._setTimeout = ChromeUtils.import('resource://gre/modules/Timer.jsm').setTimeout;
+    // Lazy load on first call. Firefox 141+ removed the JSM loader entirely,
+    // so go through importESModule when available (chrome context) and fall
+    // back to the worker-provided setTimeout otherwise.
+    if (typeof ChromeUtils !== 'undefined' && ChromeUtils.importESModule) {
+      this._setTimeout = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs').setTimeout;
+    } else {
+      this._setTimeout = (cb2, t) => setTimeout(cb2, t);
+    }
     this._setTimeout(cb, timeout);
   }
 
@@ -252,5 +258,10 @@ class SimpleChannel {
   }
 }
 
-var EXPORTED_SYMBOLS = ['SimpleChannel'];
+// SimpleChannel.js stays in classic-script form on purpose: it is loaded
+// into JS Debugger workers via loadSubScript (see content/WorkerMain.js),
+// where ES module syntax would be a parse error. Chrome-process ESM
+// consumers (Juggler.js, TargetRegistry.js, …) go through
+// SimpleChannel.sys.mjs, which sandboxes this file and re-exports the
+// class as a proper ESM binding.
 this.SimpleChannel = SimpleChannel;

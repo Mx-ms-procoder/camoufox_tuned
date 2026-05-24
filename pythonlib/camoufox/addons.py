@@ -1,11 +1,48 @@
+import hashlib
+import logging
 import os
 import shutil
+from dataclasses import dataclass
 from enum import Enum
 from threading import Lock
 from typing import List, Optional
 
+import requests
+
 from .exceptions import InvalidAddonPath
 from .pkgman import get_path, unzip, webdl
+
+logger = logging.getLogger("camoufox.addons")
+
+
+@dataclass(frozen=True)
+class AddonSource:
+    """A pinned download source for a bundled add-on.
+
+    ``sha256`` is optional only because uBO's "latest" rolling URL has no
+    stable hash; when set, the downloaded bytes are verified before
+    extraction and a mismatch aborts the install.
+    """
+
+    url: str
+    sha256: Optional[str] = None
+
+
+# uBlock Origin source.
+#
+# By default we fall back to the AMO "latest" endpoint to keep parity with
+# upstream Camoufox, but the audit (S-003) flagged that this is unpinned
+# and reproducibility-unsafe. Operators are expected to pin via env vars:
+#   CAMOUFOX_UBO_URL    — direct AMO file URL for a specific version
+#   CAMOUFOX_UBO_SHA256 — hex sha256 of the XPI bytes
+_DEFAULT_UBO_URL = "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+
+_ADDON_SOURCES = {
+    "UBO": AddonSource(
+        url=os.environ.get("CAMOUFOX_UBO_URL", _DEFAULT_UBO_URL),
+        sha256=os.environ.get("CAMOUFOX_UBO_SHA256") or None,
+    ),
+}
 
 
 class DefaultAddons(Enum):
@@ -13,7 +50,11 @@ class DefaultAddons(Enum):
     Default addons to be downloaded
     """
 
-    UBO = "https://addons.mozilla.org/firefox/downloads/latest/ublock-origin/latest.xpi"
+    UBO = "UBO"
+
+    @property
+    def source(self) -> AddonSource:
+        return _ADDON_SOURCES[self.value]
 
 
 ADDON_LOCK = Lock()
@@ -52,12 +93,35 @@ def add_default_addons(
         maybe_download_addons(addons, addons_list)
 
 
-def download_and_extract(url: str, extract_path: str, name: str) -> None:
+def download_and_extract(source: "AddonSource", extract_path: str, name: str) -> None:
     """
-    Downloads and extracts an addon from a given URL to a specified path
+    Downloads and extracts an addon from a pinned source to a specified path.
+
+    When ``source.sha256`` is set, the downloaded XPI is hashed and compared
+    before extraction; a mismatch raises ``InvalidAddonPath``. When unset
+    (e.g. the AMO "latest" fallback URL) a warning is logged so unpinned
+    installs remain visible in CI/build logs.
     """
-    # Create a temporary file to store the downloaded zip
-    buffer = webdl(url, desc=f"Downloading addon ({name})", bar=False)
+    buffer = webdl(source.url, desc=f"Downloading addon ({name})", bar=False)
+
+    if source.sha256:
+        buffer.seek(0)
+        digest = hashlib.sha256(buffer.read()).hexdigest()
+        if digest.lower() != source.sha256.lower():
+            raise InvalidAddonPath(
+                f"Addon {name} hash mismatch: expected {source.sha256}, got {digest}"
+            )
+        buffer.seek(0)
+    else:
+        logger.warning(
+            "Addon %s downloaded without a sha256 pin (url=%s). "
+            "Set CAMOUFOX_%s_URL and CAMOUFOX_%s_SHA256 for reproducible builds.",
+            name,
+            source.url,
+            name,
+            name,
+        )
+
     unzip(buffer, extract_path, f"Extracting addon ({name})", bar=False)
 
 
@@ -89,7 +153,7 @@ def maybe_download_addons(
         # Addon doesn't exist, create directory and download
         try:
             os.makedirs(addon_path, exist_ok=True)
-            download_and_extract(addon.value, addon_path, addon.name)
+            download_and_extract(addon.source, addon_path, addon.name)
             if not _is_extracted_addon(addon_path):
                 raise InvalidAddonPath(
                     'manifest.json is missing. Addon path must be a path to an extracted addon.'
@@ -97,7 +161,7 @@ def maybe_download_addons(
             # Add the new addon directory path to addons_list
             if addons_list is not None:
                 addons_list.append(addon_path)
-        except Exception as e:
+        except (OSError, InvalidAddonPath, requests.RequestException) as e:
             if os.path.isdir(addon_path) and not _is_extracted_addon(addon_path):
                 shutil.rmtree(addon_path, ignore_errors=True)
-            print(f"Failed to download and extract {addon.name}: {e}")
+            logger.error("Failed to download and extract %s: %s", addon.name, e)

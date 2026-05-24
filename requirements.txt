@@ -1,36 +1,60 @@
+# Direct dependencies pinned with compatible-release (~=) so reproducibility
+# matches the version we tested against while still allowing patch-level
+# updates (e.g. 8.1.7 → 8.1.* but not 8.2).
+#
+# This file is the editable SOURCE of truth. The CI installs from the
+# checked-in `requirements.lock`, which is a hash-locked, fully-resolved
+# transitive closure of these pins. The lock is what makes installs
+# reproducible and tamper-resistant.
+#
+# After editing this file, regenerate the lockfile:
+#
+#     python -m pip install pip-tools
+#     pip-compile --allow-unsafe --generate-hashes \
+#         --output-file=requirements.lock requirements.txt
+#
+# Then commit BOTH files together. CI installs with
+# `pip install --require-hashes -r requirements.lock`; a stale lock will
+# fail with HashMismatch, preventing accidental drift.
+# Reference: https://pip.pypa.io/en/stable/topics/repeatable-installs/
+
 # Core dependencies
-click
-requests
-orjson
-browserforge>=1.2.1
-playwright==1.48.0
-pyyaml
-platformdirs
-tqdm
-numpy
-ua_parser
-typing_extensions
-screeninfo
-lxml
-language-tags
-pysocks
-geoip2
-redis
-boto3
+click~=8.1.7
+requests~=2.32.3
+orjson~=3.10.7
+browserforge~=1.2.1
+playwright~=1.55.0
+pyyaml~=6.0.2
+platformdirs~=4.3.6
+tqdm~=4.66.5
+numpy~=1.26.4
+ua_parser~=1.0.0
+typing_extensions~=4.12.2
+screeninfo~=0.8.1
+lxml~=5.3.0
+language-tags~=1.2.0
+pysocks~=1.7.1
+geoip2~=4.8.0
+redis~=5.1.1
+boto3~=1.35.0
 
 # Script & Utility dependencies
-easygui
-tabulate
-zstandard
-SpeechRecognition
-pydub
-tenacity
+tabulate~=0.9.0
+zstandard~=0.23.0
+SpeechRecognition~=3.10.4
+pydub~=0.25.1
+tenacity~=9.0.0
+
+# Optional GUI helper — only required by scripts/developer.py.
+# Not imported by the runtime; install on demand to avoid breaking
+# headless / CI environments without an X display.
+# easygui~=0.98.3
 
 # Test & Server dependencies
-pytest
-Pillow
-pyOpenSSL
-twisted
-autobahn
-flaky
-pixelmatch
+pytest~=8.3.3
+Pillow~=10.4.0
+pyOpenSSL~=24.2.1
+twisted~=24.7.0
+autobahn~=23.6.2
+flaky~=3.8.1
+pixelmatch~=0.3.0

@@ -9,9 +9,10 @@ rpms := python3 python3-devel p7zip golang msitools wget aria2
 pacman := python python-pip p7zip go msitools wget aria2
 
 .PHONY: help fetch setup setup-minimal clean set-target distclean build package \
-        build-launcher check-arch revert edits run bootstrap mozbootstrap dir \
-        package-linux package-macos package-windows vcredist_arch patch unpatch \
-        workspace check-arg edit-cfg ff-dbg tests update-ubo-assets
+        build-launcher check-arch revert revert-force edits run bootstrap \
+        mozbootstrap dir package-linux package-macos package-windows \
+        vcredist_arch patch unpatch workspace check-arg edit-cfg ff-dbg \
+        tests update-ubo-assets
 
 help:
 	@echo "Available targets:"
@@ -20,7 +21,8 @@ help:
 	@echo "  bootstrap       - Set up build environment"
 	@echo "  mozbootstrap    - Sets up mach"
 	@echo "  dir             - Prepare Camoufox source directory with BUILD_TARGET"
-	@echo "  revert          - Kill all working changes"
+	@echo "  revert          - Stash any uncommitted work, then reset to 'unpatched'"
+	@echo "  revert-force    - Hard reset without stash (destructive)"
 	@echo "  edits           - Camoufox developer UI"
 	@echo "  clean           - Remove build artifacts"
 	@echo "  distclean       - Remove everything including downloads"
@@ -94,6 +96,14 @@ ff-dbg: setup
 	make build
 
 revert:
+	# Preserve any uncommitted work in a labeled stash before the reset.
+	# Recover with: cd $(cf_source_dir) && git stash list && git stash pop
+	cd $(cf_source_dir) && \
+		(git stash push -u -m "pre-revert-$$(date +%Y%m%dT%H%M%S)" || true) && \
+		git reset --hard unpatched
+
+revert-force:
+	# Hard discard, no stash. Use only when you are certain.
 	cd $(cf_source_dir) && git reset --hard unpatched
 
 dir:

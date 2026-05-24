@@ -2,6 +2,15 @@ ac_add_options --disable-maintenance-service
 ac_add_options --disable-update-agent
 ac_add_options --disable-accessibility
 
+# Disable LTO on the windows-gnu cross-build. base.mozconfig sets
+# --enable-release which adds `-Clto` to cargo_rustc_flags, and the final
+# Rust archive-pack step (after the "Finished release profile" line in
+# cargo) has historically failed ~12-14s post-cargo on libgkrust.a with
+# `gmake[3]: *** [config/recurse.mk:34: compile] Error 2` when LTO is
+# active on {x86_64,i686}-pc-windows-gnu cross-targets. Linux and macOS
+# builds retain LTO via --enable-release in base.mozconfig.
+ac_add_options --disable-lto
+
 if [ "$BUILD_TARGET" = "windows,i686" ]; then
     MINGW_TRIPLE=i686-w64-mingw32
 else
@@ -14,22 +23,6 @@ export RC="$MINGW_TRIPLE-windres"
 export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
 export RANLIB="$MINGW_TRIPLE-ranlib"
-
-# Disable LTO entirely on the Windows cross-compile target.
-#
-# Why: `--enable-release` in base.mozconfig adds `-Clto` to cargo_rustc_flags.
-# When cross-compiling gkrust with Rust 1.83.0 to {x86_64,i686}-pc-windows-gnu,
-# the post-cargo rustc archive-pack / LTO link step fails silently AFTER cargo
-# prints "Finished release profile [optimized] target(s)" — the exit happens
-# 12-14 s later and `gmake -s` swallows the rustc panic. Disabling LTO makes
-# cargo emit a plain static archive, sidestepping the issue.
-#
-# This is a Windows-only knob: the Linux/macOS matrix targets build fine with
-# LTO and we don't want to lose those optimizations there. check_binary, which
-# an earlier stage tried to silence via MOZ_LTO_RUST_CROSS=1, is gated on
-# OS_ARCH=Linux in rust.mk and therefore never fires on Windows cross-compile —
-# that gate was diagnosing the wrong failure.
-ac_add_options --disable-lto
 
 if command -v llvm-dlltool >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool

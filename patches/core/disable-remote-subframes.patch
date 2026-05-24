@@ -10,17 +10,23 @@ index 2471976f64..d14edc9195 100644
  
  #include "AutoplayPolicy.h"
  #include "GVAutoplayRequestStatusIPC.h"
-@@ -1772,7 +1773,12 @@ NS_IMETHODIMP BrowsingContext::SetRemoteSubframes(bool aUseRemoteSubframes) {
+@@ -1772,7 +1773,18 @@ NS_IMETHODIMP BrowsingContext::SetRemoteSubframes(bool aUseRemoteSubframes) {
      return NS_ERROR_UNEXPECTED;
    }
- 
+
 -  mUseRemoteSubframes = aUseRemoteSubframes;
-+  // Camoufox: Disable remote subframes by default
-+  if (auto runtimeState = IdentityStateProvider::GetRuntimeState()) {
-+    if (runtimeState->enableRemoteSubframes.value_or(false)) {
-+      mUseRemoteSubframes = aUseRemoteSubframes;
-+    }
++  // C-5 fix: keep upstream Firefox behaviour (Fission on by default).
++  // The previous patch silently dropped the assignment when no MaskConfig
++  // RuntimeState was present, leaving mUseRemoteSubframes at its
++  // initialization-time value while still returning NS_OK. That made
++  // crossOriginIsolated / SharedArrayBuffer behaviour inconsistent with
++  // the spoofed Firefox version. Only honour an explicit override.
++  bool effective = aUseRemoteSubframes;
++  if (auto runtimeState = IdentityStateProvider::GetRuntimeState();
++      runtimeState && runtimeState->enableRemoteSubframes.has_value()) {
++    effective = runtimeState->enableRemoteSubframes.value();
 +  }
++  mUseRemoteSubframes = effective;
    return NS_OK;
  }
  

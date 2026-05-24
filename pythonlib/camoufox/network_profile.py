@@ -32,6 +32,15 @@ class NetworkProfile:
     nss_named_group_overrides: Optional[List[int]] = None
     nss_sigalg_overrides: Optional[List[int]] = None
 
+    # When the templates are not version-native (e.g. Firefox 150 reusing
+    # the 135 baseline), this is the major_version of the captured source.
+    # ``None`` means the templates are native captures of ``major_version``
+    # and the fingerprint can be treated as 1:1.
+    parity_baseline: Optional[int] = None
+
+    def is_parity_approximate(self) -> bool:
+        return self.parity_baseline is not None
+
     def is_nss_native(self) -> bool:
         return self.transport_mode == "firefox-native"
 
@@ -94,6 +103,7 @@ class NetworkProfile:
             "ja4_family": self.ja4_family,
             "alpn_policy": list(self.alpn_policy),
             "sidecar_template": dict(self.sidecar_template),
+            "parity_baseline": self.parity_baseline,
         }
 
     def to_env_metadata(self) -> str:

@@ -2,30 +2,31 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-var EXPORTED_SYMBOLS = ["Juggler", "JugglerFactory"];
-
-const {AppConstants} = ChromeUtils.import("resource://gre/modules/AppConstants.jsm");
-const {XPCOMUtils} = ChromeUtils.import("resource://gre/modules/XPCOMUtils.jsm");
-const {ComponentUtils} = ChromeUtils.import("resource://gre/modules/ComponentUtils.jsm");
-const {Dispatcher} = ChromeUtils.import("chrome://juggler/content/protocol/Dispatcher.js");
-const {BrowserHandler} = ChromeUtils.import("chrome://juggler/content/protocol/BrowserHandler.js");
-const {NetworkObserver} = ChromeUtils.import("chrome://juggler/content/NetworkObserver.js");
-const {TargetRegistry} = ChromeUtils.import("chrome://juggler/content/TargetRegistry.js");
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {ActorManagerParent} = ChromeUtils.import('resource://gre/modules/ActorManagerParent.jsm');
+// Services is available as a global in XPCOM component context.
+// SimpleChannel.js stays a classic script so worker contexts can
+// loadSubScript it; SimpleChannel.sys.mjs is the ESM wrapper used here.
+const {SimpleChannel} = ChromeUtils.importESModule("chrome://juggler/content/SimpleChannel.sys.mjs");
+const {Dispatcher} = ChromeUtils.importESModule("chrome://juggler/content/protocol/Dispatcher.js");
+const {BrowserHandler} = ChromeUtils.importESModule("chrome://juggler/content/protocol/BrowserHandler.js");
+const {NetworkObserver} = ChromeUtils.importESModule("chrome://juggler/content/NetworkObserver.js");
+const {TargetRegistry} = ChromeUtils.importESModule("chrome://juggler/content/TargetRegistry.js");
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const {ActorManagerParent} = ChromeUtils.importESModule('resource://gre/modules/ActorManagerParent.sys.mjs');
 const helper = new Helper();
 
 const Cc = Components.classes;
 const Ci = Components.interfaces;
 
 // Register JSWindowActors that will be instantiated for each frame.
+// Firefox 136+ removed the legacy JSM loader, so .jsm moduleURI no longer
+// works. Must use esModuleURI pointing at the parallel .sys.mjs files.
 ActorManagerParent.addJSWindowActors({
   JugglerFrame: {
     parent: {
-      moduleURI: 'chrome://juggler/content/JugglerFrameParent.jsm',
+      esModuleURI: 'chrome://juggler/content/JugglerFrameParent.sys.mjs',
     },
     child: {
-      moduleURI: 'chrome://juggler/content/content/JugglerFrameChild.jsm',
+      esModuleURI: 'chrome://juggler/content/JugglerFrameChild.sys.mjs',
       events: {
         // Normally, we instantiate an actor when a new window is created.
         DOMWindowCreated: {},
@@ -46,7 +47,7 @@ ActorManagerParent.addJSWindowActors({
 let browserStartupFinishedCallback;
 let browserStartupFinishedPromise = new Promise(x => browserStartupFinishedCallback = x);
 
-class Juggler {
+export class Juggler {
   get classDescription() { return "Sample command-line handler"; }
   get classID() { return Components.ID('{f7a74a33-e2ab-422d-b022-4fb213dd2639}'); }
   get contractID() { return "@mozilla.org/remote/juggler;1" }
@@ -59,13 +60,12 @@ class Juggler {
 
   handle(cmdLine) {
     // flag has to be consumed in nsICommandLineHandler:handle
-    // to avoid issues on macos. See Marionette.jsm::handle() for more details.
+    // to avoid issues on macos. See Marionette.sys.mjs::handle() for more details.
     // TODO: remove after Bug 1724251 is fixed.
     cmdLine.handleFlag("juggler-pipe", false);
   }
 
   // This flow is taken from Remote agent and Marionette.
-  // See https://github.com/mozilla/gecko-dev/blob/0c1b4921830e6af8bc951da01d7772de2fe60a08/remote/components/RemoteAgent.jsm#L302
   async observe(subject, topic) {
     switch (topic) {
       case "profile-after-change":
@@ -160,7 +160,6 @@ class Juggler {
 const jugglerInstance = new Juggler();
 
 // This is used by the XPCOM codepath which expects a constructor
-var JugglerFactory = function() {
+export var JugglerFactory = function() {
   return jugglerInstance;
 };
-

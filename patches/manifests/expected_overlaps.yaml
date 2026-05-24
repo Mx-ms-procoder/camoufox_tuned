@@ -1,0 +1,56 @@
+# Expected cross-manifest overlaps for Camoufox patch bundles.
+#
+# Some Gecko source files (most notably the Window glue in dom/) are touched
+# by more than one manifest by design: identity, media and security each
+# inject their own MaskConfig hooks into the same nsGlobalWindowInner /
+# Window.webidl surface. These are ordered, intentional compositions — not
+# real merge conflicts.
+#
+# Entries listed here are downgraded from "error" to "info" by
+# scripts/_mixin.py:detect_conflicts. Anything NOT listed here is still
+# reported as a hard conflict and, under `patch.py --check-conflicts
+# --strict`, causes a non-zero exit so CI can gate on it.
+#
+# Format:
+#   expected:
+#     - file: <gecko/source/path>
+#       manifests: [name_a, name_b]
+#       reason: short rationale
+#
+# === K-7 (AUDIT_2026-05-18.md) — open structural debt ===
+# Every Firefox-version rebase has to re-resolve this overlap in three
+# different patches. The proper fix is to lift the Window-class hooks
+# into a single composite patch under patches/identity/ (since identity
+# is the dominant consumer), have media/security patch *that* file
+# instead of nsGlobalWindowInner directly, and shrink this whitelist to
+# zero. Tracking ticket: pending; do not add new Window overlaps until
+# the consolidation lands.
+
+expected:
+  - file: dom/base/nsGlobalWindowInner.cpp
+    manifests: [identity, media]
+    reason: identity injects MaskConfig hooks; media adds device descriptor hooks on the same Window class.
+  - file: dom/base/nsGlobalWindowInner.cpp
+    manifests: [identity, security]
+    reason: security adds policy-side getters that share Window dispatch surface with identity.
+  - file: dom/base/nsGlobalWindowInner.cpp
+    manifests: [media, security]
+    reason: media exposes capture helpers that security gates; both hook the same Window methods.
+  - file: dom/base/nsGlobalWindowInner.h
+    manifests: [identity, media]
+    reason: header declarations for the .cpp overlap above.
+  - file: dom/base/nsGlobalWindowInner.h
+    manifests: [identity, security]
+    reason: header declarations for the .cpp overlap above.
+  - file: dom/base/nsGlobalWindowInner.h
+    manifests: [media, security]
+    reason: header declarations for the .cpp overlap above.
+  - file: dom/webidl/Window.webidl
+    manifests: [identity, media]
+    reason: WebIDL surface for the navigator/media properties that the .cpp overlaps implement.
+  - file: dom/webidl/Window.webidl
+    manifests: [identity, security]
+    reason: WebIDL surface for the navigator/security properties that the .cpp overlaps implement.
+  - file: dom/webidl/Window.webidl
+    manifests: [media, security]
+    reason: WebIDL surface for the navigator/media/security properties that the .cpp overlaps implement.

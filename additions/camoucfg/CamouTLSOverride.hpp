@@ -4,23 +4,47 @@
   This header is consumed from nsNSSComponent.cpp after NSS is initialized.
   It reads process-level env vars set by the Python orchestration layer
   (see pythonlib/camoufox/tls_profiles.py) and calls the public NSS/SSL
-  APIs to enforce the cipher-suite ordering, named groups, and signature
-  algorithms that match the identity selected by the IdentityCoherenceEngine.
+  APIs to *enable/disable* cipher suites, named groups, and signature
+  algorithms.
 
-  Design contract:
-    • All parsing failures are treated as no-ops — the browser falls back to
-      NSS defaults rather than breaking TLS entirely.
-    • CAMOU_TLS_CIPHERS is the most impactful override (cipher ordering is
-      the primary signal in JA3/JA4 fingerprints).
-    • Extension ordering is NOT overridden here because NSS does not expose
-      a public API for it. We accept Firefox's default extension order, which
-      is already correct for the Firefox family.
+  Honest contract (see K-1 in AUDIT_2026-05-18.md):
+
+    • SSL_CipherPrefSetDefault enables/disables cipher suites globally;
+      it does NOT control the order in which suites appear in the
+      ClientHello. NSS keeps a hard-coded internal preference order
+      (see Mozilla bug 1267894 and the introduction of the per-socket
+      SSL_CipherSuiteOrderSet API in NSS 3.47). Earlier comments in this
+      file claimed that the enable-call order set the ClientHello order
+      — that was incorrect and has been removed.
+
+    • Because the launcher derives a Firefox-version-correct profile,
+      and because the NSS default order already matches the Firefox
+      family, the cipher-suite *order* in the ClientHello is correct
+      without any further intervention. What this override actually
+      adds is the ability to *narrow* the enabled set to match a
+      historical Firefox release that disabled some legacy suites.
+
+    • Named groups and signature algorithms use the documented NSS
+      ordering APIs (SSL_NamedGroupConfig, SSL_SignatureSchemePrefSet)
+      and CAN be ordered globally. Those overrides remain.
+
+    • Extension ordering is NOT overridden here because NSS does not
+      expose a public API for it. Firefox's default extension order is
+      already correct for the Firefox family.
 
   Env vars consumed:
-    CAMOU_TLS_CIPHERS   – comma-separated hex cipher codes (e.g. "0x1301,0x1303,...")
-    CAMOU_TLS_GROUPS    – comma-separated hex named group codes
+    CAMOU_TLS_CIPHERS   – comma-separated hex cipher codes; the override
+                           ENABLES only these and disables everything else.
+                           NSS's internal preference order determines the
+                           on-wire ClientHello cipher order.
+    CAMOU_TLS_GROUPS    – comma-separated hex named group codes (ordered,
+                           passed to SSL_NamedGroupConfig).
     CAMOU_TLS_SIGALGS   – comma-separated hex signature scheme codes
-    CAMOU_TLS_ALPN      – comma-separated ALPN protocols (e.g. "h2,http/1.1")
+                           (ordered, passed to SSL_SignatureSchemePrefSet).
+    CAMOU_TLS_ALPN      – comma-separated ALPN protocols. ALPN is per-socket
+                           and Firefox already sets it via preferences; this
+                           variable is informational only and is logged
+                           rather than applied.
 */
 
 #pragma once
@@ -47,6 +71,32 @@
 #endif
 
 namespace CamouTLSOverride {
+
+// ── Debug gate ─────────────────────────────────────────────────────
+//
+// All TLS-override diagnostics are gated on CAMOU_TLS_DEBUG=1 to avoid
+// leaking the operational mode of the browser to stderr in production
+// runs (see AUDIT_2026-05-18.md). When the flag is unset the overrides
+// still run silently; only the gate decides whether to print.
+inline bool DebugEnabled() {
+#ifdef _WIN32
+  DWORD size = GetEnvironmentVariableW(L"CAMOU_TLS_DEBUG", nullptr, 0);
+  if (size != 2) return false;  // not exactly one character + NUL
+  wchar_t buf[2];
+  return GetEnvironmentVariableW(L"CAMOU_TLS_DEBUG", buf, 2) == 1 &&
+         buf[0] == L'1';
+#else
+  const char* val = std::getenv("CAMOU_TLS_DEBUG");
+  return val && val[0] == '1' && val[1] == '\0';
+#endif
+}
+
+#define CAMOU_TLS_LOG(...)                                  \
+  do {                                                      \
+    if (::CamouTLSOverride::DebugEnabled()) {               \
+      printf_stderr(__VA_ARGS__);                           \
+    }                                                       \
+  } while (0)
 
 // ── Env-var reader ──────────────────────────────────────────────────
 
@@ -94,7 +144,7 @@ inline std::vector<uint16_t> ParseHexList(const std::string& csv) {
         val <= 0xFFFFUL) {
       result.push_back(static_cast<uint16_t>(val));
     } else {
-      printf_stderr(
+      CAMOU_TLS_LOG(
           "CamouTLSOverride: failed to parse hex value '%s'\n",
           token.c_str());
     }
@@ -118,15 +168,22 @@ inline std::vector<std::string> ParseCSV(const std::string& csv) {
   return result;
 }
 
-// ── Cipher suite override ───────────────────────────────────────────
+// ── Cipher suite enable/disable ─────────────────────────────────────
 //
 // The full list of NSS cipher suite constants is defined in sslt.h.
 // We first disable ALL cipher suites, then re-enable only the ones
-// in the CAMOU_TLS_CIPHERS list, in the specified order.
+// in the CAMOU_TLS_CIPHERS list.
 //
-// NSS internally maintains cipher preference order as the order in which
-// SSL_CipherPrefSetDefault() is called with PR_TRUE. By disabling all
-// first, then enabling in our order, we get deterministic ordering.
+// IMPORTANT: this controls the ENABLED SET, not the ClientHello order.
+// SSL_CipherPrefSetDefault is documented as enable/disable only; NSS
+// emits its hard-coded internal preference order on the wire (see
+// Mozilla bug 1267894 and K-1 in AUDIT_2026-05-18.md). The previously
+// claimed "enable-order becomes wire-order" behaviour is not true.
+//
+// That is fine in practice because the Python launcher hands us a
+// Firefox-version-correct enabled set, and NSS's default order already
+// matches the Firefox family. The override exists so a launcher
+// targeting an older Firefox profile can disable later-added suites.
 
 // List of all NSS cipher suite macro values that could be enabled.
 // This is intentionally exhaustive so we don't miss any.
@@ -183,7 +240,7 @@ inline void ApplyCipherOverride() {
   auto ciphers = ParseHexList(*env);
   if (ciphers.empty()) return;
 
-  printf_stderr("CamouTLSOverride: applying %zu cipher suite overrides\n",
+  CAMOU_TLS_LOG("CamouTLSOverride: applying %zu cipher suite overrides\n",
                 ciphers.size());
 
   // Phase 1: Disable ALL known cipher suites
@@ -191,22 +248,22 @@ inline void ApplyCipherOverride() {
     SSL_CipherPrefSetDefault(cipher, PR_FALSE);
   }
 
-  // Phase 2: Enable requested ciphers in the specified order.
-  // NSS records the enable-order internally, which determines the
-  // preference order in the Client Hello.
+  // Phase 2: Enable only the requested ciphers.
+  // The call order does NOT control ClientHello order — NSS uses its own
+  // hard-coded internal preference ordering on the wire (see header comment).
   int enabled = 0;
   for (uint16_t cipher : ciphers) {
     SECStatus rv = SSL_CipherPrefSetDefault(cipher, PR_TRUE);
     if (rv == SECSuccess) {
       ++enabled;
     } else {
-      printf_stderr(
+      CAMOU_TLS_LOG(
           "CamouTLSOverride: SSL_CipherPrefSetDefault(0x%04x) failed\n",
           cipher);
     }
   }
 
-  printf_stderr("CamouTLSOverride: enabled %d/%zu cipher suites\n",
+  CAMOU_TLS_LOG("CamouTLSOverride: enabled %d/%zu cipher suites\n",
                 enabled, ciphers.size());
 }
 
@@ -223,7 +280,7 @@ inline void ApplyNamedGroupOverride() {
   auto groups = ParseHexList(*env);
   if (groups.empty()) return;
 
-  printf_stderr("CamouTLSOverride: applying %zu named group overrides\n",
+  CAMOU_TLS_LOG("CamouTLSOverride: applying %zu named group overrides\n",
                 groups.size());
 
   // Convert uint16_t codes to SSLNamedGroup enum values.
@@ -240,7 +297,7 @@ inline void ApplyNamedGroupOverride() {
       static_cast<unsigned int>(nssGroups.size()));
 
   if (rv != SECSuccess) {
-    printf_stderr("CamouTLSOverride: SSL_NamedGroupConfig() failed\n");
+    CAMOU_TLS_LOG("CamouTLSOverride: SSL_NamedGroupConfig() failed\n");
   }
 }
 
@@ -256,7 +313,7 @@ inline void ApplySignatureAlgorithmOverride() {
   auto sigalgs = ParseHexList(*env);
   if (sigalgs.empty()) return;
 
-  printf_stderr(
+  CAMOU_TLS_LOG(
       "CamouTLSOverride: applying %zu signature algorithm overrides\n",
       sigalgs.size());
 
@@ -273,7 +330,7 @@ inline void ApplySignatureAlgorithmOverride() {
       static_cast<unsigned int>(schemes.size()));
 
   if (rv != SECSuccess) {
-    printf_stderr(
+    CAMOU_TLS_LOG(
         "CamouTLSOverride: SSL_SignatureSchemePrefSet() failed\n");
   }
 }
@@ -295,10 +352,12 @@ inline void ApplyALPNOverride() {
   // ALPN cannot be set globally via SSL_* APIs — it's per-socket.
   // We log it for debugging; actual enforcement happens in nsHttpHandler
   // which already reads the IdentityStateProvider ALPN config.
-  printf_stderr("CamouTLSOverride: ALPN override requested: ");
-  for (size_t i = 0; i < protocols.size(); ++i) {
-    printf_stderr("%s%s", protocols[i].c_str(),
-                  i + 1 < protocols.size() ? "," : "\n");
+  if (DebugEnabled()) {
+    printf_stderr("CamouTLSOverride: ALPN override requested: ");
+    for (size_t i = 0; i < protocols.size(); ++i) {
+      printf_stderr("%s%s", protocols[i].c_str(),
+                    i + 1 < protocols.size() ? "," : "\n");
+    }
   }
 }
 
@@ -316,7 +375,7 @@ inline void ApplyAll() {
     return;
   }
 
-  printf_stderr(
+  CAMOU_TLS_LOG(
       "CamouTLSOverride: applying TLS fingerprint overrides "
       "(ciphers=%s groups=%s sigalgs=%s alpn=%s)\n",
       hasCiphers ? "yes" : "no",

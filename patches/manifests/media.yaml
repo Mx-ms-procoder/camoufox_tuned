@@ -1,6 +1,7 @@
 name: media
-description: "Media devices, WebGL, and AudioContext fingerprinting protection"
+description: "Media devices, WebGL, AudioContext, and audio-fingerprint protection"
 patches:
   - media/webgl-spoofing.patch
   - media/audio-context-spoofing.patch
+  - media/audio-fingerprint-manager.patch
   - media/media-device-spoofing.patch

@@ -4,3 +4,9 @@ patches:
   - network/network-patches.patch
   - network/webrtc-ip-spoofing.patch
   - network/nss-tls-override.patch
+  # K-21 (AUDIT_2026-05-18.md). Verified to apply with `fuzz=1` against
+  # mozilla-beta tip on 2026-05-18. Runtime defensive: each call site
+  # falls back to the upstream Firefox default when no http2:* keys are
+  # in MaskConfig, so on-wire behaviour is byte-identical to upstream
+  # unless the launcher sets CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1.
+  - network/_experimental/http2-fingerprint.patch

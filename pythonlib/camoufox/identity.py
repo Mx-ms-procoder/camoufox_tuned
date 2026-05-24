@@ -211,7 +211,10 @@ class IdentityCoherenceEngine:
         )
 
         from ua_parser import user_agent_parser
-        ua = base_config.get("navigator.userAgent", "")
+        ua = (user_config or {}).get(
+            "navigator.userAgent",
+            base_config.get("navigator.userAgent", ""),
+        )
         ua_parsed = user_agent_parser.ParseUserAgent(ua)
         
         # Camoufox is Firefox-only. Enforce pure Firefox profile even if user overrides UA.
@@ -587,4 +590,3 @@ def validate_identity_blob(blob: Dict[str, Any]) -> List[str]:
         pass
 
     return issues
-

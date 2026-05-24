@@ -7,13 +7,13 @@ const Ci = Components.interfaces;
 const Cr = Components.results;
 const Cu = Components.utils;
 
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
-const {Runtime} = ChromeUtils.import('chrome://juggler/content/content/Runtime.js');
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const {SimpleChannel} = ChromeUtils.importESModule('chrome://juggler/content/SimpleChannel.sys.mjs');
+const {Runtime} = ChromeUtils.importESModule('chrome://juggler/content/content/Runtime.sys.mjs');
 
 const helper = new Helper();
 
-class FrameTree {
+export class FrameTree {
   constructor(rootBrowsingContext) {
     helper.decorateAsEventEmitter(this);
 
@@ -718,6 +718,4 @@ function channelId(channel) {
 }
 
 
-var EXPORTED_SYMBOLS = ['FrameTree'];
-this.FrameTree = FrameTree;
 

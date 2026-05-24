@@ -11,6 +11,7 @@ import optparse
 import os
 import re
 import shlex
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -60,6 +61,16 @@ def get_options():
         action='store_true',
         help='Run conflict detection without applying patches',
     )
+    parser.add_option(
+        '--strict',
+        dest='strict',
+        default=False,
+        action='store_true',
+        help=(
+            'With --check-conflicts: exit non-zero if any hard conflict is '
+            'not in patches/manifests/expected_overlaps.yaml.'
+        ),
+    )
     return parser.parse_args()
 
 
@@ -101,6 +112,9 @@ class PatchManifestError(ValueError):
 
 
 HUNK_HEADER_RE = re.compile(r'^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@')
+HUNK_HEADER_FULL_RE = re.compile(
+    r'^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@'
+)
 ZERO_OLD_INDEX_RE = re.compile(r'^index 0+\.\.[0-9a-fA-F]+')
 
 
@@ -232,11 +246,13 @@ def load_patch_manifests(root_dir='../patches', manifests_dir=None):
     if not os.path.isdir(manifests_root):
         raise PatchManifestError(f'Manifest directory not found: {manifests_root}')
 
+    # expected_overlaps.yaml is an allowlist consumed by detect_conflicts,
+    # not a patch manifest, and uses a different YAML schema.
     manifest_paths = sorted(
         (
             os.path.join(manifests_root, name).replace('\\', '/')
             for name in os.listdir(manifests_root)
-            if name.endswith('.yaml')
+            if name.endswith('.yaml') and name != 'expected_overlaps.yaml'
         ),
         key=os.path.basename,
     )
@@ -273,7 +289,15 @@ def validate_patch_file(patch_path):
 
 
 def list_patches(root_dir='../patches', suffix='*.patch', features=None, validate=True):
-    """List all patch files claimed by manifests, preserving the legacy basename order."""
+    """List all patch files claimed by manifests, preserving manifest declaration order.
+
+    The returned order is: manifests iterated alphabetically by filename
+    (a stable cross-manifest order), and within each manifest the patches
+    are returned in the exact sequence in which they are listed under the
+    ``patches:`` key. The previous behaviour sorted the final list by
+    basename, which discarded the manifest authors' intent — see §1.3 in
+    REMEDIATION_PLAN.md.
+    """
     manifest_list = load_patch_manifests(root_dir=root_dir)
     selected_features = set(features or [])
     selected_manifests = [
@@ -319,7 +343,7 @@ def list_patches(root_dir='../patches', suffix='*.patch', features=None, validat
         for patch_path in claimed_paths:
             validate_patch_file(patch_path)
 
-    return sorted(claimed_paths, key=os.path.basename)
+    return claimed_paths
 
 def is_bootstrap_patch(name):
     return bool(re.match(r'\d+\-.*', os.path.basename(name)))
@@ -331,13 +355,99 @@ class ConflictReport:
     file_path: str
     manifest_a: str
     manifest_b: str
-    severity: str = "warning"  # "warning" or "error"
+    severity: str = "warning"  # "info", "warning", or "error"
+    reason: str = ""
 
     def __str__(self):
+        tail = f" — {self.reason}" if self.reason else ""
         return (
             f"[{self.severity.upper()}] {self.file_path} is modified by both "
-            f"'{self.manifest_a}' and '{self.manifest_b}'"
+            f"'{self.manifest_a}' and '{self.manifest_b}'{tail}"
         )
+
+
+def _parse_expected_overlaps_fallback(handle):
+    """
+    Minimal parser for the fixed expected_overlaps.yaml schema.
+
+    Used when PyYAML is not installed (e.g. local validation runs without
+    a virtualenv). Only handles the exact shape documented in
+    patches/manifests/expected_overlaps.yaml: a top-level ``expected:`` list
+    whose items have ``file:``, ``manifests: [a, b]`` and ``reason:`` keys.
+    """
+    entries = []
+    in_expected = False
+    current = None
+    for raw_line in handle:
+        line = raw_line.split('#', 1)[0].rstrip()
+        if not line.strip():
+            continue
+        if line.startswith('expected:'):
+            in_expected = True
+            continue
+        if not in_expected:
+            continue
+        if line.startswith('  - '):
+            if current is not None:
+                entries.append(current)
+            current = {}
+            line = '    ' + line[4:]
+        if current is None:
+            continue
+        body = line.strip()
+        if body.startswith('file:'):
+            current['file'] = _strip_wrapping_quotes(body.split(':', 1)[1].strip())
+        elif body.startswith('manifests:'):
+            value = body.split(':', 1)[1].strip()
+            if value.startswith('[') and value.endswith(']'):
+                items = [
+                    _strip_wrapping_quotes(part.strip())
+                    for part in value[1:-1].split(',')
+                    if part.strip()
+                ]
+                current['manifests'] = items
+        elif body.startswith('reason:'):
+            current['reason'] = _strip_wrapping_quotes(body.split(':', 1)[1].strip())
+    if current is not None:
+        entries.append(current)
+    return {'expected': entries}
+
+
+def _load_expected_overlaps(root_dir):
+    """
+    Load patches/manifests/expected_overlaps.yaml if present.
+
+    Returns a dict mapping ``(file_path, frozenset({manifest_a, manifest_b}))``
+    to the human-readable reason for the intentional overlap. A missing file
+    yields an empty allowlist; a missing PyYAML falls back to a minimal parser
+    so local runs without the dev dependency still see documented overlaps.
+    """
+    allowlist = {}
+    overlaps_path = os.path.join(root_dir, 'manifests', 'expected_overlaps.yaml')
+    if not os.path.exists(overlaps_path):
+        return allowlist
+    data = None
+    try:
+        import yaml  # local import keeps validate-only path independent
+        try:
+            with open(overlaps_path, 'r', encoding='utf-8') as handle:
+                data = yaml.safe_load(handle) or {}
+        except (OSError, yaml.YAMLError):
+            return allowlist
+    except ImportError:
+        try:
+            with open(overlaps_path, 'r', encoding='utf-8') as handle:
+                data = _parse_expected_overlaps_fallback(handle)
+        except OSError:
+            return allowlist
+    for entry in (data.get('expected') or []):
+        file_path = entry.get('file')
+        manifests = entry.get('manifests') or []
+        if not file_path or len(manifests) != 2:
+            continue
+        key = (file_path, frozenset(manifests))
+        allowlist[key] = entry.get('reason', '') or ''
+    return allowlist
 
 
 def _extract_gecko_files(patch_path):
@@ -358,6 +468,52 @@ def _extract_gecko_files(patch_path):
     return files
 
 
+def _extract_hunks(patch_path):
+    """Yield (file_path, old_start, old_count) for every hunk in patch_path.
+
+    Operates on the source-file side of the unified diff (``--- a/...``):
+    ``old_start`` is the first line number the hunk touches and
+    ``old_count`` is the number of lines it spans. This is the side that
+    determines whether two patches collide on the same source region —
+    a zero ``old_count`` (pure insertion) is normalised to 1 for
+    overlap-detection purposes, so we don't miss adjacent edits.
+    """
+    hunks = []
+    current_file = None
+    try:
+        with open(patch_path, 'r', encoding='utf-8', errors='replace') as handle:
+            for line in handle:
+                if line.startswith('--- a/'):
+                    current_file = line.rstrip('\r\n')[6:]
+                    continue
+                if line.startswith('--- '):
+                    current_file = None
+                    continue
+                if line.startswith('@@') and current_file is not None:
+                    match = HUNK_HEADER_FULL_RE.match(line)
+                    if match:
+                        old_start = int(match.group(1))
+                        old_count = (
+                            int(match.group(2)) if match.group(2) is not None else 1
+                        )
+                        hunks.append((current_file, old_start, old_count))
+    except (OSError, UnicodeDecodeError):
+        pass
+    return hunks
+
+
+def _hunks_overlap(a_start, a_count, b_start, b_count):
+    """Return True iff two hunk line-ranges intersect.
+
+    Each hunk is treated as the closed interval [start, start+count-1].
+    Pure insertions (count == 0) are bumped to a single-line region so
+    an insertion at the same point as another edit is still flagged.
+    """
+    a_end = a_start + max(a_count, 1) - 1
+    b_end = b_start + max(b_count, 1) - 1
+    return not (a_end < b_start or b_end < a_start)
+
+
 def detect_conflicts(manifests, root_dir='../patches'):
     """
     Detect when two different manifests modify the same Gecko source file.
@@ -369,6 +525,8 @@ def detect_conflicts(manifests, root_dir='../patches'):
     Returns:
         List of ConflictReport instances
     """
+    allowlist = _load_expected_overlaps(root_dir)
+
     # Build a map: gecko_file -> [(manifest_name, patch_file), ...]
     file_map = {}
     for manifest in manifests:
@@ -390,16 +548,84 @@ def detect_conflicts(manifests, root_dir='../patches'):
             # Generate pairwise conflict reports
             for i in range(len(manifest_names)):
                 for j in range(i + 1, len(manifest_names)):
-                    # moz.build changes are expected to be shared — lower severity
-                    severity = "warning" if gecko_file.endswith("moz.build") else "error"
+                    pair = frozenset({manifest_names[i], manifest_names[j]})
+                    allow_key = (gecko_file, pair)
+                    if gecko_file.endswith("moz.build"):
+                        # moz.build changes are expected to be shared.
+                        severity = "warning"
+                        reason = "moz.build is conventionally co-edited"
+                    elif allow_key in allowlist:
+                        # Intentional ordered composition documented in
+                        # patches/manifests/expected_overlaps.yaml.
+                        severity = "info"
+                        reason = allowlist[allow_key]
+                    else:
+                        severity = "error"
+                        reason = ""
                     conflicts.append(ConflictReport(
                         file_path=gecko_file,
                         manifest_a=manifest_names[i],
                         manifest_b=manifest_names[j],
                         severity=severity,
+                        reason=reason,
                     ))
 
-    return sorted(conflicts, key=lambda c: (c.severity, c.file_path))
+    # Hunk-level overlap: even when file-level co-editing is allowlisted,
+    # actually-overlapping hunk ranges on the same source file will make
+    # `git apply` fail. We surface those as their own error-level reports
+    # so reviewers see the concrete line ranges, not just the file.
+    # See §1.12 in REMEDIATION_PLAN.md.
+    hunk_cache = {}
+    for gecko_file, sources in file_map.items():
+        if len(sources) < 2:
+            continue
+        if gecko_file.endswith('moz.build'):
+            # moz.build hunks co-occur by design; not a useful overlap signal.
+            continue
+        # Per-patch hunks for this file
+        per_patch = {}
+        for manifest_name, patch_name in sources:
+            patch_path = os.path.join(root_dir, patch_name).replace('\\', '/')
+            if patch_path not in hunk_cache:
+                hunk_cache[patch_path] = _extract_hunks(patch_path)
+            per_patch[(manifest_name, patch_name)] = [
+                (start, count)
+                for (file_, start, count) in hunk_cache[patch_path]
+                if file_ == gecko_file
+            ]
+        keys = sorted(per_patch.keys())
+        for i in range(len(keys)):
+            for j in range(i + 1, len(keys)):
+                ka, kb = keys[i], keys[j]
+                # Same manifest editing same hunk-range twice is also bad
+                # but already caught at apply time; we focus on cross-manifest.
+                if ka[0] == kb[0]:
+                    continue
+                # If this file-pair is already allowlisted as an ordered composition,
+                # don't generate a separate hunk-level error — the sequencing is
+                # intentional and documented in expected_overlaps.yaml.
+                if (gecko_file, frozenset({ka[0], kb[0]})) in allowlist:
+                    continue
+                for (a_start, a_count) in per_patch[ka]:
+                    a_end = a_start + max(a_count, 1) - 1
+                    for (b_start, b_count) in per_patch[kb]:
+                        if not _hunks_overlap(a_start, a_count, b_start, b_count):
+                            continue
+                        b_end = b_start + max(b_count, 1) - 1
+                        conflicts.append(ConflictReport(
+                            file_path=gecko_file,
+                            manifest_a=ka[0],
+                            manifest_b=kb[0],
+                            severity="error",
+                            reason=(
+                                f"hunk overlap: {os.path.basename(ka[1])} "
+                                f"@ {a_start}-{a_end} vs "
+                                f"{os.path.basename(kb[1])} @ {b_start}-{b_end}"
+                            ),
+                        ))
+
+    severity_order = {"error": 0, "warning": 1, "info": 2}
+    return sorted(conflicts, key=lambda c: (severity_order.get(c.severity, 9), c.file_path))
 
 
 def print_conflict_report(conflicts):
@@ -410,9 +636,13 @@ def print_conflict_report(conflicts):
 
     errors = [c for c in conflicts if c.severity == "error"]
     warnings = [c for c in conflicts if c.severity == "warning"]
+    infos = [c for c in conflicts if c.severity == "info"]
 
     print(f"\n{'='*60}")
-    print(f"Patch Conflict Report: {len(errors)} errors, {len(warnings)} warnings")
+    print(
+        f"Patch Conflict Report: {len(errors)} errors, "
+        f"{len(warnings)} warnings, {len(infos)} expected overlaps"
+    )
     print(f"{'='*60}\n")
 
     for conflict in conflicts:
@@ -421,7 +651,25 @@ def print_conflict_report(conflicts):
     if errors:
         print(f"\n  {len(errors)} hard conflict(s) detected!")
         print(f"  These manifests modify the same non-build Gecko source files.")
+        print(
+            f"  If the overlap is intentional, document it in "
+            f"patches/manifests/expected_overlaps.yaml."
+        )
     print()
+
+
+def conflict_exit_code(conflicts, strict=False):
+    """
+    Decide the process exit code for --check-conflicts.
+
+    In strict mode, any "error"-severity conflict that is not in the
+    allowlist causes a non-zero exit. Warnings (moz.build) and info
+    (documented overlaps) never fail CI.
+    """
+    if not strict:
+        return 0
+    errors = [c for c in conflicts if c.severity == "error"]
+    return 1 if errors else 0
 
 
 def script_exit(statuscode):
@@ -436,33 +684,50 @@ def script_exit(statuscode):
 
 
 def run(cmd, exit_on_fail=True, do_print=True):
-    """Run a command"""
+    """Run a command without invoking a shell.
+
+    ``cmd`` may be a list/tuple (preferred) or a string. Strings are
+    tokenised with :func:`shlex.split` so callers do not need to do it
+    themselves, but the resulting argv list is then executed with
+    ``shell=False``. Shell metacharacters (``>``, ``|``, ``&``, ``~``
+    expansion, etc.) are therefore *not* honoured — express those in
+    Python (e.g. ``stdout=open(...)``, ``os.path.expanduser``) before
+    calling :func:`run`.
+    """
     if not cmd:
-        return
+        return 0
+    if isinstance(cmd, str):
+        argv = shlex.split(cmd, posix=(os.name != 'nt'))
+    else:
+        argv = list(cmd)
     if do_print:
-        print(cmd)
+        print(shlex.join(argv))
         sys.stdout.flush()
-    retval = os.system(cmd)
+    completed = subprocess.run(argv, shell=False, check=False)
+    retval = completed.returncode
     if retval != 0 and exit_on_fail:
-        print(f"fatal error: command '{cmd}' failed")
+        print(f"fatal error: command {argv!r} failed")
         sys.stdout.flush()
         script_exit(1)
     return retval
 
 
 def patch(patchfile, reverse=False, silent=False):
-    """Run a patch file"""
-    patchfile_arg = shlex.quote(patchfile)
+    """Run a patch file via the GNU patch utility (no shell)."""
+    args = ['patch', '-p1']
     if reverse:
-        cmd = f"patch -p1 -R -i {patchfile_arg}"
-    else:
-        cmd = f"patch -p1 -i {patchfile_arg}"
-    if silent:
-        cmd += ' > /dev/null'
-    else:
-        print(f"\n*** -> {cmd}")
+        args.append('-R')
+    args += ['-i', patchfile]
+    if not silent:
+        print(f"\n*** -> {shlex.join(args)}")
     sys.stdout.flush()
-    run(cmd)
+    stdout = subprocess.DEVNULL if silent else None
+    completed = subprocess.run(args, shell=False, check=False, stdout=stdout)
+    if completed.returncode != 0:
+        print(f"fatal error: command {args!r} failed")
+        sys.stdout.flush()
+        script_exit(1)
+    return completed.returncode
 
 
 __all__ = [

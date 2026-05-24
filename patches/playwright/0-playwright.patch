@@ -775,7 +775,7 @@ index 8680bd4e64abc48233b5babb3b4123fea0e76f3b..44ea1267771cd925df74c716cc26d7ab
      return false;
    }
  
-+  if (IsActive() && mDocumentContainer->ShouldOverrideHasFocus()) {
++  if (IsActive() && mDocumentContainer && mDocumentContainer->ShouldOverrideHasFocus()) {
 +    return true;
 +  }
 +
@@ -988,7 +988,7 @@ index aae46b9bd2e7756fc025c0597db221c579cac679..5e8ae13a9d1747312cd7df9d80cbb167
    return NS_ERROR_FAILURE;
  }
  
-+static uint32_t sJugglerEventId = 1000;
++static std::atomic<uint32_t> sJugglerEventId{1000};
 +
 +NS_IMETHODIMP
 +nsDOMWindowUtils::JugglerSendMouseEvent(
@@ -1062,13 +1062,22 @@ diff --git a/dom/base/nsFocusManager.cpp b/dom/base/nsFocusManager.cpp
 index 54cf5e2647a8fa097481e972e0ab67928b2abc8b..37ff283278cebc0e058b0345a157036283847de8 100644
 --- a/dom/base/nsFocusManager.cpp
 +++ b/dom/base/nsFocusManager.cpp
-@@ -1712,6 +1712,10 @@ Maybe<uint64_t> nsFocusManager::SetFocusInner(Element* aNewContent,
+@@ -1712,6 +1712,16 @@ Maybe<uint64_t> nsFocusManager::SetFocusInner(Element* aNewContent,
          (GetActiveBrowsingContext() == newRootBrowsingContext);
    }
- 
+
 +  // In Playwright, we want to send focus events even if the element
-+  // isn't actually in the active window.
-+  isElementInActiveWindow = true;
++  // isn't actually in the active window — but only for forceActive pages,
++  // not for every focus operation in every Firefox window.
++  if (!isElementInActiveWindow && aNewContent) {
++    if (Document* doc = aNewContent->GetComposedDoc()) {
++      if (nsCOMPtr<nsIDocShell> shell = doc->GetDocShell()) {
++        bool forceActive = false;
++        shell->GetForceActiveState(&forceActive);
++        if (forceActive) isElementInActiveWindow = true;
++      }
++    }
++  }
 +
    // Exit fullscreen if a website focuses another window
    if (StaticPrefs::full_screen_api_exit_on_windowRaise() &&

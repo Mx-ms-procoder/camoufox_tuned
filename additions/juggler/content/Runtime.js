@@ -7,8 +7,9 @@
 // Avoid Components.*, ChromeUtils and global const variables.
 
 if (!this.Debugger) {
-  // Worker has a Debugger defined already.
-  const {addDebuggerToGlobal} = ChromeUtils.import("resource://gre/modules/jsdebugger.jsm", {});
+  // Worker has a Debugger defined already. In chrome context Firefox 141+
+  // ships jsdebugger as an ESM under resource://gre/modules/jsdebugger.sys.mjs.
+  const {addDebuggerToGlobal} = ChromeUtils.importESModule("resource://gre/modules/jsdebugger.sys.mjs");
   addDebuggerToGlobal(Components.utils.getGlobalForObject(this));
 }
 
@@ -691,5 +692,7 @@ function emitEvent(event, ...args) {
     listener.call(null, ...args);
 }
 
-var EXPORTED_SYMBOLS = ['Runtime'];
+// Runtime.js stays a classic script for the JS Debugger worker context
+// (content/WorkerMain.js loadSubScripts it); chrome-process ESM consumers
+// import Runtime through Runtime.sys.mjs.
 this.Runtime = Runtime;

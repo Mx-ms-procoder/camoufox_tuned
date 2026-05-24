@@ -13,14 +13,16 @@
 #              -e CAMOUFOX_REDIS_URL=redis://redis:6379/0 \
 #              -p 8000:8000 camoufox-slim
 
-# ── Stage 1: Build Go uTLS sidecar ──────────────────────────────────
-FROM golang:1.21-bookworm AS go-builder
+# ── Stage 1: Build Go uTLS sidecar (EXPERIMENTAL — off default path) ──
+# See K-3 / K-8 in AUDIT_2026-05-18.md. The source moved to
+# bundle/_experimental/ because no registered TLS profile selects it.
+FROM golang:1.25-bookworm AS go-builder
 
 WORKDIR /build
-COPY bundle/go.mod bundle/go.sum* ./
+COPY bundle/_experimental/go.mod bundle/_experimental/go.sum* ./
 RUN go mod download 2>/dev/null || true
 
-COPY bundle/utls_proxy.go .
+COPY bundle/_experimental/utls_proxy.go .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -ldflags="-s -w" -o /utls_proxy ./utls_proxy.go
 
@@ -67,6 +69,23 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     -r requirements.txt \
     && pip3 install --no-cache-dir /app/pythonlib/
 
+# Bake a Camoufox browser artifact into the image so runtime session
+# creation does not have to call CamoufoxFetcher().install() and hit
+# GitHub Releases. Default is now ON for B-005 / AUDIT_2026-05-17 so the
+# container is self-contained. Disable with --build-arg
+# CAMOUFOX_BAKE_BROWSER=0 if you intend to mount a prebuilt browser at
+# runtime instead. Pin a release with --build-arg
+# CAMOUFOX_FETCH_ARGS="--version <pinned>".
+ARG CAMOUFOX_BAKE_BROWSER=1
+ARG CAMOUFOX_FETCH_ARGS=""
+RUN if [ "$CAMOUFOX_BAKE_BROWSER" = "1" ]; then \
+        python3 -m camoufox fetch ${CAMOUFOX_FETCH_ARGS}; \
+    else \
+        echo "WARNING: Skipping browser bake (CAMOUFOX_BAKE_BROWSER=0). " \
+             "Runtime will fetch from GitHub Releases on first use; the " \
+             "image is NOT self-contained."; \
+    fi
+
 # Copy font configurations
 COPY bundle/fontconfigs/ /etc/fonts/conf.d/
 COPY bundle/fonts/ /usr/share/fonts/camoufox/
@@ -92,11 +111,18 @@ if [ $? -ne 0 ]; then exit 1; fi
 echo "$response" | grep -q '"ok":true' || exit 1
 EOF
 
-# Default environment
+# Default environment.
+#
+# K-3 / K-20 (AUDIT_2026-05-18.md): we no longer pre-export
+# CAMOU_UTLS_PROFILE here. The uTLS sidecar moved to
+# bundle/_experimental/ and is not selected by any registered TLS
+# profile, so baking the env var into the image was misleading — it
+# suggested the sidecar was on the default path. Operators who really
+# want to exercise the experimental sidecar can pass
+# `-e CAMOU_UTLS_PROFILE=firefox150` at `docker run`.
 ENV CAMOUFOX_SNAPSHOT_DIR=/var/lib/camoufox/snapshots
 ENV CAMOUFOX_STORE_BACKEND=file
 ENV CAMOUFOX_POOL_BACKEND=memory
-ENV CAMOU_UTLS_PROFILE=firefox135
 
 # Expose ports
 EXPOSE 8000 8080

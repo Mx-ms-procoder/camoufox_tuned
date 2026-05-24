@@ -7,12 +7,21 @@ bin/
 launch
 launch.exe
 /bundle/.gocache/
-/bundle/utls_proxy.exe
+# K-8 (AUDIT_2026-05-18.md): uTLS sidecar binaries no longer checked in.
+# Built from source via scripts/build-utls-proxy.sh or CI's go-builder.
+/bundle/utls-proxy.exe
+/bundle/utls_proxy
+/bundle/_experimental/build/
 /tmp*/
+# K-14 (AUDIT_2026-05-18.md): Codex bundle creates this directory on
+# Windows hosts and locks it from deletion. Keep it ignored.
+/tmpsccpeg9m/
 
 # Internal testing
 /extra-docs
 pythonlib/test*
+!pythonlib/tests/
+!pythonlib/tests/**
 jsonvv/test*
 /.vscode
 /bundle/fonts/extra
@@ -22,7 +31,10 @@ scripts/test*
 .vscode
 .idea
 /tests/*.disabled
-k8s/
+
+# k8s manifests are intentionally tracked (B-006 / AUDIT_2026-05-17).
+# Local-only overrides go into k8s/local/ which stays ignored.
+k8s/local/
 
 # Old data
 _old/
@@ -37,8 +49,12 @@ wget-log
 # Python interface
 venv/
 __pycache__/
+**/__pycache__/
 *.pyc
 *.mmdb
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Closed source patches
 private

@@ -1,0 +1,105 @@
+# Redis StatefulSet for Camoufox session state backend.
+#
+# Hardening notes (see AUDIT_2026-05-18.md):
+#  * --requirepass enforces password auth. The actual password is loaded
+#    from the camoufox-redis Secret and threaded into the URL the broker
+#    consumes via secretKeyRef, so it never lands in the manifest itself.
+#  * --appendonly yes + persistent volume make session state durable.
+#    For ephemeral test clusters, set REDIS_PERSISTENCE_DISABLED=1 and
+#    edit the args, but the default tracked manifest is persistent.
+#  * Network exposure is internal-only (ClusterIP/headless); add a
+#    NetworkPolicy in production to restrict who can talk to it.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: camoufox-redis
+  labels:
+    app: camoufox
+    tier: state
+spec:
+  serviceName: camoufox-redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: camoufox-redis
+  template:
+    metadata:
+      labels:
+        app: camoufox-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+        - sh
+        - -c
+        - >
+          exec redis-server
+          --requirepass "$REDIS_PASSWORD"
+          --maxmemory 256mb
+          --maxmemory-policy allkeys-lru
+          --save 900 1
+          --appendonly yes
+          --dir /data
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: camoufox-redis
+              key: password
+        resources:
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+          limits:
+            cpu: "200m"
+            memory: "320Mi"
+        ports:
+        - containerPort: 6379
+        volumeMounts:
+        - name: data
+          mountPath: /data
+        livenessProbe:
+          exec:
+            command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["sh", "-c", "redis-cli -a \"$REDIS_PASSWORD\" ping"]
+          initialDelaySeconds: 2
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      resources:
+        requests:
+          storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: camoufox-redis
+spec:
+  selector:
+    app: camoufox-redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
+  clusterIP: None  # Headless for StatefulSet
+---
+# Secret skeleton — REPLACE before deploying. Generate the password and
+# the matching URL out-of-band (e.g. `kubectl create secret generic
+# camoufox-redis --from-literal=password=$(openssl rand -hex 32)
+# --from-literal=url=redis://:<that password>@camoufox-redis:6379/0`).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: camoufox-redis
+type: Opaque
+stringData:
+  password: "CHANGE_ME_BEFORE_DEPLOY"
+  url: "redis://:CHANGE_ME_BEFORE_DEPLOY@camoufox-redis:6379/0"

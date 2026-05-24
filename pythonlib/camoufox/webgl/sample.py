@@ -12,7 +12,10 @@ DB_PATH = Path(__file__).parent / 'webgl_data.db'
 
 
 def sample_webgl(
-    os: str, vendor: Optional[str] = None, renderer: Optional[str] = None
+    os: str,
+    vendor: Optional[str] = None,
+    renderer: Optional[str] = None,
+    seed: Optional[int] = None,
 ) -> Dict[str, str]:
     """
     Sample a random WebGL vendor/renderer combination and its data based on OS probabilities.
@@ -22,6 +25,9 @@ def sample_webgl(
         os: Operating system ('win', 'mac', or 'lin')
         vendor: Optional specific vendor to use
         renderer: Optional specific renderer to use (requires vendor to be set)
+        seed: Optional integer seed for deterministic sampling. When set, the
+            same seed always picks the same vendor/renderer pair so that
+            identity-stable fingerprints stay reproducible across runs.
 
     Returns:
         Dict containing WebGL data including vendor, renderer and additional parameters
@@ -80,8 +86,11 @@ def sample_webgl(
     probs_array = np.array(probs, dtype=np.float64)
     probs_array = probs_array / probs_array.sum()
 
-    # Sample based on probabilities
-    idx = np.random.choice(len(probs_array), p=probs_array)
+    # Sample based on probabilities. A dedicated Generator with a caller-
+    # provided seed keeps the choice deterministic for a given identity
+    # without leaking through the global numpy RNG state.
+    rng = np.random.default_rng(seed) if seed is not None else np.random.default_rng()
+    idx = rng.choice(len(probs_array), p=probs_array)
 
     # Parse the JSON data string
     return orjson.loads(data_strs[idx])

@@ -1,204 +1,133 @@
-# Camoufox on Windows - Quick Start Guide
+# Camoufox Tuned on Windows
 
-## Overview
+## Current Status
 
-This guide helps you build and run Camoufox (a stealth, anti-detect Firefox fork) on Windows.
+This repository is a Firefox/Camoufox build tree. The main build orchestration is still Unix-oriented: `Makefile`, `bash` scripts, `python3`, `aria2c`, `7z`, `patch`, and Mozilla `mach` are expected. Native PowerShell helper commands such as `patch-firefox.ps1` are not present in this checkout.
+
+The most reliable Windows path is therefore WSL2 or a Linux container/CI runner. A native Windows build is not documented as verified in this repository.
 
 ## Prerequisites
 
-Before you start, ensure you have installed:
+- Git
+- WSL2 with a Linux distribution, or a Linux CI/container environment
+- Python 3.9 or newer for the Firefox build tooling
+- Go 1.25 or newer for `bundle/utls_proxy.go`
+- `make`, `bash`, `aria2`, `p7zip`, `msitools`, `wget`
+- Enough disk space for a Firefox source build. Mozilla documents at least 30 GB free disk space and recommends 8 GB or more RAM.
 
-1. **Git for Windows**
-   - Download from: https://git-scm.com/download/win
-   - Include Git Bash in PATH
+## Build From WSL2
 
-2. **Python 3.10+**
-   - Download from: https://www.python.org/downloads/
-   - Check "Add Python to PATH" during installation
-
-3. **Windows Build Tools**
-   - Visual Studio Build Tools or MinGW-w64 GCC
-   - For Windows: [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)
-
-4. **Make utility**
-   - Install via Windows package manager or MinGW
-   - Or use Windows Subsystem for Linux (WSL2)
-
-## Quick Start
-
-### Option 1: Using PowerShell Script (Recommended)
-
-```powershell
-# Open PowerShell in the camoufox_tuned directory
-
-# Show all available commands
-.\patch-firefox.ps1 help
-
-# Fetch Firefox source
-.\patch-firefox.ps1 fetch
-
-# Prepare and patch Firefox
-.\patch-firefox.ps1 patch
-
-# Build Firefox (takes 1-2 hours)
-.\patch-firefox.ps1 build
-
-# Run Camoufox
-.\patch-firefox.ps1 run
-```
-
-### Option 2: Using Command Prompt (CMD)
-
-```cmd
-cd camoufox_tuned
-
-# Check status
-git status
-
-# View available make targets
-make help
-
-# Fetch Firefox source
-make fetch
-
-# Prepare patches
-make dir
-
-# Build
-make build
-
-# Run
-make run
-```
-
-### Option 3: Using WSL2 (Recommended for Full Build)
-
-WSL2 (Windows Subsystem for Linux) provides a full Linux environment on Windows:
+Run these commands inside the Linux distribution, not from plain PowerShell:
 
 ```bash
-# Inside WSL2 terminal
-cd /mnt/c/path/to/camoufox_tuned
-make setup
-make bootstrap
+cd /mnt/c/Users/maxim/OneDrive/Dokumente/camoufox_updated_capctha/camoufox_tuned
+make fetch
+make setup-minimal
+python3 scripts/validate_patches.py
+make dir
 make build
 ```
 
-## Common Tasks
+Package a build with one of:
 
-### Build Only for Windows
-
-```powershell
-.\patch-firefox.ps1 fetch
-.\patch-firefox.ps1 build windows
+```bash
+make package-linux arch=x86_64
+make package-windows arch=x86_64
+make package-windows arch=i686
 ```
 
-### Clean Build Artifacts
+## Tests
 
-```powershell
-.\patch-firefox.ps1 clean
+After a successful browser build:
+
+```bash
+cd tests
+bash setup-venv.sh
+bash run-tests.sh --executable-path ../camoufox-150.0.2-beta.25/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin
 ```
 
-### View Build Status
+The exact object directory depends on the selected target architecture.
 
-```powershell
-.\patch-firefox.ps1 status
-```
+## Installing Python on the Windows Host
 
-### Run Built Firefox
+The 2026-05-17 audit found that neither `python` nor `py.exe` resolved on
+the host, which forced static checks (`scripts/validate_patches.py`,
+`scripts/patch.py --check-conflicts --strict`, `pip-tools`, etc.) to fall
+back to the Codex-bundled interpreter. To make local development work
+end-to-end on Windows, install Python natively:
 
-```powershell
-.\patch-firefox.ps1 run
-```
-
-## Troubleshooting
-
-### Issue: "Make not found"
-
-**Solution:** Install Make through one of these methods:
-
-1. **Windows package manager (Recommended)**:
+1. Install the latest 3.11 or 3.12 from https://www.python.org/downloads/windows/
+   (or via `winget install Python.Python.3.12`). Tick **"Add python.exe to
+   PATH"** in the installer.
+2. Restart the shell and verify:
    ```powershell
-   # Using Chocolatey
-   choco install make
-
-   # Using WinGet
-   winget install GNU.Make
+   python --version    # should print Python 3.11+ / 3.12+
+   py --version        # py.exe launcher
    ```
+3. Create an isolated venv for the build tooling (recommended):
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   pip install -r requirements.txt
+   ```
+4. For fully reproducible installs, generate a hash-locked lock file
+   from `requirements.txt`:
+   ```powershell
+   pip install pip-tools
+   pip-compile --generate-hashes -o requirements.lock requirements.txt
+   ```
+   then `pip install --require-hashes -r requirements.lock`.
 
-2. **MinGW64**: Install [MinGW-w64](https://www.mingw-w64.org/) and add to PATH
+The patch validation gates (`validate_patches.py`,
+`patch.py --check-conflicts --strict`) run pure-Python and only need a
+recent CPython; they do not require Mozilla `mach` or the full Firefox
+toolchain.
 
-3. **Windows Tools**: Install Visual Studio Build Tools
+## Local Host Notes From The 2026-05-17 Audit
 
-### Issue: "Python not found"
+- `make` was not available in the Windows `PATH`.
+- `bash.exe` was present, but WSL had no installed Linux distribution.
+- Docker Desktop CLI was present, but the Docker daemon was not running.
+- `python` was not available in `PATH`; only the Codex bundled Python
+  runtime was usable for static checks. See the "Installing Python on
+  the Windows Host" section above for the recommended fix.
+- The Go toolchain was available and `go build ./...` passed for
+  `bundle/`.
 
-**Solution:** 
-- Ensure Python is in PATH: `python --version`
-- Use `python -m pip --version` to verify pip installation
-- Restart PowerShell/CMD after installing Python
+## Known Build Risks
 
-### Issue: Git line endings (CRLF vs LF)
+- `tests/setup-venv.sh` now installs from the root `requirements.txt`; keep this file in sync with the package metadata.
+- The patch conflict checker reports shared Gecko files across `identity`, `media`, and `security`. This is tolerated via `patches/manifests/expected_overlaps.yaml` but is a real maintenance risk when rebasing to a new Firefox version. See K-7 in `AUDIT_2026-05-18.md`.
+- The root `Dockerfile` is pinned to `ubuntu:24.04`, but it still pulls `apt`-installed `rustc` *and* runs rustup. The two toolchains can disagree on MSRV; prefer the rustup install (Rust 1.94.0 per Firefox 150 baseline).
 
-**Solution:**
-```powershell
-# Before cloning
-git config --global core.autocrlf true
+## Operational security notes (audit 2026-05-18)
 
-# After cloning, if issues persist
-git config core.autocrlf false
-```
+- **Identity blob in process environment (K-12).** The launcher chunks
+  the Camoufox identity JSON into `CAMOU_CONFIG_1..N` environment
+  variables. Any process running under the same UID can read the full
+  identity from `/proc/<pid>/environ` on Linux or via the process token
+  on Windows. Treat the identity as compromised on multi-tenant hosts.
+  A shared-memory replacement is the recommended follow-up but is not
+  yet implemented; do not run Camoufox alongside untrusted workloads
+  under the same OS user.
 
-### Issue: Build fails with GCC/compiler errors
+- **Broker token is hard requirement on non-loopback binds (K-5).**
+  The previously documented `CAMOUFOX_BROKER_ALLOW_UNAUTHENTICATED=1`
+  escape hatch has been removed. Tokenless brokers are only allowed
+  on `127.0.0.1` / `::1` / `localhost`.
 
-**Solution:**
-1. Ensure you have the correct compiler installed
-2. For Windows: Install Visual Studio Build Tools
-3. For MinGW: Ensure MinGW is in PATH
-4. Try building with `make clean` first, then `make build`
+- **uTLS sidecar is off the default path (K-3).** Source moved to
+  `bundle/_experimental/`. The default Firefox-native NSS handshake is
+  used; do not assume any utls-based fingerprint parity.
 
-## Build System Overview
+- **TLS-cipher-order claim withdrawn (K-1).** `CAMOU_TLS_CIPHERS`
+  enables/disables NSS suites but does not control ClientHello order;
+  NSS's hard-coded internal order is what hits the wire. This matches
+  the Firefox default and is the intended outcome.
 
-The Camoufox build system consists of:
+- **HTTP/2 SETTINGS not enforced by the build (K-2).** Until
+  `Http2Session.cpp` is patched to read `IdentityStateProvider`, the
+  launched Firefox emits its native HTTP/2 SETTINGS. For
+  Firefox-version-correct profiles this matches a real Firefox client.
 
-- **Makefile**: Main build orchestration
-- **multibuild.py**: Cross-platform build script
-- **patches/**: Firefox patches (fingerprint spoofing, stealth, debloat)
-- **additions/**: Custom Firefox additions (UI, config)
-- **pythonlib/**: Python interface for Camoufox
-
-## Windows-Specific Patching
-
-To use Camoufox for web scraping on Windows:
-
-```python
-from camoufox.sync_api import Camoufox
-
-# Create browser with spoofed fingerprint
-with Camoufox(config={
-    "navigator.userAgent": "Mozilla/5.0...",
-    "navigator.platform": "Win32",
-    "screen.width": 1920,
-    "screen.height": 1080,
-}) as browser:
-    page = browser.new_page()
-    page.goto("https://example.com")
-    # Your automation here
-```
-
-## Additional Resources
-
-- **Main README**: See `README.md` for full documentation
-- **Project Plan**: See `plan.md` for known issues and roadmap
-- **Python Library**: See `pythonlib/README.md` for Python integration
-- **Issues**: Open an issue on GitHub for bug reports
-
-## Support
-
-For issues and questions:
-1. Check existing GitHub issues
-2. Review the plan.md file for known issues
-3. Open a new GitHub issue with details about your environment
-
----
-
-**Last Updated**: 2026-05-14  
-**Tested on**: Windows 11 Home (Build 26200)
+Last reviewed: 2026-05-18.

@@ -27,25 +27,28 @@ classifiers = [
 ]
 
 [tool.poetry.dependencies]
-python = "^3.8"
-click = "*"
-requests = "*"
-orjson = "*"
+# Aligned with root requirements.txt (audit 2026-05-15, priority fix #1).
+# Playwright 1.55+ requires Python 3.9+, so the package minimum was raised
+# from 3.8 to 3.9 to keep the dependency contract internally consistent.
+python = "^3.9"
+click = ">=8.1.7"
+requests = ">=2.32.3"
+orjson = ">=3.10.7"
 browserforge = "^1.2.1"
-playwright = "1.48.0"
-pyyaml = "*"
-platformdirs = "*"
-tqdm = "*"
-numpy = "*"
-ua_parser = "*"
-typing_extensions = "*"
-screeninfo = "*"
-lxml = "*"
-language-tags = "*"
-pysocks = "*"
-geoip2 = {version = "*", optional = true}
-redis = {version = "*", optional = true}
-boto3 = {version = "*", optional = true}
+playwright = ">=1.55.0"
+pyyaml = ">=6.0.2"
+platformdirs = ">=4.3.6"
+tqdm = ">=4.66.5"
+numpy = ">=1.26.4"
+ua_parser = ">=1.0.0"
+typing_extensions = ">=4.12.2"
+screeninfo = ">=0.8.1"
+lxml = ">=5.3.0"
+language-tags = ">=1.2.0"
+pysocks = ">=1.7.1"
+geoip2 = {version = ">=4.8.0", optional = true}
+redis = {version = ">=5.1.1", optional = true}
+boto3 = {version = ">=1.35.0", optional = true}
 
 [tool.poetry.extras]
 geoip = ["geoip2"]

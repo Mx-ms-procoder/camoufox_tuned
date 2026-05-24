@@ -1,8 +1,15 @@
 """
 captchas_solver/slide.py
 ════════════════════════════════════════════════════════════════════
-Solver für Slide-CAPTCHAs (Puzzle-basiert).
-Nutzt Vision-KI zur Erkennung des Ziel-Slots und Playwright zum Schieben.
+Solver für Puzzle-Slide-CAPTCHAs (TikTok V1/V2, GeeTest, Alibaba …).
+
+Verbesserungen ggü. v1:
+  * Multi-Frame-Selektor-Suche — Captchas in cross-origin iframes
+    (Standardfall) werden jetzt überhaupt gefunden.
+  * Humanized Drag via human_mouse.py (Bezier + Distortion +
+    easeOutQuad-Easing — separat vom Browser).
+  * Robusterer Success-Check (mehrere Indikatoren statt "knob noch da?").
+  * Sub-Region-Screenshot wenn möglich (effizienter Vision-Call).
 """
 
 from __future__ import annotations
@@ -18,52 +25,66 @@ try:
     from .base_solver import AsyncCaptchaSolver
 except (ImportError, ValueError):
     import sys
-    # Add current and parent directory to path to support direct execution
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
     sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from base_solver import AsyncCaptchaSolver  # type: ignore
+
 # ══════════════════════════════════════════════════════════════════
 #  KONFIGURATION
 # ══════════════════════════════════════════════════════════════════
 
 SLIDE_KNOB_SELECTORS = [
-    ".secsdk-captcha-drag-icon",     # TikTok
-    ".geetest_slider_button",        # GeeTest
-    ".nc_iconfont.btn_slide",        # Alibaba
-    ".slide-to-unlock-handle",       # Generisch
+    ".secsdk-captcha-drag-icon",                              # TikTok V1
+    ".captcha-verify-container div[draggable='true']",        # TikTok V2
+    ".geetest_slider_button",                                 # GeeTest
+    ".nc_iconfont.btn_slide",                                 # Alibaba
+    ".slide-to-unlock-handle",                                # Generic
     "[class*='slider-handle' i]",
     "[class*='captcha-drag' i]",
 ]
 
 SLIDE_TRACK_SELECTORS = [
-    ".captcha_verify_slide--wrapper",# TikTok
-    ".geetest_slider",               # GeeTest
-    ".nc-lang-cnt",                  # Alibaba
-    ".slide-to-unlock-bg",           # Generisch
+    ".captcha_verify_slide--wrapper",                         # TikTok V1
+    ".captcha-verify-container > div",                        # TikTok V2 (drag-bar parent)
+    ".geetest_slider",                                        # GeeTest
+    ".nc-lang-cnt",                                           # Alibaba
+    ".slide-to-unlock-bg",                                    # Generic
     "[class*='slider-track' i]",
     "[class*='captcha-track' i]",
 ]
 
+# Success-Indikatoren (positive Signale, nicht nur "knob weg")
+SUCCESS_INDICATORS = [
+    ".geetest_panel_success",
+    ".geetest_success_radar_tip",
+    ".secsdk-captcha-success",
+    "[class*='captcha-success' i]",
+    ".verify-success",
+]
+
+
 class SlideSolver(AsyncCaptchaSolver):
-    """
-    Solver für Puzzle-Slide-CAPTCHAs.
-    """
+    """Solver für Puzzle-Slide-CAPTCHAs."""
+
     def __init__(self, page: Page):
         super().__init__(page)
 
     async def solve(self) -> bool:
         print("\n  🧩  [SlideSolver] Starte Slide-CAPTCHA Solver…")
 
-        # ── Schritt 1: Elemente finden ────────────────────────────
-        knob_sel = await self.find_selector(SLIDE_KNOB_SELECTORS)
-        track_sel = await self.find_selector(SLIDE_TRACK_SELECTORS)
+        # ── 1. Knob + Track in irgendeinem Frame finden ─────────────
+        knob_hit = await self.find_selector_in_frames(SLIDE_KNOB_SELECTORS)
+        track_hit = await self.find_selector_in_frames(SLIDE_TRACK_SELECTORS)
 
-        if not knob_sel or not track_sel:
-            print("  ❌  [SlideSolver] Slider-Elemente nicht gefunden.")
+        if not knob_hit or not track_hit:
+            print("  ❌  [SlideSolver] Slider-Elemente in keinem Frame gefunden.")
             return False
 
-        knob = self.page.locator(knob_sel).first
-        track = self.page.locator(track_sel).first
+        knob_frame, knob_sel = knob_hit
+        track_frame, track_sel = track_hit
+
+        knob = knob_frame.locator(knob_sel).first
+        track = track_frame.locator(track_sel).first
 
         k_bbox = await knob.bounding_box()
         t_bbox = await track.bounding_box()
@@ -72,12 +93,16 @@ class SlideSolver(AsyncCaptchaSolver):
             print("  ❌  [SlideSolver] BoundingBox konnte nicht ermittelt werden.")
             return False
 
+        # Cross-frame: bounding_box gibt Koordinaten relativ zum Viewport
+        # zurück. Frames in iframes liefern bereits absolute Werte
+        # (Playwright handelt das). Also einfach direkt nutzen.
         track_x_start = int(t_bbox["x"])
         track_width = int(t_bbox["width"])
-        
-        print(f"  📍  [SlideSolver] Track Start: {track_x_start}px, Breite: {track_width}px")
+        track_x_end = track_x_start + track_width
 
-        # ── Schritt 2: Full-Page Screenshot & KI-Analyse ──────────
+        print(f"  📍  [SlideSolver] Track: X={track_x_start}…{track_x_end} px (Breite {track_width})")
+
+        # ── 2. Full-Page-Screenshot + Vision-Call ───────────────────
         image_bytes = await self.screenshot_fullpage()
         prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompt_slide.txt")
         try:
@@ -87,61 +112,58 @@ class SlideSolver(AsyncCaptchaSolver):
             print(f"  ❌  [SlideSolver] Konnte prompt_slide.txt nicht lesen: {e}")
             return False
 
-        # Platzhalter im Prompt durch echte Koordinaten ersetzen
-        track_x_end = track_x_start + track_width
         prompt = prompt.replace("[FÜGE HIER track_x_start EIN]", str(track_x_start))
         prompt = prompt.replace("[FÜGE HIER track_x_start + track_width EIN]", str(track_x_end))
 
         try:
             raw_response = await self.get_vision_response(image_bytes, prompt)
-            print(f"  🤖  [SlideSolver] KI-Antwort: '{raw_response}'")
+            print(f"  🤖  [SlideSolver] Vision-Antwort: {raw_response[:200]!r}")
             target_x = self.extract_target_x(raw_response)
         except Exception as e:
-            print(f"  ❌  [SlideSolver] KI-Fehler: {e}")
+            print(f"  ❌  [SlideSolver] Vision-API-Fehler: {e}")
             return False
 
         if target_x is None:
-            print("  ⚠️   [SlideSolver] Konnte keinen Target_X Wert extrahieren.")
+            print("  ⚠️   [SlideSolver] Kein Target_X aus Antwort extrahierbar.")
             return False
 
         if not (track_x_start <= target_x <= track_x_end):
-            print(f"  ⚠️   [SlideSolver] Target_X ({target_x}) außerhalb der Schiene ({track_x_start} - {track_x_end}).")
-            return False
+            print(f"  ⚠️   [SlideSolver] Target_X ({target_x}) außerhalb [{track_x_start},{track_x_end}].")
+            # Clamp statt abort
+            target_x = max(track_x_start, min(target_x, track_x_end))
+            print(f"  ↪️   [SlideSolver] auf {target_x} gec­lampt.")
 
-        print(f"  🎯  [SlideSolver] Ziel-Position extrahiert (Target_X): {target_x}")
+        print(f"  🎯  [SlideSolver] Ziel-X: {target_x}")
 
-        # ── Schritt 3/4: Ausführen der Schiebebewegung ────────────
-        print(f"  🖱️   [SlideSolver] Ziehe Slider nach X={target_x}…")
-        
+        # ── 3. Humanized Drag ───────────────────────────────────────
         start_x = k_bbox["x"] + k_bbox["width"] / 2
         start_y = k_bbox["y"] + k_bbox["height"] / 2
+        # Y mit minimalem Jitter — echte Slider-Bewegung ist nie 100 %
+        # horizontal (Hand-Mikrotremor).
+        end_y = start_y + random.uniform(-2.0, 2.0)
 
-        await self.page.mouse.move(start_x, start_y)
-        await self.page.mouse.down()
-        await asyncio.sleep(random.uniform(0.2, 0.4))
+        print(f"  🖱️   [SlideSolver] Drag von ({start_x:.0f},{start_y:.0f}) nach ({target_x},{end_y:.0f})…")
+        await self.humanized_drag((start_x, start_y), (float(target_x), end_y))
 
-        # Menschliche Mausbewegung (Drag) mit Playwright + Camoufox native stealth
-        await self.page.mouse.move(
-            float(target_x),
-            start_y,
-            steps=random.randint(30, 50)
-        )
+        # Validierung dauert oft 1-3 Sekunden
+        await asyncio.sleep(random.uniform(1.5, 2.5))
 
-        await asyncio.sleep(random.uniform(0.3, 0.6))
-        await self.page.mouse.up()
-
-        # Kurzes Warten auf Validierung
-        await asyncio.sleep(2)
-        
-        # ── Schritt 5: Erfolgskontrolle ───────────────────────────
-        # Einfache Heuristik: Ist das Element nach dem Versuch noch da?
-        knob_still_visible = await self.find_selector(SLIDE_KNOB_SELECTORS)
-        if not knob_still_visible:
-            print("  🎉  [SlideSolver] CAPTCHA offenbar gelöst!")
+        # ── 4. Success-Check (mehrstufig) ───────────────────────────
+        # Positive Indikatoren zuerst (zuverlässiger als "knob weg")
+        success_hit = await self.find_selector_in_frames(SUCCESS_INDICATORS)
+        if success_hit:
+            print(f"  🎉  [SlideSolver] CAPTCHA gelöst (Success-Indikator: {success_hit[1]}).")
             return True
-        else:
-            print(f"  ❌  [SlideSolver] Versuch fehlgeschlagen. Übergebe an Agenten...")
-            return False
+
+        # Fallback: ist der Knob noch sichtbar?
+        knob_still = await self.find_selector_in_frames(SLIDE_KNOB_SELECTORS)
+        if not knob_still:
+            print("  🎉  [SlideSolver] CAPTCHA vermutlich gelöst (Knob nicht mehr sichtbar).")
+            return True
+
+        print("  ❌  [SlideSolver] Versuch fehlgeschlagen.")
+        return False
+
 
 async def solve(page: Page) -> bool:
     solver = SlideSolver(page)

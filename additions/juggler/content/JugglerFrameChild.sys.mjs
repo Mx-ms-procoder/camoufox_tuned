@@ -1,16 +1,17 @@
-"use strict";
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const { Helper } = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const { initialize } = ChromeUtils.import('chrome://juggler/content/content/main.js');
+const { Helper } = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const { initialize } = ChromeUtils.importESModule('chrome://juggler/content/content/main.js');
 
-const Ci = Components.interfaces;
 const helper = new Helper();
 
 let sameProcessInstanceNumber = 0;
 
 const topBrowingContextToAgents = new Map();
 
-class JugglerFrameChild extends JSWindowActorChild {
+export class JugglerFrameChild extends JSWindowActorChild {
   constructor() {
     super();
 
@@ -82,5 +83,3 @@ class JugglerFrameChild extends JSWindowActorChild {
 
   receiveMessage() { }
 }
-
-var EXPORTED_SYMBOLS = ['JugglerFrameChild'];

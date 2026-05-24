@@ -116,13 +116,32 @@ class AsyncSolver(BaseSolver[Page]):
         return None
 
     def _solve_tiles(self, recaptcha_box: AsyncRecaptchaBox, indexes: Iterable[int]) -> None:
-        pass
+        # Tile-based image challenges are out of scope for the audio-only
+        # implementation. Surfacing a clear error beats silently passing
+        # (which previously made the solver "succeed" by returning no
+        # token, while the caller assumed success).
+        raise NotImplementedError(
+            "_solve_tiles is not implemented in the audio-only AsyncSolver. "
+            "Use an external image-challenge solver (e.g. CapSolver)."
+        )
 
     def _submit_tile_answers(self, recaptcha_box: AsyncRecaptchaBox) -> None:
-        pass
+        raise NotImplementedError(
+            "_submit_tile_answers is not implemented in the audio-only AsyncSolver."
+        )
 
     async def _solve_image_challenge(self, recaptcha_box: AsyncRecaptchaBox) -> None:
-        pass
+        # Image-grid challenge handling is not provided by this solver.
+        # The audio-fallback path in solve_recaptcha() should be used
+        # instead. Raising here ensures the caller (`solve()` in
+        # __init__.py) catches it and emits a useful message rather than
+        # silently returning False from a no-op pass.
+        raise NotImplementedError(
+            "Image (grid) reCAPTCHA challenge is not supported by the audio-only "
+            "AsyncSolver. The audio fallback usually succeeds — if reCAPTCHA "
+            "refuses to offer audio (suspicious IP / fingerprint), switch IP or "
+            "delegate to an external image solver."
+        )
 
 
     async def _transcribe_audio(

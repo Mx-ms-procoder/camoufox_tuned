@@ -2,14 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const {protocol, checkScheme} = ChromeUtils.import("chrome://juggler/content/protocol/Protocol.js");
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
+const {protocol, checkScheme} = ChromeUtils.importESModule("chrome://juggler/content/protocol/Protocol.js");
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
 
 const helper = new Helper();
 // Camoufox: Exclude redundant internal events from logs.
 const EXCLUDED_DBG = ['Page.navigationStarted', 'Page.frameAttached', 'Runtime.executionContextCreated', 'Runtime.console', 'Page.navigationAborted', 'Page.eventFired'];
 
-class Dispatcher {
+export class Dispatcher {
   /**
    * @param {Connection} connection
    */
@@ -146,10 +146,6 @@ class ProtocolSession {
     return await this._handler[method](params);
   }
 }
-
-this.EXPORTED_SYMBOLS = ['Dispatcher'];
-this.Dispatcher = Dispatcher;
-
 
 function formatDate(date) {
   const pad = (num) => String(num).padStart(2, '0');

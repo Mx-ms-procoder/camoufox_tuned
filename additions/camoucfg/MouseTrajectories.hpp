@@ -1,5 +1,6 @@
 #pragma once
 #include <cassert>
+#include <limits>
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -16,16 +17,19 @@
 
 class BezierCalculator {
  public:
-  static long long factorial(int n) {
-    if (n < 0) return -1;  // Indicate error
-    long long result = 1;
-    for (int i = 2; i <= n; i++) result *= i;
-    return result;
-  }
-
+  // Iterative binomial coefficient. Uses double throughout so it remains
+  // numerically stable for n > 20 (where long long factorial overflows)
+  // and clamps via the k <-> n-k symmetry to minimise multiplications.
   static double binomial(int n, int k) {
-    return static_cast<double>(factorial(n)) /
-           (factorial(k) * factorial(n - k));
+    if (k < 0 || k > n) return 0.0;
+    if (k == 0 || k == n) return 1.0;
+    if (k > n - k) k = n - k;
+    double result = 1.0;
+    for (int i = 0; i < k; ++i) {
+      result *= static_cast<double>(n - i);
+      result /= static_cast<double>(i + 1);
+    }
+    return result;
   }
 
   static double bernsteinPolynomialPoint(double x, int i, int n) {
@@ -68,9 +72,16 @@ class HumanizeMouseTrajectory {
     std::vector<int> flatPoints;
     flatPoints.reserve(points.size() * 2);
 
+    int prevX = std::numeric_limits<int>::min();
+    int prevY = std::numeric_limits<int>::min();
     for (const auto& point : points) {
-      flatPoints.push_back(static_cast<int>(std::round(point[0])));
-      flatPoints.push_back(static_cast<int>(std::round(point[1])));
+      int px = static_cast<int>(std::round(point[0]));
+      int py = static_cast<int>(std::round(point[1]));
+      if (px == prevX && py == prevY) continue;
+      flatPoints.push_back(px);
+      flatPoints.push_back(py);
+      prevX = px;
+      prevY = py;
     }
 
     return flatPoints;

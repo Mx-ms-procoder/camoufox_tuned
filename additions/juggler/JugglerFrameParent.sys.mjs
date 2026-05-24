@@ -1,13 +1,13 @@
-"use strict";
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const { TargetRegistry } = ChromeUtils.import('chrome://juggler/content/TargetRegistry.js');
-const { Helper } = ChromeUtils.import('chrome://juggler/content/Helper.js');
+const { TargetRegistry } = ChromeUtils.importESModule('chrome://juggler/content/TargetRegistry.js');
+const { Helper } = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
 
 const helper = new Helper();
 
-var EXPORTED_SYMBOLS = ['JugglerFrameParent'];
-
-class JugglerFrameParent extends JSWindowActorParent {
+export class JugglerFrameParent extends JSWindowActorParent {
   constructor() {
     super();
   }
@@ -18,7 +18,6 @@ class JugglerFrameParent extends JSWindowActorParent {
     // Actors are registered per the WindowGlobalParent / WindowGlobalChild pair. We are only
     // interested in those WindowGlobalParent actors that are matching current browsingContext
     // window global.
-    // See https://github.com/mozilla/gecko-dev/blob/cd2121e7d83af1b421c95e8c923db70e692dab5f/testing/mochitest/BrowserTestUtils/BrowserTestUtilsParent.sys.mjs#L15
     if (!this.manager?.isCurrentGlobal)
       return;
 

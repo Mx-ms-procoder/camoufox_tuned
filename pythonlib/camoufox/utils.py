@@ -1,4 +1,6 @@
+import atexit
 import os
+import tempfile
 from os.path import abspath
 from pathlib import Path
 from pprint import pprint
@@ -40,6 +42,55 @@ CACHE_PREFS = {
 }
 
 
+def _secure_config_via_file_enabled() -> bool:
+    """
+    K-18 / S-B (AUDIT_2026-05-18.md): the launcher can write the
+    identity blob to a 0600 temp file and pass only the path through
+    the environment, instead of stuffing the full JSON into
+    CAMOU_CONFIG_1..N where any same-UID process can read it from
+    /proc/<pid>/environ. The C++ side (`MaskConfig::GetJson`) reads
+    `CAMOU_CONFIG_FILE` first and falls back to the chunked env vars,
+    so the change is backward-compatible with older Camoufox binaries.
+
+    Trigger: set CAMOUFOX_SECURE_CONFIG=1 in the launcher's own
+    environment. Off by default because the C++ side must be on a
+    build that includes the file-read path; older binaries silently
+    fall back to env vars and would receive an empty config.
+    """
+    return os.environ.get("CAMOUFOX_SECURE_CONFIG") == "1"
+
+
+def _write_config_to_secure_file(config_str: str) -> str:
+    """
+    Persist `config_str` (the serialised identity JSON) to a tempfile
+    with 0600 permissions and register an atexit hook to remove it.
+    Returns the absolute file path.
+    """
+    fd, path = tempfile.mkstemp(prefix="camou_config_", suffix=".json")
+    try:
+        os.write(fd, config_str.encode("utf-8"))
+    finally:
+        os.close(fd)
+    # On POSIX systems mkstemp already creates the file with 0600.
+    # On Windows the file inherits the user's ACL, which restricts
+    # read access to the same user — equivalent to the env-var
+    # threat model — but be explicit on POSIX for defence in depth.
+    if OS_NAME != 'win':
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+
+    def _cleanup() -> None:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+    atexit.register(_cleanup)
+    return path
+
+
 def get_env_vars(
     config_map: Dict[str, Any], user_agent_os: str
 ) -> Dict[str, Union[str, float, bool]]:
@@ -48,15 +99,24 @@ def get_env_vars(
     """
     env_vars: Dict[str, Union[str, float, bool]] = {}
     updated_config_data = orjson.dumps(config_map)
-
-    # Split the config into chunks
-    chunk_size = 2047 if OS_NAME == 'win' else 32767
     config_str = updated_config_data.decode('utf-8')
 
-    for i in range(0, len(config_str), chunk_size):
-        chunk = config_str[i : i + chunk_size]
-        env_name = f"CAMOU_CONFIG_{(i // chunk_size) + 1}"
-        env_vars[env_name] = chunk
+    if _secure_config_via_file_enabled():
+        # File-based path: only the file path travels through the env
+        # block; the identity contents stay on disk under 0600.
+        env_vars["CAMOU_CONFIG_FILE"] = _write_config_to_secure_file(config_str)
+    else:
+        # Legacy chunked path. Kept as the default because older
+        # Camoufox binaries do not implement CAMOU_CONFIG_FILE.
+        # Windows: per-env-var practical ceiling on modern Win10/11
+        # is ~8190 chars; the legacy 2047 figure was the cmd.exe
+        # one-line limit, not the env-var limit. Linux/macOS allow
+        # much more. See K-15 in AUDIT_2026-05-18.md.
+        chunk_size = 8000 if OS_NAME == 'win' else 32767
+        for i in range(0, len(config_str), chunk_size):
+            chunk = config_str[i : i + chunk_size]
+            env_name = f"CAMOU_CONFIG_{(i // chunk_size) + 1}"
+            env_vars[env_name] = chunk
 
     if OS_NAME == 'lin':
         fontconfig_path = get_path(os.path.join("fontconfig", user_agent_os))
@@ -639,11 +699,17 @@ def launch_options(
         pprint(config)
 
     # Inject TLS fingerprint profile matching the browser identity.
-    # TLS env vars go directly to NSS (before Gecko starts).
-    # HTTP/2 settings go through MaskConfig (standard CAMOU_CONFIG path).
+    # TLS env vars go directly to NSS (before Gecko starts) — see
+    # CamouTLSOverride. HTTP/2 SETTINGS are merged into CAMOU_CONFIG
+    # only when the operator opts in via
+    # `CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1`; without the flag
+    # `get_http2_config` returns `{}` to avoid the K-2 dead-config
+    # regression. The consumer
+    # (`IdentityStateProvider::GetHttp2State`) is now spliced into
+    # `Http2Session::SendHello` by the K-21 patch which sits in
+    # `patches/manifests/network.yaml` and runs on every build.
     _tls_profile = identity_state.network_profile
     if _tls_profile:
-        # HTTP/2 SETTINGS → MaskConfig (merged into config dict)
         merge_into(config, get_http2_config(_tls_profile))
 
     # Validate the config
@@ -653,6 +719,12 @@ def launch_options(
     env_vars = {
         **env,
         **get_env_vars(config, target_os),
+        # K-6 (AUDIT_2026-05-18.md): mark this process as the Juggler-
+        # automated path so Navigator::Webdriver() returns false only
+        # under our intended automation. Without this var the upstream
+        # Marionette / RemoteAgent check is honoured, so a stray
+        # marionette session is correctly flagged as automated.
+        "MOZ_CAMOUFOX_JUGGLER": "1",
     }
 
     # Inject TLS env vars (CAMOU_TLS_*) for NSS cipher suite control.
@@ -664,14 +736,24 @@ def launch_options(
     # Inject sidecar env vars when the network profile uses utls-sidecar mode.
     # The Go sidecar reads CAMOU_UTLS_IDENTITY_JSON to build a custom
     # ClientHelloSpec that exactly matches the IdentityCoherenceEngine identity.
+    #
+    # K-3 / K-16 (AUDIT_2026-05-18.md): registered profiles never select
+    # sidecar transport, so this branch is reachable only when an operator
+    # constructs a NetworkProfile by hand. We no longer silently flip
+    # `security.enterprise_roots.enabled` to true here — that pref widens
+    # the trust store to anything the OS has accumulated (enterprise MDM,
+    # AV-injected roots, etc.) and is a real bypass surface in a
+    # multi-tenant host. The operator must opt-in to trusting the
+    # sidecar's MitM CA themselves (either by adding it to Firefox's
+    # cert9.db before launch or by setting `firefox_user_prefs` in their
+    # own launcher call). A LeakWarning is emitted so the omission is
+    # visible at runtime.
     if _tls_profile and _tls_profile.requires_sidecar():
         sidecar_env = _tls_profile.to_sidecar_env()
         env_vars.update(sidecar_env)
         env_vars["CAMOU_UTLS_MODE"] = "mitm"
-        # Trust the sidecar's local CA for TLS interception
-        firefox_user_prefs.setdefault(
-            "security.enterprise_roots.enabled", True
-        )
+        from .warnings import LeakWarning
+        LeakWarning.warn("sidecar_mitm_ca_not_auto_trusted")
 
 
     if executable_path:

@@ -1,49 +1,84 @@
 """
-CAPTCHA Master-Scanner v8  –  TikTok drei separate Provider
-══════════════════════════════════════════════════════════════════════════
-Änderungen gegenüber v7:
-  • TikTok vollständig refaktoriert:
-      – Ein gemeinsamer TikTokProvider → drei separate Provider-Klassen:
-          TikTokRotateProvider      (Rotate CAPTCHA)
-          TikTokSlideProvider       (Puzzle Slide CAPTCHA)
-          TikTok3DObjectsProvider   (3D Objects / Shapes CAPTCHA)
-      – Gemeinsame Hilfsfunktion _tikTokContainerPresent() vermeidet
-        redundante DOM-Traversal in allen drei Providern
-      – Jeder Provider enthält präzise Negativfilter gegen die anderen
-        zwei Typen (Slider-Check, Rotate-Bild-Check)
-      – V1 + V2 Selektoren je Typ vollständig dokumentiert
-      – Detaillierte description mit Selektoren + Lösungshinweisen
-  • Orchestrator: drei TikTok-Provider in Priorität Rotate > Slide > 3D,
-    hasTikTok-Flag verhindert Mehrfachreportings
-  • specificTypes um alle drei TikTok-Namen erweitert
+CAPTCHA Master-Scanner v9 — multi-frame + early-inject reliability fixes.
 
-Playwright-Nutzung (Camoufox):
-    import asyncio, master_scanner
+EXPERIMENTAL — see scripts_macros/captcha/__init__.py and K-19 in
+AUDIT_2026-05-18.md. Selectors target third-party sites that change
+frequently; treat this scanner as a starting point, not a contract.
+
+Changes vs. v8 (Chrome-Reliability):
+  * scan_page() iterates ALL page.frames (not just main_frame). Chrome's
+    Site Isolation puts each cross-origin frame in its own process; the
+    previous single-frame evaluate missed reCAPTCHA/hCaptcha/Turnstile
+    that live in their own iframes.
+  * _inject_observer() walks every frame too, so the GeeTest triad
+    observer is installed in sub-frames as well.
+  * live_scan() calls context.add_init_script(JS_INJECT_OBSERVERS) so
+    the observer runs at document_start on every frame BEFORE the page's
+    own JavaScript executes — fixes the race where late-loaded captchas
+    mounted before our scanner was installed.
+  * live_scan() now hooks page.on("response") on captcha-related URLs
+    (CAPTCHA_URL_HINTS) and triggers a delayed re-scan. Catches XHR-
+    lazy-mounted captchas that DOM-MutationObserver would only see after
+    the mount completes.
+  * live_scan() hooks page.on("framenavigated") + page.on("load") for
+    re-scans on navigation events.
+  * auto_solve_captcha() uses a declarative _SOLVER_ROUTES registry
+    instead of the brittle if/elif name-substring chain.
+  * Three new providers: DataDome, AWS WAF CAPTCHA, Yandex SmartCaptcha.
+
+Changes in v8 (retained):
+  * TikTok refactored into three provider classes
+    (Rotate / Slide / 3D Objects) with a shared container helper and
+    cross-type negative filters.
+
+Camoufox usage — recommended (uses convenience helpers):
+    import os, asyncio
+    os.environ["CAMOUFOX_ENABLE_CAPTCHA"] = "1"  # MUST be set before import
+    from scripts_macros.captcha import scanner
+
+    # (a) One-shot scan + auto-solve, blocks until Ctrl-C:
+    asyncio.run(scanner.run_with_camoufox(
+        "https://accounts.google.com",
+        headless=False,
+        # any additional Camoufox launch kwarg (proxy, locale, …)
+    ))
+
+    # (b) Pure one-shot scan (sync, returns results immediately):
+    results = scanner.scan_with_camoufox_sync(
+        "https://example.com/page-with-captcha",
+        headless=False,
+    )
+    for cap in results:
+        print(cap["name"], "solved:", cap.get("solved"))
+
+Camoufox usage — manual (if you already have a context):
+    import os
+    os.environ["CAMOUFOX_ENABLE_CAPTCHA"] = "1"
     from playwright.async_api import async_playwright
     from camoufox.async_api import AsyncNewBrowser
+    from scripts_macros.captcha import scanner
 
     async def main():
         async with async_playwright() as pw:
             browser = await AsyncNewBrowser(pw, headless=False)
-            page    = await browser.new_page()
+            context = await browser.new_context()
+            page    = await context.new_page()
             await page.goto("https://example.com")
 
-            # Einmaliger Scan:
-            results = await master_scanner.scan_page(page)
+            # One-shot multi-frame scan:
+            results = await scanner.scan_page(page)
 
-            # Dauerhafter Hintergrund-Scan (kompletter Context):
-            asyncio.create_task(master_scanner.live_scan(browser.contexts[0]))
+            # Or continuous monitoring (blocks; run as task if needed):
+            await scanner.live_scan(context, auto_solve=True)
 
     asyncio.run(main())
 
-Legacy-CDP (run_stealth_test.py, threading):
-    threading.Thread(
-        target=master_scanner.live_scan_cdp,
-        args=(browser_config.CDP_HOST, browser_config.CDP_PORT),
-        daemon=True,
-    ).start()
+Legacy CDP path (Chrome-only, broken on Camoufox/Firefox — Juggler ≠ CDP):
+    Not supported. live_scan_cdp() is a no-op stub kept only for import
+    compatibility with old callers.
 
-Benötigt:  pip install playwright camoufox
+Requires:  pip install playwright camoufox  (camoufox optional if you use
+           the manual flow with raw Playwright Firefox)
 """
 
 from __future__ import annotations
@@ -59,7 +94,7 @@ from typing import Any, Callable, Optional
 from weakref import WeakKeyDictionary
 
 # ══════════════════════════════════════════════════════════════════
-#  KONFIGURATION
+#  Configuration
 # ══════════════════════════════════════════════════════════════════
 
 CDP_PORT         = int(os.environ.get("CDP_PORT", 9222))
@@ -68,12 +103,13 @@ SCAN_INTERVAL    = 15.0
 CDP_RECV_TIMEOUT = 6
 CDP_RECV_RETRIES = 10
 
-# Intern: Welche Pages haben den Observer bereits injiziert (page_id → url)
+# Internal: tracks which pages already have the observer injected
+# (page_id -> URL).
 _observer_injected: WeakKeyDictionary[Any, str] = WeakKeyDictionary()
 
 
 # ══════════════════════════════════════════════════════════════════
-#  PHASE 1: OBSERVER-INJEKTION  (einmalig pro Page/URL)
+#  Phase 1: observer injection (once per page/URL)
 # ══════════════════════════════════════════════════════════════════
 
 JS_INJECT_OBSERVERS = r"""
@@ -113,7 +149,7 @@ return "injected";
 
 
 # ══════════════════════════════════════════════════════════════════
-#  PHASE 2: DEEP SCAN  (läuft jedes Scan-Intervall)
+#  Phase 2: deep scan (runs once per scan interval)
 # ══════════════════════════════════════════════════════════════════
 
 JS_DEEP_SCAN = r"""
@@ -1119,6 +1155,106 @@ class MathCaptchaProvider extends CaptchaProvider {
 
 
 // ════════════════════════════════════════
+//  PROVIDER: DataDome
+//  Sehr verbreitet bei E-Commerce / Booking-Sites.
+//  Signale: iframe von geo.captcha-delivery.com,
+//           Script von js.datadome.co, dd_cookie.
+// ════════════════════════════════════════
+
+class DataDomeProvider extends CaptchaProvider {
+    constructor() { super("DataDome"); }
+
+    detect() {
+        const hasDDIframe = iframeHas("captcha-delivery.com") ||
+                            iframeHas("datadome.co");
+        const hasDDScript = scriptHas("datadome.co") ||
+                            scriptHas("js.datado.me");
+        let hasDDDom = false;
+        for (const doc of allDocs) {
+            if (deepQuery(doc, "[id*='datadome' i], [class*='datadome' i], #dd_captcha")) {
+                hasDDDom = true; break;
+            }
+        }
+        if (!hasDDIframe && !hasDDScript && !hasDDDom) return null;
+        return this.result({
+            description: [
+                "DataDome – Bot-Mitigation mit Slider- oder Press&Hold-Challenge.",
+                "  ➜ Iframe: geo.captcha-delivery.com",
+                "  ➜ Lösungsweg: Slider greifen (.slider, .geetest_btn-äquivalent),",
+                "    horizontal ziehen — oder Press&Hold-Variante halten.",
+            ].join("\n"),
+        });
+    }
+}
+
+
+// ════════════════════════════════════════
+//  PROVIDER: AWS WAF CAPTCHA
+//  Erkennt sowohl AWS WAF Captcha (visuell) als auch Token-Challenge.
+//  Signale: iframe von /captcha/ auf awswaf.com, Token-Endpoints.
+// ════════════════════════════════════════
+
+class AwsWafCaptchaProvider extends CaptchaProvider {
+    constructor() { super("AWS WAF CAPTCHA"); }
+
+    detect() {
+        const hasAwsIframe = iframeHas("awswaf.com") ||
+                             iframeHas("token.awswaf.com") ||
+                             iframeMatchRe(/awswaf\.com\/(captcha|token)/);
+        const hasAwsScript = scriptHas("awswaf.com/awswaf");
+        let hasAwsDom = false;
+        for (const doc of allDocs) {
+            if (deepQuery(doc, "[class*='aws-waf-captcha' i], #captcha-container")) {
+                // Heuristik: nur als AWS klassifizieren wenn auch Script/Iframe
+                if (hasAwsIframe || hasAwsScript) {
+                    hasAwsDom = true; break;
+                }
+            }
+        }
+        if (!hasAwsIframe && !hasAwsScript && !hasAwsDom) return null;
+        return this.result({
+            description: [
+                "AWS WAF CAPTCHA – Puzzle- oder Bild-Klick-Challenge.",
+                "  ➜ Iframe: awswaf.com/captcha/  |  Token-Endpoint: token.awswaf.com",
+                "  ➜ Lösungsweg: variante-abhängig (puzzle slide oder image-click).",
+            ].join("\n"),
+        });
+    }
+}
+
+
+// ════════════════════════════════════════
+//  PROVIDER: Yandex SmartCaptcha
+//  Yandex' eigene CAPTCHA — vor allem auf .ru-Sites + manchen EU-Cloud-Hosts.
+// ════════════════════════════════════════
+
+class YandexSmartCaptchaProvider extends CaptchaProvider {
+    constructor() { super("Yandex SmartCaptcha"); }
+
+    detect() {
+        const hasYIframe = iframeHas("smartcaptcha.yandexcloud") ||
+                           iframeHas("captcha-api.yandex");
+        const hasYScript = scriptHas("smartcaptcha.yandexcloud") ||
+                           scriptHas("captcha.yandex");
+        let hasYDom = false;
+        for (const doc of allDocs) {
+            if (deepQuery(doc, ".smart-captcha, [data-sitekey][class*='smart' i]")) {
+                hasYDom = true; break;
+            }
+        }
+        if (!hasYIframe && !hasYScript && !hasYDom) return null;
+        return this.result({
+            description: [
+                "Yandex SmartCaptcha – Checkbox + ggf. Bild-/Slider-Challenge.",
+                "  ➜ Iframe: smartcaptcha.yandexcloud.net",
+                "  ➜ Lösungsweg: Checkbox klicken; bei Eskalation → Slider/Bild.",
+            ].join("\n"),
+        });
+    }
+}
+
+
+// ════════════════════════════════════════
 //  ORCHESTRATOR
 // ════════════════════════════════════════
 
@@ -1137,13 +1273,18 @@ class CaptchaScanner {
             new TikTokSlideProvider(),         //  5b: Slider + Puzzleteil
             new TikTok3DObjectsProvider(),     //  5c: Submit + kein Slider
             new GeeTestProvider(),             //  6
-            new MetaTextCaptchaProvider(),     //  7
-            new GenericTextCaptchaProvider(),  //  8: Fallback
-            new MathCaptchaProvider(),         //  9: immer zusätzlich möglich
+            new DataDomeProvider(),            //  7a: vor MetaText (DataDome hat eigene Iframe-URL)
+            new AwsWafCaptchaProvider(),       //  7b
+            new YandexSmartCaptchaProvider(),  //  7c
+            new MetaTextCaptchaProvider(),     //  8
+            new GenericTextCaptchaProvider(),  //  9: Fallback
+            new MathCaptchaProvider(),         // 10: immer zusätzlich möglich
         ];
         this.specificTypes = new Set([
             "reCAPTCHA v2","reCAPTCHA v3 / Invisible","hCaptcha",
-            "Cloudflare Turnstile","Text-CAPTCHA (Meta)",
+            "Cloudflare Turnstile","Cloudflare Challenge",
+            "Text-CAPTCHA (Meta)",
+            "DataDome","AWS WAF CAPTCHA","Yandex SmartCaptcha",
             // TikTok-spezifische Namen für GenericText-Ausschluss
             "TikTok CAPTCHA (Rotate)","TikTok CAPTCHA (Puzzle Slide)","TikTok CAPTCHA (3D Objects)",
         ]);
@@ -1237,7 +1378,7 @@ return initialResults;
 
 
 # ══════════════════════════════════════════════════════════════════
-#  TERMINAL-HILFSFUNKTIONEN
+#  Terminal helpers
 # ══════════════════════════════════════════════════════════════════
 
 def _clear_line():
@@ -1274,104 +1415,176 @@ def _print_report(captchas: list, url: str, title: str, idx: int, total: int) ->
 # ══════════════════════════════════════════════════════════════════
 
 async def _inject_observer(page) -> None:
-    """Injiziert den MutationObserver einmalig pro Page/URL."""
+    """Injiziert den MutationObserver in Main-Frame + alle Sub-Frames.
+
+    Wird einmalig pro (Page, URL) ausgeführt. Im Idealfall hat der
+    Caller bereits `context.add_init_script(JS_INJECT_OBSERVERS)`
+    aufgerufen — dann läuft der Observer vor allen Page-Scripts und
+    fängt auch Captchas auf dem ersten Frame-Paint. Diese Funktion
+    bleibt als Fallback und für Frames, die bei `add_init_script`
+    noch nicht existierten.
+    """
     url = page.url
     if _observer_injected.get(page) == url:
         return
-    try:
-        await page.evaluate(JS_INJECT_OBSERVERS)
+    injected_any = False
+    for frame in list(page.frames):
+        try:
+            if hasattr(frame, "is_detached") and frame.is_detached():
+                continue
+        except Exception:
+            continue
+        try:
+            await frame.evaluate(JS_INJECT_OBSERVERS)
+            injected_any = True
+        except Exception:
+            # Cross-origin / CSP / navigation race — Observer für
+            # diesen Frame nicht installierbar; Detection bleibt
+            # trotzdem möglich via direktem deep-scan.
+            continue
+    if injected_any:
         _observer_injected[page] = url
-    except Exception as e:
-        print(f"  ⚠️   [Scanner] Fehler bei Observer-Injektion ({url}): {e}") #  # CSP oder Navigation – beim nächsten Zyklus erneut versuchen
 
 
 async def scan_page(page) -> list[dict]:
     """
-    Scannt eine einzelne Playwright-Page auf CAPTCHAs.
+    Scannt eine Playwright-Page auf CAPTCHAs — Main-Frame UND alle
+    Sub-Frames (inkl. cross-origin).
 
-    Gibt eine Liste von Erkennungs-Dicts zurück:
-        [{"name": str, "solved": bool, "description": str, ...}, ...]
+    Chrome's Site Isolation rendert cross-origin iframes in separaten
+    Prozessen; `page.evaluate` ist auf den Main-Frame beschränkt. Über
+    `page.frames` greift Playwright via CDP auf jeden Frame einzeln zu,
+    was die Erkennung von reCAPTCHA / hCaptcha / Turnstile in deren
+    eigenen iframes ermöglicht.
 
-    Beispiel:
-        page = await browser.new_page()
-        await page.goto("https://example.com")
-        results = await master_scanner.scan_page(page)
-        for cap in results:
-            print(cap["name"], "gelöst:", cap["solved"])
+    Per-Frame-Ergebnisse werden über (name, solved) dedupliziert.
+    Cross-origin oder detached Frames werden silent geskippt — das ist
+    bei normalem Page-Lifecycle erwartet.
+
+    Gibt zurück:
+        [{"name": str, "solved": bool, "description": str,
+          "_frame_url": str}, ...]
     """
     await _inject_observer(page)
-    try:
-        result = await page.evaluate(JS_DEEP_SCAN)
-        return result if isinstance(result, list) else []
-    except Exception as e:
-        print(f"  ⚠️   [Scanner] Fehler bei Page-Evaluate (Deep-Scan): {e}")
-        return []
+    all_results: list[dict] = []
+    seen_keys: set[str] = set()
+
+    frames = list(page.frames)  # main_frame ist Index 0
+    for frame in frames:
+        # Detached frames werfen on evaluate. is_detached() ist die
+        # Playwright-API für sync check; bei dynamisch entfernten frames
+        # zwischen list() und evaluate() fängt der try/except den Rest.
+        try:
+            if hasattr(frame, "is_detached") and frame.is_detached():
+                continue
+        except Exception:
+            continue
+        try:
+            result = await frame.evaluate(JS_DEEP_SCAN)
+        except Exception:
+            # Cross-origin restrictions, navigation in flight, oder
+            # CSP blockiert eval — alle erwartet, kein Loud-Print.
+            continue
+        if not isinstance(result, list):
+            continue
+        for cap in result:
+            if not isinstance(cap, dict):
+                continue
+            key = f"{cap.get('name', '')}|{'1' if cap.get('solved') else '0'}"
+            if not key.strip("|") or key in seen_keys:
+                continue
+            seen_keys.add(key)
+            try:
+                cap["_frame_url"] = frame.url
+            except Exception:
+                cap["_frame_url"] = ""
+            all_results.append(cap)
+    return all_results
 
 
 MAX_SOLVER_RETRIES = 3
 
+# Solver-Registry: erste matchende Regel gewinnt. Predicates bekommen
+# (name_lower, desc_lower) und liefern bool. Neue Solver werden einfach
+# durch Hinzufügen eines Tupels registriert — kein if/elif-Branching.
+_SOLVER_ROUTES: list[tuple] = [
+    # (predicate(name_lower, desc_lower), solver_module_name, human_label)
+    (lambda n, d: "3d objects" in n or "identische objekte" in d,                "object_3d",    "TikTok 3D Objects"),
+    (lambda n, d: "rotate" in n,                                                  "rotate",       "TikTok Rotate"),
+    (lambda n, d: "puzzle slide" in n or "slide" in n or "geetest" in n,          "slide",        "Slide-basierte CAPTCHAs"),
+    (lambda n, d: "recaptcha v2" in n,                                            "recapctha_v2", "reCAPTCHA v2"),
+    (lambda n, d: ("text-captcha" in n) and any(p in n for p in ("meta", "instagram", "facebook")),
+                                                                                   "meta_text",    "Meta Text-CAPTCHA"),
+]
+
+
+def _resolve_solver(name: str, desc: str) -> Optional[tuple[str, str]]:
+    """Findet den passenden Solver für (name, description).
+
+    Returns: (module_name, label) wenn match, sonst None.
+    """
+    n = (name or "").lower()
+    d = (desc or "").lower()
+    for predicate, module_name, label in _SOLVER_ROUTES:
+        try:
+            if predicate(n, d):
+                return module_name, label
+        except Exception:
+            continue
+    return None
+
+
 async def auto_solve_captcha(cap: dict, page) -> bool:
     """
-    Routet das Cap-Dict an den entsprechenden automatischen Solver.
-
-    Import-Strategie: Nutzt den relativen Paketnamen (__package__) oder
-    fällt auf lokale Importe zurück.
+    Routet das Cap-Dict an den entsprechenden automatischen Solver via
+    _SOLVER_ROUTES. Import läuft package-relativ (mit __package__) oder
+    absolut als Fallback.
     """
     import importlib
     import asyncio
 
     name = cap.get("name", "")
-    desc = cap.get("description", "").lower()
+    desc = cap.get("description", "")
 
     print(f"\n  🚀  [AutoSolver] Starte automatischen Lösungs-Prozess für: {name}")
 
-    def _import_solver(module_name: str):
-        """Importiert ein Solver-Modul relativ oder über absoluten Pfad."""
+    route = _resolve_solver(name, desc)
+    if not route:
+        print(f"  ⏭️  [AutoSolver] Kein passender Auto-Solver für '{name}' gefunden.")
+        return False
+    module_name, label = route
+
+    def _import_solver(module: str):
         if __package__:
-            return importlib.import_module(f"{__package__}.captchas_solver.{module_name}")
-        else:
-            return importlib.import_module(f"captchas_solver.{module_name}")
+            return importlib.import_module(f"{__package__}.captchas_solver.{module}")
+        return importlib.import_module(f"captchas_solver.{module}")
 
     for _attempt in range(MAX_SOLVER_RETRIES):
         try:
-            # 1. TikTok 3D Objects
-            if "3d objects" in name.lower() or "identische objekte" in desc:
-                solver_mod = _import_solver("object_3d")
-                return await solver_mod.solve(page)
-
-            # 2. TikTok Rotate
-            elif "rotate" in name.lower():
-                solver_mod = _import_solver("rotate")
-                return await solver_mod.solve(page)
-
-            # 3. TikTok Puzzle Slide oder GeeTest Slider
-            elif "puzzle slide" in name.lower() or "slide" in name.lower() or "geetest" in name.lower():
-                solver_mod = _import_solver("slide")
-                return await solver_mod.solve(page)
-
-            # 4. reCAPTCHA v2
-            elif "recaptcha v2" in name.lower():
-                solver_mod = _import_solver("recapctha_v2")
-                return await solver_mod.solve(page)
-
-            # 5. Text-Captcha (Meta)
-            elif "text-captcha" in name.lower() and ("meta" in name.lower() or "instagram" in name.lower() or "facebook" in name.lower()):
-                solver_mod = _import_solver("meta_text")
-                return await solver_mod.solve(page)
-
-            else:
-                print(f"  ⏭️  [AutoSolver] Kein passender Auto-Solver für '{name}' gefunden.")
-                return False
-
+            solver_mod = _import_solver(module_name)
+            return await solver_mod.solve(page)
         except Exception as e:
-            print(f"  ❌  [AutoSolver] Fehler beim Import/Ausführen des Solvers (Versuch {_attempt+1}/{MAX_SOLVER_RETRIES}): {e}")
+            print(f"  ❌  [AutoSolver] {label} fehlgeschlagen (Versuch {_attempt+1}/{MAX_SOLVER_RETRIES}): {e}")
             if _attempt < MAX_SOLVER_RETRIES - 1:
-                print(f"  ⏳  [AutoSolver] Warte vor nächstem Versuch...")
+                print(f"  ⏳  [AutoSolver] Warte 2s vor nächstem Versuch...")
                 await asyncio.sleep(2)
-            else:
-                return False
-
     return False
+
+
+# Network-Hint-Pattern: wenn eine Response auf diesen Strings matcht,
+# wird ein verzögerter Re-Scan getriggert. Fängt Captchas ab, die nach
+# DOMContentLoaded async via XHR/Fetch nachgeladen werden (typisch bei
+# Cloudflare-Challenge-Pages, DataDome, hCaptcha-Lazy-Mount).
+CAPTCHA_URL_HINTS: tuple[str, ...] = (
+    "recaptcha", "hcaptcha", "/turnstile", "challenges.cloudflare.com",
+    "geetest.com", "/captcha", "/__cf_chl",
+    "datadome.co", "captcha-delivery.com",
+    "perimeterx", "px-cdn", "px-cloud",
+    "akamai/sensor", "akamai/akam",
+    "smartcaptcha.yandexcloud", "yastatic.net/s3/passport",
+    "awswaf.com", "token.awswaf.com",
+    "verify.bytedance.com", "verification.bytedance.com",
+)
 
 
 async def live_scan(
@@ -1383,17 +1596,37 @@ async def live_scan(
     """
     Dauerhafter Event-Driven Scan aller Pages in einem Playwright-BrowserContext.
 
+    v9-Härtung (Chrome-Reliability):
+      * `add_init_script` injiziert den Observer VOR allen Page-Scripts
+        statt erst nach Navigation. Fängt damit Captchas ab, die im
+        ersten Paint da sind.
+      * Per-Frame Setup: alle Sub-Frames (cross-origin inklusive) werden
+        durchgereicht statt nur Main-Frame.
+      * Network-Hint-Listener: Response auf bekannte Captcha-URLs
+        triggert verzögerten Re-Scan, damit XHR-spät-eingebundene
+        Captchas nicht durchrutschen.
+
     Parameter:
         context   – playwright BrowserContext
-        interval  – (deprecated)
+        interval  – (deprecated, ignoriert)
         callback  – optionale async-Funktion:  async def cb(cap: dict, page) → None
         auto_solve - automatische Lösung
     """
-    print(f"\n  🔄  Playwright Event-Driven Scanner v8")
+    print(f"\n  🔄  Playwright Event-Driven Scanner v9")
     print("  Alle Pages im Context werden überwacht  –  Strg+C zum Beenden.\n")
+
+    # Tracks (page_id, captcha_name+solved) gegen Re-Scan-Doppelmeldungen
+    _handled_in_session: dict = {}
 
     async def handle_captcha(captcha_data: dict, page) -> None:
         name = captcha_data.get("name", "Unknown")
+        page_id = id(page)
+        dedup_key = f"{name}|{'1' if captcha_data.get('solved') else '0'}"
+        seen = _handled_in_session.setdefault(page_id, set())
+        if dedup_key in seen:
+            return
+        seen.add(dedup_key)
+
         title = ""
         try:
             title = await page.title()
@@ -1401,7 +1634,7 @@ async def live_scan(
             pass
 
         _print_report([captcha_data], page.url, title, 1, len(context.pages))
-        
+
         if auto_solve and not captcha_data.get("solved"):
             solved = await auto_solve_captcha(captcha_data, page)
             captcha_data["solved"] = solved
@@ -1410,7 +1643,7 @@ async def live_scan(
             else:
                 _clear_line()
                 print(f"  ✅  [{_ts()}]  Gelöst: {name}")
-        
+
         if callback:
             try:
                 await callback(captcha_data, page)
@@ -1426,18 +1659,53 @@ async def live_scan(
     try:
         await context.expose_binding("__reportCaptchaEvent", __report_captcha_event)
     except Exception as e:
-        print(f"  ⚠️   [Scanner] Binding-Fehler (bereits registriert?): {e}") # # Already exposed
+        print(f"  ⚠️   [Scanner] Binding-Fehler (bereits registriert?): {e}")
+
+    # Early-Inject: Observer läuft auf ALLEN neuen Pages bevor das erste
+    # Page-Script ausgeführt wird. Ohne das fängt der Observer erst ab
+    # dem Zeitpunkt _inject_observer() läuft (Race gegen XHR-Mounts).
+    try:
+        await context.add_init_script(JS_INJECT_OBSERVERS)
+    except Exception as e:
+        print(f"  ⚠️   [Scanner] add_init_script fehlgeschlagen: {e}")
+
+    async def _delayed_rescan(page, delay_ms: int = 400) -> None:
+        """Verzögerter Multi-Frame-Scan — wird von Network-Hints + Frame-Navs getriggert."""
+        try:
+            await asyncio.sleep(delay_ms / 1000)
+            results = await scan_page(page)
+            for cap in results:
+                if isinstance(cap, dict):
+                    await handle_captcha(cap, page)
+        except Exception:
+            pass
+
+    def _on_response(response, page):
+        try:
+            url = (response.url or "").lower()
+        except Exception:
+            return
+        if not any(h in url for h in CAPTCHA_URL_HINTS):
+            return
+        asyncio.create_task(_delayed_rescan(page, delay_ms=500))
 
     async def setup_page(page):
         try:
             await _inject_observer(page)
-            initial_results = await page.evaluate(JS_DEEP_SCAN)
-            if isinstance(initial_results, list):
-                for captcha_data in initial_results:
-                    if isinstance(captcha_data, dict):
-                        await handle_captcha(captcha_data, page)
+            # Multi-Frame Initial-Scan (scan_page handelt Cross-Origin)
+            initial_results = await scan_page(page)
+            for cap in initial_results:
+                if isinstance(cap, dict):
+                    await handle_captcha(cap, page)
+
+            # Network-Listener für Captcha-URLs (XHR-spät-Mounts abfangen)
+            page.on("response", lambda r: _on_response(r, page))
+            # Frame-Navigation -> Observer in neue Frames injizieren
+            page.on("framenavigated", lambda frame: asyncio.create_task(_delayed_rescan(page, 300)))
+            # Page-Load -> Re-scan (manche Sites mounten captcha bei load)
+            page.on("load", lambda _p=None: asyncio.create_task(_delayed_rescan(page, 600)))
         except Exception as e:
-            print(f"  ⚠️   [Scanner] Setup-Fehler für Page {getattr(page, 'url', 'unknown')}: {e}") #
+            print(f"  ⚠️   [Scanner] Setup-Fehler für Page {getattr(page, 'url', 'unknown')}: {e}")
 
     context.on("page", lambda page: asyncio.create_task(setup_page(page)))
     for page in context.pages:
@@ -1447,6 +1715,179 @@ async def live_scan(
     while True:
         await asyncio.sleep(3600)
 
+
+# ══════════════════════════════════════════════════════════════════
+#  CAMOUFOX-ADAPTER  (async + sync convenience wrappers)
+# ══════════════════════════════════════════════════════════════════
+#
+# AsyncCamoufox / Camoufox return either a Browser (default) or a
+# BrowserContext (when persistent_context=True). live_scan() needs a
+# BrowserContext, so we normalize. Helpers honor every Camoufox launch
+# kwarg via **camoufox_kwargs (proxy, locale, geolocation, os, …).
+
+def _as_context(browser_or_context):
+    """Normalize AsyncCamoufox/Camoufox return to a BrowserContext.
+
+    Detection rule:
+      - Browser has `.new_context()` and `.contexts`
+      - BrowserContext does not have `.new_context`
+    Awaitable when given a Browser; pass-through when given a Context.
+    """
+    if hasattr(browser_or_context, "new_context"):
+        # Browser: prefer existing context if Camoufox already created
+        # one (some launch options do this), else create a fresh one.
+        contexts = getattr(browser_or_context, "contexts", None) or []
+        if contexts:
+            return contexts[0]
+        return browser_or_context.new_context()
+    # BrowserContext: return as-is
+    return browser_or_context
+
+
+async def _async_as_context(browser_or_context):
+    """Async variant — awaits new_context() if it's a Browser."""
+    if hasattr(browser_or_context, "new_context"):
+        contexts = getattr(browser_or_context, "contexts", None) or []
+        if contexts:
+            return contexts[0]
+        return await browser_or_context.new_context()
+    return browser_or_context
+
+
+async def run_with_camoufox(
+    url: str,
+    *,
+    headless=False,
+    auto_solve: bool = True,
+    callback: Optional[Callable] = None,
+    **camoufox_kwargs,
+) -> None:
+    """Launch Camoufox, navigate, and run live_scan — async one-shot driver.
+
+    Blocks until the scanner is interrupted (Ctrl-C / cancellation). All
+    extra kwargs are forwarded to AsyncCamoufox (proxy, locale, os,
+    geolocation, …).
+
+    Example:
+        import asyncio
+        from scripts_macros.captcha import scanner
+        asyncio.run(scanner.run_with_camoufox(
+            "https://accounts.google.com/signin",
+            headless=False,
+            proxy={"server": "http://127.0.0.1:8888"},
+            locale="de-DE",
+        ))
+    """
+    try:
+        from camoufox.async_api import AsyncCamoufox
+    except ImportError as exc:
+        raise RuntimeError(
+            "camoufox.async_api is not importable. Install camoufox "
+            "(`pip install camoufox`) or use the manual flow with raw "
+            "Playwright Firefox."
+        ) from exc
+
+    async with AsyncCamoufox(headless=headless, **camoufox_kwargs) as launched:
+        context = await _async_as_context(launched)
+        page = await context.new_page()
+        try:
+            await page.goto(url)
+        except Exception as exc:
+            print(f"  ⚠️   [run_with_camoufox] goto({url!r}) failed: {exc}")
+        await live_scan(context, auto_solve=auto_solve, callback=callback)
+
+
+def scan_with_camoufox_sync(
+    url: str,
+    *,
+    headless=False,
+    wait_after_load_ms: int = 800,
+    on_captcha: Optional[Callable] = None,
+    **camoufox_kwargs,
+) -> list[dict]:
+    """Sync one-shot: launch Camoufox, navigate, scan, return results.
+
+    For simple scripts that just want "does this page have a captcha?".
+    Does NOT run live_scan (no continuous monitoring) and does NOT call
+    the async auto-solvers. Use run_with_camoufox() for those.
+
+    Args:
+        url: page to navigate to
+        headless: Camoufox headless flag (False / True / 'virtual')
+        wait_after_load_ms: pause after page load before scanning, lets
+            late-mounting captchas finish DOM-insertion
+        on_captcha: optional callable(cap_dict, page) for each detected
+        **camoufox_kwargs: forwarded to Camoufox(...)
+
+    Returns: list of detected captcha dicts (with `_frame_url` per entry).
+    """
+    try:
+        from camoufox.sync_api import Camoufox
+    except ImportError as exc:
+        raise RuntimeError(
+            "camoufox.sync_api is not importable. Install camoufox "
+            "(`pip install camoufox`) or use the async flow."
+        ) from exc
+
+    results: list[dict] = []
+    seen: set[str] = set()
+
+    with Camoufox(headless=headless, **camoufox_kwargs) as launched:
+        context = _as_context(launched)
+        page = context.new_page()
+        try:
+            page.goto(url)
+        except Exception as exc:
+            print(f"  ⚠️   [scan_with_camoufox_sync] goto({url!r}) failed: {exc}")
+            return results
+
+        if wait_after_load_ms > 0:
+            try:
+                page.wait_for_timeout(wait_after_load_ms)
+            except Exception:
+                pass
+
+        # Inject observer in every frame, then evaluate JS_DEEP_SCAN in
+        # every frame (mirrors async scan_page logic exactly).
+        for frame in list(page.frames):
+            try:
+                if hasattr(frame, "is_detached") and frame.is_detached():
+                    continue
+            except Exception:
+                continue
+            try:
+                frame.evaluate(JS_INJECT_OBSERVERS)
+            except Exception:
+                pass
+            try:
+                frame_results = frame.evaluate(JS_DEEP_SCAN)
+            except Exception:
+                continue
+            if not isinstance(frame_results, list):
+                continue
+            for cap in frame_results:
+                if not isinstance(cap, dict):
+                    continue
+                key = f"{cap.get('name', '')}|{'1' if cap.get('solved') else '0'}"
+                if not key.strip("|") or key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    cap["_frame_url"] = frame.url
+                except Exception:
+                    cap["_frame_url"] = ""
+                results.append(cap)
+                if on_captcha:
+                    try:
+                        on_captcha(cap, page)
+                    except Exception as exc:
+                        print(f"  ⚠️   [on_captcha] callback raised: {exc}")
+    return results
+
+
+# ══════════════════════════════════════════════════════════════════
+#  LEGACY CDP PATH  (Chrome-only, deprecated)
+# ══════════════════════════════════════════════════════════════════
 
 def _fetch_cdp_targets(host: str, port: int) -> list[dict]:
     """Liest die offenen CDP-Targets über das JSON-Endpoint aus."""

@@ -1,0 +1,145 @@
+# K-21 (AUDIT_2026-05-18.md) — HTTP/2 fingerprint wiring.
+#
+# Routes Http2Session::SendHello() through
+# IdentityStateProvider::GetHttp2State() so the initial SETTINGS frame
+# (RFC 7540 §6.5.2) and the initial connection-level WINDOW_UPDATE
+# pick up the values that
+# pythonlib/camoufox/tls_profiles.get_http2_config() emits into
+# CAMOU_CONFIG when CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1.
+#
+# Anchors verified on 2026-05-18 against the actual upstream file
+# fetched from
+# https://hg-edge.mozilla.org/releases/mozilla-beta/raw-file/tip/netwerk/protocol/http/Http2Session.cpp
+# (file then was 4318 lines). The four substitution sites in
+# SendHello() are real upstream lines, not extrapolations:
+#
+#   * line 1077  maxHpackBufferSize             → headerTableSize
+#   * line 1103  mPushAllowance                  → initialWindowSize
+#   * line 1111  kMaxFrameData                   → maxFrameSize
+#   * line 1139  mInitialRwin - kDefaultRwin     → windowUpdate
+#
+# `SETTINGS_TYPE_ENABLE_PUSH` is left untouched because upstream
+# Firefox writes 0 (relying on the memset() at line 1058) and the
+# Firefox identity profile also wants 0; there is no value to
+# override. `SETTINGS_TYPE_MAX_CONCURRENT` and the
+# `SETTINGS_NO_RFC7540_PRIORITIES` entry are pref-gated and skipped
+# for the same reason — patching them would require adding new entries
+# to the frame rather than overriding existing values.
+#
+# Defensive contract: if MaskConfig has no http2:* keys,
+# ResolveHttp2Setting returns its passed-in upstream default, so the
+# patch is safe on a launcher that has not opted-in. Without
+# `CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1` the launcher emits no
+# http2:* keys and the on-wire behaviour is byte-identical to upstream.
+#
+# Patch was verified on 2026-05-18 against the actual upstream file
+# (4318 lines, mc-beta tip): all 6 hunks apply, hunk #1 with fuzz 1,
+# hunks #2-#6 with zero fuzz. After this verification the patch was
+# promoted into patches/manifests/network.yaml. Runtime is defensive
+# — each call site falls back to the upstream Firefox default when
+# no http2:* keys are in MaskConfig, so the on-wire behaviour is
+# byte-identical to upstream unless the launcher sets
+# CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1.
+#
+# Build-time risk: Mozilla beta tip moves between Firefox versions,
+# so on a future rebase the four target lines may have shifted by a
+# small offset. Patch's default fuzz=2 recovers up to 2 lines of
+# drift, and the context lines around each hunk are intentionally
+# distinctive (the SETTINGS_TYPE_* token + the NetworkEndian::
+# writeUint{16,32} pattern is unique enough to be unambiguous even
+# under offset). If a future rebase fails, the helper function and
+# the four substitution sites can be hand-ported in <5 minutes by
+# locating each SETTINGS_TYPE_* anchor in the rebased file.
+
+diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http2Session.cpp
+--- a/netwerk/protocol/http/Http2Session.cpp
++++ b/netwerk/protocol/http/Http2Session.cpp
+@@ -31,7 +31,8 @@
+ #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
+ #include "nsHttp.h"
+ #include "nsHttpConnection.h"
+ #include "nsHttpHandler.h"
++#include "IdentityStateProvider.hpp"
+ #include "nsHttpConnectionMgr.h"
+ #include "nsIRequestContext.h"
+ #include "nsISupportsPriority.h"
+@@ -1038,5 +1039,40 @@
+ //    these streams (3, 5, 7, 9, b, d) build a dependency tree that all other
+ //    streams will be direct leaves of.
++
++// K-21 (AUDIT_2026-05-18.md). Resolve an HTTP/2 SETTINGS / framing
++// value through `IdentityStateProvider::GetHttp2State()` if the
++// launcher has opted-in to HTTP/2 fingerprint emission; otherwise
++// return the upstream Firefox default. The cached Http2State lookup
++// compiles to a single branch in the hot path because GetHttp2State
++// is a once_flag-guarded static.
++//
++// `key` is matched against the field names on
++// IdentityStateProvider::Http2State. Keep the string literals in sync
++// with the keys emitted by
++// pythonlib/camoufox/tls_profiles.get_http2_config().
++static inline uint32_t ResolveHttp2Setting(const char* key,
++                                           uint32_t upstream_default) {
++  auto state = IdentityStateProvider::GetHttp2State();
++  if (!state) return upstream_default;
++  if (!strcmp(key, "headerTableSize"))
++    return state->headerTableSize.value_or(upstream_default);
++  if (!strcmp(key, "enablePush"))
++    return state->enablePush.value_or(upstream_default);
++  if (!strcmp(key, "initialWindowSize"))
++    return state->initialWindowSize.value_or(upstream_default);
++  if (!strcmp(key, "maxFrameSize"))
++    return state->maxFrameSize.value_or(upstream_default);
++  if (!strcmp(key, "maxConcurrentStreams"))
++    return state->maxConcurrentStreams.value_or(upstream_default);
++  if (!strcmp(key, "maxHeaderListSize"))
++    return state->maxHeaderListSize.value_or(upstream_default);
++  if (!strcmp(key, "windowUpdate"))
++    return state->windowUpdate.value_or(upstream_default);
++  if (!strcmp(key, "priorityWeight"))
++    return state->priorityWeight.value_or(upstream_default);
++  return upstream_default;
++}
++
+ void Http2Session::SendHello() {
+   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
+   LOG3(("Http2Session::SendHello %p\n", this));
+@@ -1074,7 +1110,7 @@
+                              SETTINGS_TYPE_HEADER_TABLE_SIZE);
+   NetworkEndian::writeUint32(
+       packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
+-      maxHpackBufferSize);
++      ResolveHttp2Setting("headerTableSize", maxHpackBufferSize));
+   numberOfEntries++;
+
+   // We don't support HTTP/2 Push. Set SETTINGS_TYPE_ENABLE_PUSH to 0
+@@ -1100,7 +1136,8 @@
+   NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
+                              SETTINGS_TYPE_INITIAL_WINDOW);
+   NetworkEndian::writeUint32(
+-      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2, mPushAllowance);
++      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
++      ResolveHttp2Setting("initialWindowSize", mPushAllowance));
+   numberOfEntries++;
+
+   // Make sure the other endpoint knows that we're sticking to the default max
+@@ -1108,7 +1145,8 @@
+   NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
+                              SETTINGS_TYPE_MAX_FRAME_SIZE);
+   NetworkEndian::writeUint32(
+-      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2, kMaxFrameData);
++      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
++      ResolveHttp2Setting("maxFrameSize", kMaxFrameData));
+   numberOfEntries++;
+
+   bool disableRFC7540Priorities =
+@@ -1136,7 +1174,8 @@
+         kFrameHeaderBytes + dataLen);
+
+   // now bump the local session window from 64KB
+-  uint32_t sessionWindowBump = mInitialRwin - kDefaultRwin;
++  uint32_t sessionWindowBump =
++      ResolveHttp2Setting("windowUpdate", mInitialRwin - kDefaultRwin);
+   if (kDefaultRwin < mInitialRwin) {
+     // send a window update for the session (Stream 0) for something large
+     mLocalSessionWindow = mInitialRwin;

@@ -13,38 +13,40 @@ fi
 version="$1"
 release="$2"
 
-# Function to run commands and exit on failure
+# Run commands argv-style (no shell eval) and abort on the first failure.
+# `set -e` plus xtrace gives us the old echo+exit-on-failure behaviour
+# without the eval() risk flagged in AUDIT_2026-05-17 (S-005).
+set -euo pipefail
+
 run() {
-    echo "$ $1"
-    eval "$1"
-    if [ $? -ne 0 ]; then
-        echo "Command failed: $1"
-        exit 1
-    fi
+    printf '$'
+    printf ' %q' "$@"
+    printf '\n'
+    "$@"
 }
 
 # Copy the search-config.json file
-run 'cp -v ../assets/search-config.json services/settings/dumps/main/search-config.json'
+run cp -v ../assets/search-config.json services/settings/dumps/main/search-config.json
 
 # vs_pack.py issue... should be temporary
-run 'cp -v ../patches/librewolf/pack_vs.py build/vs/'
+run cp -v ../patches/librewolf/pack_vs.py build/vs/
 
 # Apply most recent `settings` repository files
-run 'mkdir -p lw'
+run mkdir -p lw
 pushd lw > /dev/null
-run 'cp -v ../../settings/camoufox.cfg .'
-run 'cp -v ../../settings/distribution/policies.json .'
-run 'cp -v ../../settings/defaults/pref/local-settings.js .'
-run 'cp -v ../../settings/chrome.css .'
-run 'cp -v ../../settings/properties.json .'
-run 'touch moz.build'
+run cp -v ../../settings/camoufox.cfg .
+run cp -v ../../settings/distribution/policies.json .
+run cp -v ../../settings/defaults/pref/local-settings.js .
+run cp -v ../../settings/chrome.css .
+run cp -v ../../settings/properties.json .
+run touch moz.build
 popd > /dev/null
 
 # Copy ALL new files/folders from ../additions to .
-run 'cp -r ../additions/* .'
+run cp -r ../additions/. .
 
 # Provide a script that fetches and bootstraps Nightly and some mozconfigs
-run 'cp -v ../scripts/mozfetch.sh lw/'
+run cp -v ../scripts/mozfetch.sh lw/
 
 # Override the firefox version
 for file in "browser/config/version.txt" "browser/config/version_display.txt"; do

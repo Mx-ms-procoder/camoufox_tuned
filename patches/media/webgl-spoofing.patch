@@ -43,8 +43,8 @@ index a1e5c4792d..be99491bf8 100644
 +  result.mDepth = MBoolVal("depth", options.depth);
 +  result.mStencil = MBoolVal("stencil", options.stencil);
 +  result.mAntialias.Construct(MBoolVal("antialias", options.antialias));
-+  result.mPremultipliedAlpha = MBoolVal(
-+      "webGl:contextAttributes.premultipliedAlpha", options.premultipliedAlpha);
++  result.mPremultipliedAlpha =
++      MBoolVal("premultipliedAlpha", options.premultipliedAlpha);
 +  result.mPreserveDrawingBuffer =
 +      MBoolVal("preserveDrawingBuffer", options.preserveDrawingBuffer);
 +  result.mFailIfMajorPerformanceCaveat = MBoolVal(

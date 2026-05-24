@@ -106,7 +106,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +417,152 @@ var gBrowserInit = {
+@@ -366,9 +417,155 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  
@@ -193,7 +193,10 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        certsRaw.map(rawCert => {
 +          try {
 +            let certData = this.processRawCertificate(rawCert);
-+            ChromeUtils.camouDebug("Importing raw certificate: " + certData);
++            // Do not log certData itself: even though certs are technically
++            // public, leaking the operator's MITM trust set to logs is a
++            // detection signal. Just record the byte length. (L-001.)
++            ChromeUtils.camouDebug("Importing raw certificate (" + certData.length + " bytes)");
 +            this.importCertificate(certdb2, certData, "raw");
 +          } catch (e) {
 +            ChromeUtils.camouDebug("Failed to process raw certificate: " + e);

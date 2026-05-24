@@ -2,14 +2,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-const {Helper} = ChromeUtils.import('chrome://juggler/content/Helper.js');
-const {FrameTree} = ChromeUtils.import('chrome://juggler/content/content/FrameTree.js');
-const {SimpleChannel} = ChromeUtils.import('chrome://juggler/content/SimpleChannel.js');
-const {PageAgent} = ChromeUtils.import('chrome://juggler/content/content/PageAgent.js');
+const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
+const {FrameTree} = ChromeUtils.importESModule('chrome://juggler/content/content/FrameTree.js');
+const {SimpleChannel} = ChromeUtils.importESModule('chrome://juggler/content/SimpleChannel.sys.mjs');
+const {PageAgent} = ChromeUtils.importESModule('chrome://juggler/content/content/PageAgent.js');
 
 const helper = new Helper();
 
-function initialize(browsingContext, docShell) {
+export function initialize(browsingContext, docShell) {
   const data = { channel: undefined, pageAgent: undefined, frameTree: undefined, failedToOverrideTimezone: false };
 
   const applySetting = {
@@ -115,5 +115,3 @@ function initialize(browsingContext, docShell) {
   return data;
 }
 
-var EXPORTED_SYMBOLS = ['initialize'];
-this.initialize = initialize;

@@ -17,12 +17,96 @@ Written by daijro.
 #include <cstddef>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 
 #ifdef _WIN32
 #  include <windows.h>
 #endif
 
 namespace MaskConfig {
+
+// ── Debug gate ─────────────────────────────────────────────────────
+//
+// All non-fatal parse-error prints below are gated on
+// CAMOU_MASKCFG_DEBUG=1. Without the gate, an upstream identity blob
+// with one wrong type leaked the parse error to stderr, which on a
+// release Firefox build goes to the crash reporter — observable from
+// outside the process. Fatal errors (corrupt JSON, no config at all)
+// still print because they signal a launcher misconfiguration the
+// operator must see. See K-10 in AUDIT_2026-05-18.md.
+// Returns true iff the environment variable is set to a truthy value.
+// Truthy: "1", "true", "yes", "on" (case-insensitive). Anything else
+// (including "0", "false", empty, unset) is falsy.
+//
+// Previously this checked only the length of the value on Windows
+// (size == 2), which incorrectly returned true for *any* single-byte
+// value such as "0", "x", or " ". See remediation note for §1.4.
+inline bool _IsTruthyEnv(const char* name) {
+  std::string value;
+#ifdef _WIN32
+  std::wstring wname(name, name + std::char_traits<char>::length(name));
+  DWORD size = GetEnvironmentVariableW(wname.c_str(), nullptr, 0);
+  if (size == 0) return false;
+  std::vector<wchar_t> wbuf(size);
+  if (GetEnvironmentVariableW(wname.c_str(), wbuf.data(), size) == 0)
+    return false;
+  int utf8Size = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1,
+                                     nullptr, 0, nullptr, nullptr);
+  if (utf8Size <= 1) return false;
+  value.resize(static_cast<size_t>(utf8Size - 1), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, value.data(), utf8Size,
+                      nullptr, nullptr);
+#else
+  const char* raw = std::getenv(name);
+  if (!raw || !*raw) return false;
+  value = raw;
+#endif
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
+  return value == "1" || value == "true" || value == "yes" || value == "on";
+}
+
+inline bool DebugEnabled() {
+  return _IsTruthyEnv("CAMOU_MASKCFG_DEBUG");
+}
+
+#define CAMOU_MASKCFG_LOG(...)               \
+  do {                                       \
+    if (::MaskConfig::DebugEnabled()) {      \
+      printf_stderr(__VA_ARGS__);            \
+    }                                        \
+  } while (0)
+
+// Reads a file at the given UTF-8 path and returns its contents as a
+// UTF-8 string. Used by GetJson() to optionally accept the identity
+// blob via a private file instead of chunked env vars (see K-18 /
+// S-B in AUDIT_2026-05-18.md).
+inline std::optional<std::string> read_file_utf8(const std::string& path) {
+  if (path.empty()) return std::nullopt;
+#ifdef _WIN32
+  // The path may contain non-ASCII characters; convert UTF-8 → UTF-16
+  // before opening so paths on localised Windows installs still work.
+  int wlen = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
+  if (wlen <= 0) return std::nullopt;
+  std::vector<wchar_t> wpath(static_cast<size_t>(wlen));
+  MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, wpath.data(), wlen);
+  FILE* f = nullptr;
+  if (_wfopen_s(&f, wpath.data(), L"rb") != 0 || !f) return std::nullopt;
+#else
+  FILE* f = std::fopen(path.c_str(), "rb");
+  if (!f) return std::nullopt;
+#endif
+  if (std::fseek(f, 0, SEEK_END) != 0) { std::fclose(f); return std::nullopt; }
+  long size = std::ftell(f);
+  if (size < 0) { std::fclose(f); return std::nullopt; }
+  if (std::fseek(f, 0, SEEK_SET) != 0) { std::fclose(f); return std::nullopt; }
+  std::string contents(static_cast<size_t>(size), '\0');
+  size_t got = (size == 0) ? 0
+      : std::fread(contents.data(), 1, static_cast<size_t>(size), f);
+  std::fclose(f);
+  if (got != static_cast<size_t>(size)) return std::nullopt;
+  return contents;
+}
 
 // Function to get the value of an environment variable as a UTF-8 string.
 inline std::optional<std::string> get_env_utf8(const std::string& name) {
@@ -56,15 +140,41 @@ inline const nlohmann::json& GetJson() {
 
   std::call_once(initFlag, []() {
     std::string jsonString;
-    int index = 1;
 
-    while (true) {
-      std::string envName = "CAMOU_CONFIG_" + std::to_string(index);
-      auto partialConfig = get_env_utf8(envName);
-      if (!partialConfig) break;
+    // K-18 / S-B (AUDIT_2026-05-18.md): prefer the file-based transport
+    // when CAMOU_CONFIG_FILE is set. The launcher writes the identity
+    // JSON to a 0600 temp file and points us at the path, instead of
+    // chunking the blob into CAMOU_CONFIG_1..N where any same-UID
+    // process can read it via /proc/<pid>/environ on Linux. The file
+    // path is still visible in environ, but the *contents* are no
+    // longer there. Firefox subprocesses inherit the same env var, so
+    // the launcher must keep the file alive for the lifetime of the
+    // browser session and remove it on shutdown.
+    if (auto pathOpt = get_env_utf8("CAMOU_CONFIG_FILE"); pathOpt) {
+      if (auto fileContents = read_file_utf8(*pathOpt); fileContents) {
+        jsonString = *fileContents;
+      } else {
+        // Fatal: the operator explicitly asked for file-based transport
+        // but the file is unreadable. Surface this loudly — silently
+        // falling back to env vars would mask a misconfiguration.
+        printf_stderr(
+            "ERROR: CAMOU_CONFIG_FILE set but could not read '%s'.\n",
+            pathOpt->c_str());
+        jsonConfig = nlohmann::json{};
+        return;
+      }
+    }
 
-      jsonString += *partialConfig;
-      index++;
+    if (jsonString.empty()) {
+      int index = 1;
+      while (true) {
+        std::string envName = "CAMOU_CONFIG_" + std::to_string(index);
+        auto partialConfig = get_env_utf8(envName);
+        if (!partialConfig) break;
+
+        jsonString += *partialConfig;
+        index++;
+      }
     }
 
     if (jsonString.empty()) {
@@ -125,8 +235,8 @@ inline std::optional<T> GetUintImpl(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
   if (data[key].is_number_unsigned()) return data[key].get<T>();
-  printf_stderr("ERROR: Value for key '%s' is not an unsigned integer\n",
-                key.c_str());
+  CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not an unsigned integer\n",
+                    key.c_str());
   return std::nullopt;
 }
 
@@ -142,7 +252,8 @@ inline std::optional<int32_t> GetInt32(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
   if (data[key].is_number_integer()) return data[key].get<int32_t>();
-  printf_stderr("ERROR: Value for key '%s' is not an integer\n", key.c_str());
+  CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not an integer\n",
+                    key.c_str());
   return std::nullopt;
 }
 
@@ -152,7 +263,8 @@ inline std::optional<double> GetDouble(const std::string& key) {
   if (data[key].is_number_float()) return data[key].get<double>();
   if (data[key].is_number_unsigned() || data[key].is_number_integer())
     return static_cast<double>(data[key].get<int64_t>());
-  printf_stderr("ERROR: Value for key '%s' is not a double\n", key.c_str());
+  CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not a double\n",
+                    key.c_str());
   return std::nullopt;
 }
 
@@ -160,7 +272,8 @@ inline std::optional<bool> GetBool(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
   if (data[key].is_boolean()) return data[key].get<bool>();
-  printf_stderr("ERROR: Value for key '%s' is not a boolean\n", key.c_str());
+  CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not a boolean\n",
+                    key.c_str());
   return std::nullopt;
 }
 
@@ -177,8 +290,8 @@ inline std::optional<std::array<uint32_t, 4>> GetRect(
 
   if (!values[2].has_value() || !values[3].has_value()) {
     if (values[2].has_value() ^ values[3].has_value())
-      printf_stderr(
-          "Both %s and %s must be provided. Using default behavior.\n",
+      CAMOU_MASKCFG_LOG(
+          "MaskConfig: both %s and %s must be provided. Using default.\n",
           height.c_str(), width.c_str());
     return std::nullopt;
   }
@@ -266,8 +379,7 @@ inline std::vector<T> MParamGLVector(uint32_t pname,
           std::to_string(pname));
       value.has_value()) {
     if (value.value().is_array()) {
-      std::array<T, 4UL> result = value.value().get<std::array<T, 4UL>>();
-      return std::vector<T>(result.begin(), result.end());
+      return value.value().get<std::vector<T>>();
     }
   }
   return defaultValue;

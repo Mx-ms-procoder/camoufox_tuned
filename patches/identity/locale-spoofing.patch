@@ -2,7 +2,7 @@ diff --git a/intl/components/src/Locale.cpp b/intl/components/src/Locale.cpp
 index 9a043518cf..a8d3733212 100644
 --- a/intl/components/src/Locale.cpp
 +++ b/intl/components/src/Locale.cpp
-@@ -24,11 +24,56 @@
+@@ -24,11 +24,63 @@
  
  #include "unicode/uloc.h"
  #include "unicode/utypes.h"
@@ -15,22 +15,29 @@ index 9a043518cf..a8d3733212 100644
 +
 +// Helper methods for header file
 +
++// C-1 fix: cache as function-static so the returned pointer outlives
++// the optional<string> that owns the data. The previous implementation
++// returned c_str() from a function-local optional that was destroyed at
++// return — guaranteed use-after-free, which propagated dangling pointers
++// into LanguageSubtag::Set() / strlen() (see Locale.h Language()/Region()/
++// Script() accessors below). MaskConfig itself is immutable post-init,
++// so a single static cache is correct and process-lifetime stable.
 +const char* Locale::GetCamouLanguage() {
-+  if (auto lang = MaskConfig::GetString("locale:language"))
-+    return lang.value().c_str();
-+  return nullptr;
++  static const std::optional<std::string> cached =
++      MaskConfig::GetString("locale:language");
++  return cached ? cached->c_str() : nullptr;
 +}
 +
 +const char* Locale::GetCamouRegion() {
-+  if (auto region = MaskConfig::GetString("locale:region"))
-+    return region.value().c_str();
-+  return nullptr;
++  static const std::optional<std::string> cached =
++      MaskConfig::GetString("locale:region");
++  return cached ? cached->c_str() : nullptr;
 +}
 +
 +const char* Locale::GetCamouScript() {
-+  if (auto script = MaskConfig::GetString("locale:script"))
-+    return script.value().c_str();
-+  return nullptr;
++  static const std::optional<std::string> cached =
++      MaskConfig::GetString("locale:script");
++  return cached ? cached->c_str() : nullptr;
 +}
 +
 +// Publicly exposed methods

@@ -4,24 +4,59 @@ TLS and HTTP/2 fingerprint profiles for Firefox versions.
 These profiles model the intended network identity for a session.
 Camoufox is Firefox-only at the engine level, so the supported production
 path is Firefox-version-correct fingerprints rather than cross-engine
-impersonation. Sidecar egress is modeled explicitly for future use instead
-of silently pretending NSS can emit non-Firefox handshakes.
+impersonation.
+
+What this module actually does — honest version (see AUDIT_2026-05-18.md,
+K-1 / K-2 / K-3):
+
+  • Cipher suites: emits CAMOU_TLS_CIPHERS env vars consumed by NSS
+    via CamouTLSOverride. NSS's SSL_CipherPrefSetDefault only
+    enables/disables; the on-wire ClientHello cipher order is NSS's
+    hard-coded internal order, NOT the order in which we list the
+    suites. This is acceptable because the launcher hands NSS a
+    Firefox-version-correct enabled set and the NSS default order
+    already matches the Firefox family.
+
+  • Named groups / signature algorithms: emit CAMOU_TLS_GROUPS /
+    CAMOU_TLS_SIGALGS. These DO use ordering APIs
+    (SSL_NamedGroupConfig / SSL_SignatureSchemePrefSet) and the order
+    is honoured.
+
+  • ALPN: CAMOU_TLS_ALPN is informational. ALPN is configured per
+    socket and Firefox already sets it via preferences.
+
+  • HTTP/2 SETTINGS: get_http2_config() now returns {} because no C++
+    patch reads these values out of MaskConfig. The Firefox build emits
+    its native HTTP/2 SETTINGS. If you need real HTTP/2 fingerprint
+    parity, you need a patch in netwerk/protocol/http/Http2Session.cpp
+    wired to IdentityStateProvider; that is open work.
+
+  • uTLS sidecar (transport_mode="utls-sidecar"): registered profiles
+    never select it. utls v1.8.2 ships HelloFirefox_120 / _148 but no
+    Firefox_150 parrot, so even forcing it on would not match the UA.
+    The sidecar lives under bundle/_experimental/ and is off the
+    default path.
 
 Reference data sourced from:
 - curl-impersonate (github.com/lwthiker/curl-impersonate)
 - browserleaks.com/ssl captures
 - tls.browserleaks.com/json raw data
 - FoxIO-LLC/ja4 technical specifications
+- Mozilla bug 1267894 (NSS cipher-suite order API)
 """
 
+import os
 from copy import deepcopy
 from typing import Any, Dict, List, Optional
 from ua_parser import user_agent_parser
 from .network_profile import NetworkProfile
 
 
-# ── Firefox 135 TLS Profile ──────────────────────────────────────────
-# Captured from a clean Firefox 135.0.1 installation.
+# ── Firefox TLS Profile (135 baseline) ───────────────────────────────
+# Captured from a clean Firefox 135.0.1 installation. Re-used for 140/146/
+# 150 entries because NSS handshake parameters did not observably drift
+# across these versions in upstream Mozilla source. Re-capture against a
+# real Firefox 150 binary if downstream JA3/JA4 telemetry shows divergence.
 
 FIREFOX_135_TLS = {
     # TLS 1.3 cipher suites (these are always first)
@@ -145,28 +180,44 @@ FIREFOX_135_HTTP2 = {
 # ── Profile Registry ─────────────────────────────────────────────────
 
 def _build_firefox_profile(major_version: int) -> NetworkProfile:
+    """Build a per-version Firefox profile.
+
+    PARITY NOTE (see AUDIT_2026-05-18.md): the underlying templates
+    currently derive from a captured Firefox 135 ClientHello. We do not
+    yet have ground-truth ClientHello / HTTP/2 captures for Firefox 140,
+    146 or 150, so those versions inherit the 135 baseline with the
+    ``parity_baseline`` flag set so callers can detect that the profile
+    is approximate. Because the actual ClientHello cipher *order* on
+    the wire is whatever NSS emits natively (see K-1), the practical
+    impact of this approximation is limited to which suites are
+    enabled, not their on-wire order.
+    """
+    baseline_template = deepcopy(FIREFOX_135_TLS)
+    baseline_http2 = deepcopy(FIREFOX_135_HTTP2)
+    parity_baseline = 135 if major_version != 135 else None
     return NetworkProfile(
         browser_family="firefox",
         major_version=major_version,
         tls_profile_id=f"firefox{major_version}",
-        client_hello_template=deepcopy(FIREFOX_135_TLS),
-        http2_template=deepcopy(FIREFOX_135_HTTP2),
-        alpn_policy=list(FIREFOX_135_TLS["tls:alpn"]),
+        client_hello_template=baseline_template,
+        http2_template=baseline_http2,
+        alpn_policy=list(baseline_template["tls:alpn"]),
         proxy_egress_class="nss",
         transport_mode="firefox-native",
         grease_enabled=False,
         ja4_family="firefox",
         supports_nss_env_overrides=True,
-        nss_cipher_overrides=list(FIREFOX_135_TLS["tls:cipherSuiteCodes"]),
-        nss_extension_overrides=list(FIREFOX_135_TLS["tls:extensionCodes"]),
-        nss_named_group_overrides=list(FIREFOX_135_TLS["tls:namedGroupCodes"]),
-        nss_sigalg_overrides=list(FIREFOX_135_TLS["tls:signatureAlgorithmCodes"]),
+        nss_cipher_overrides=list(baseline_template["tls:cipherSuiteCodes"]),
+        nss_extension_overrides=list(baseline_template["tls:extensionCodes"]),
+        nss_named_group_overrides=list(baseline_template["tls:namedGroupCodes"]),
+        nss_sigalg_overrides=list(baseline_template["tls:signatureAlgorithmCodes"]),
+        parity_baseline=parity_baseline,
     )
 
 
 TLS_PROFILES: Dict[str, NetworkProfile] = {
     f"firefox{major_version}": _build_firefox_profile(major_version)
-    for major_version in (133, 134, 135)
+    for major_version in (133, 134, 135, 140, 146, 150)
 }
 
 
@@ -245,24 +296,40 @@ def get_tls_env_vars(profile: NetworkProfile) -> Dict[str, str]:
 
 def get_http2_config(profile: NetworkProfile) -> Dict[str, Any]:
     """
-    Extract HTTP/2 SETTINGS values for MaskConfig injection.
+    Return the HTTP/2 SETTINGS template that should be merged into
+    CAMOU_CONFIG.
 
-    These go through the standard CAMOU_CONFIG_* path because
-    Http2Session.cpp can read MaskConfig at runtime.
+    K-2 / K-21 (AUDIT_2026-05-18.md). For most of this fork's
+    lifetime, this function returned `{}` because no C++ patch read
+    the values out of MaskConfig — emitting them would have created
+    silent dead config (the original K-2 finding).
+
+    K-21 added the consumer side: `IdentityStateProvider::GetHttp2State`
+    reads `http2:*` keys, and
+    `patches/network/_experimental/http2-fingerprint.patch` wires
+    `Http2Session::SendHello` through them. The patch was verified
+    against mozilla-beta tip on 2026-05-18 (all six hunks apply, one
+    with fuzz=1) and is now listed in
+    `patches/manifests/network.yaml`, so a fresh `make build`
+    splices the consumer code in automatically. Producer emission is
+    still opt-in via `CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1`
+    because (a) at runtime the C++ side falls back to upstream
+    Firefox defaults when no `http2:*` keys are present and (b) older
+    Camoufox binaries without the consumer-side change silently swallow
+    the keys — without the opt-in we keep returning `{}` so a forgotten
+    deployment cannot regress to K-2 dead-config behaviour.
     """
-    if not profile.is_nss_native():
-        return {} # Let the sidecar proxy handle HTTP/2 settings
-
-    http2_keys = [
-        "http2:headerTableSize",
-        "http2:enablePush",
-        "http2:initialWindowSize",
-        "http2:maxFrameSize",
-        "http2:windowUpdate",
-        "http2:priorityWeight",
-    ]
-    template = profile.http2_template
-    return {k: template[k] for k in http2_keys if k in template}
+    if os.environ.get("CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL") != "1":
+        return {}
+    if not profile.http2_template:
+        return {}
+    # Pass through the http2:* keys as-is. The C++ side (`GetHttp2State`)
+    # is keyed on these exact names; keep the contract one-to-one.
+    return {
+        key: value
+        for key, value in profile.http2_template.items()
+        if key.startswith("http2:")
+    }
 
 
 # ── TLS Profile Validator ────────────────────────────────────────────

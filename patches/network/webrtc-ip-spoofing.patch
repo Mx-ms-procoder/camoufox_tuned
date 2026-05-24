@@ -39,11 +39,11 @@ index 235d5dde8f..d0102a6746 100644
    STAMP_TIMECARD(mTimeCard, "Ice Candidate gathered");
    PC_AUTO_ENTER_API_CALL_VOID_RETURN(false);
  
++  std::string maybeSpoofedCandidate;
 +  const std::string& candidate = [&]() -> const std::string& {
 +    if (ShouldSpoofCandidateIP()) {
-+      static std::string spoofedCandidate;
-+      spoofedCandidate = SpoofCandidateIP(candidate_);
-+      return spoofedCandidate;
++      maybeSpoofedCandidate = SpoofCandidateIP(candidate_);
++      return maybeSpoofedCandidate;
 +    } else {
 +      return candidate_;
 +    }
@@ -52,7 +52,7 @@ index 235d5dde8f..d0102a6746 100644
    if (mForceIceTcp && std::string::npos != candidate.find(" UDP ")) {
      CSFLogWarn(LOGTAG, "Blocking local UDP candidate: %s", candidate.c_str());
      STAMP_TIMECARD(mTimeCard, "UDP Ice Candidate blocked");
-@@ -3292,10 +3312,184 @@ void PeerConnectionImpl::SendLocalIceCandidateToContent(
+@@ -3292,10 +3312,233 @@ void PeerConnectionImpl::SendLocalIceCandidateToContent(
      uint16_t level, const std::string& mid, const std::string& candidate,
      const std::string& ufrag) {
    STAMP_TIMECARD(mTimeCard, "Send Ice Candidate to content");
@@ -182,12 +182,48 @@ index 235d5dde8f..d0102a6746 100644
 +    return candidate;
 +  }
 +  // ipv4
-+  const char* ipv4Pattern = "(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
++  const char* ipv4Pattern = "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b";
 +  std::string result = replaceIPAddresses(candidate, ipv4Pattern);
 +  // ipv6
-+  const char* ipv6Pattern = "(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}";
++  // RFC 4291 IPv6, including compressed forms (::, leading/trailing ::,
++  // and IPv4-embedded forms). The eight alternatives cover 1..7 groups
++  // followed by ::, :: alone or :: followed by 1..7 groups, and the
++  // uncompressed eight-group form.
++  const char* ipv6Pattern =
++      "(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,7}:"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}"
++      "|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}"
++      "|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)";
 +  result = replaceIPAddresses(result, ipv6Pattern);
-+  
++
++  // mDNS .local: replace UUID.local hostnames (Firefox privacy candidates)
++  // with the configured local-IPv4 mask so the spoofed IP is consistently seen.
++  auto mDNSMask = MaskConfig::GetString("webrtc:localipv4");
++  if (!mDNSMask) mDNSMask = MaskConfig::GetString("webrtc:ipv4");
++  if (mDNSMask) {
++    const char* mDNSPattern =
++        "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}"
++        "-[0-9a-fA-F]{12}\\.local";
++    mozilla::RustRegex mDNSRx(mDNSPattern);
++    if (mDNSRx.IsValid()) {
++      std::string mDNSResult;
++      auto mDNSIter = mDNSRx.IterMatches(result);
++      size_t mDNSLast = 0;
++      while (auto m = mDNSIter.Next()) {
++        mDNSResult.append(result, mDNSLast, m->start - mDNSLast);
++        mDNSResult.append(mDNSMask.value());
++        mDNSLast = m->end;
++      }
++      mDNSResult.append(result, mDNSLast);
++      result = std::move(mDNSResult);
++    }
++  }
++
 +  return result;
 +}
 +
@@ -227,10 +263,23 @@ index 235d5dde8f..d0102a6746 100644
 +  std::string originalSdp = processedSdp;
 +  
 +  // ipv4
-+  const char* ipv4Pattern = "(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
++  const char* ipv4Pattern = "\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b";
 +  processedSdp = replaceIPAddresses(processedSdp, ipv4Pattern);
 +  // ipv6
-+  const char* ipv6Pattern = "(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}";
++  // RFC 4291 IPv6, including compressed forms (::, leading/trailing ::,
++  // and IPv4-embedded forms). The eight alternatives cover 1..7 groups
++  // followed by ::, :: alone or :: followed by 1..7 groups, and the
++  // uncompressed eight-group form.
++  const char* ipv6Pattern =
++      "(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,7}:"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}"
++      "|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}"
++      "|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}"
++      "|:(?:(?::[0-9A-Fa-f]{1,4}){1,7}|:)";
 +  processedSdp = replaceIPAddresses(processedSdp, ipv6Pattern);
 +  
 +  if (processedSdp != originalSdp) {

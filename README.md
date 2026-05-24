@@ -18,7 +18,12 @@ Camoufox is an open source anti-detect browser for robust fingerprint injection 
 > [!NOTE]
 > All of the latest documentation is avaliable at [camoufox.com](https://camoufox.com).
 
-Camoufox is the most modern, effective & future-proof open source solution for avoiding bot detection and intelligent fingerprint rotation. It outperforms most commercial anti-bot browsers.
+> [!WARNING]
+> This fork is experimental and currently targets `150.0.2-beta.25` in `upstream.sh`.
+> The historical upstream documentation below contains broad marketing claims and legacy sections that are not a substitute for build/test verification.
+> See `AUDIT_2026-05-18.md` for the current local technical audit and known build/runtime risks.
+
+Camoufox is an open source Firefox fork focused on engine-level fingerprint injection and Playwright-compatible automation. Claims about anti-bot effectiveness must be validated against the target site, runtime environment, proxy/geo setup, and the exact browser build being used.
 
 ---
 
@@ -32,8 +37,21 @@ Camoufox is the most modern, effective & future-proof open source solution for a
 
 ## Features
 
-- Invisible to **all anti-bot systems** 🎭
-  - Camoufox performs better than most commercial anti-bot browsers.
+> [!IMPORTANT]
+> The "invisible to all anti-bot systems" framing inherited from upstream
+> Camoufox marketing has been removed from this fork. Detection resistance
+> depends on the target site, proxy/geo, browser binary, and detector
+> version — none of which this README can verify in advance. Run your own
+> tests against the specific stack you need to beat before assuming any
+> claim below holds. See `AUDIT_2026-05-18.md` for the current operational
+> caveats (uTLS sidecar inactive, cloud broker experimental, etc.).
+> Kubernetes/cloud deployment users: see [`k8s/README.md`](k8s/README.md)
+> for the broker/worker status — the warm-pool manifest is a stub, not a
+> functional worker pool.
+
+- Engine-level fingerprint surface (no JavaScript injection) — intended to
+  reduce trivial JS-side detection, not a guarantee against any specific
+  anti-bot product.
 
 * Fingerprint injection & rotation (without JS injection!)
   - All navigator properties (device, OS, hardware, browser, etc.) ✅
@@ -80,7 +98,7 @@ Legacy documentation
 Navigator 
 </summary>
 
-Navigator properties can be fully spoofed to other Firefox fingerprints, and it is **completely safe**!
+Navigator properties can be spoofed to other Firefox fingerprints. "Safety" here means values are written at the engine level rather than from JavaScript; it does not mean a given detector cannot still flag the result. Verify against your target before relying on it.
 
 | Property                       | Notes |
 | ------------------------------ | ----- |

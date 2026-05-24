@@ -1,0 +1,130 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: camoufox-session-broker
+  labels:
+    app: camoufox
+    tier: control-plane
+spec:
+  # SessionBroker keeps the in-flight session lease map in process memory
+  # (pythonlib/camoufox/cloud_native.py SessionBroker._leases). Multiple
+  # replicas without sticky-session affinity will return 404 for sessions
+  # created on the sibling pod (see AUDIT_2026-05-18.md). Until the
+  # lease table is fully externalised to Redis, keep replicas: 1. Use the
+  # HorizontalPodAutoscaler below only after enabling sticky sessions at
+  # the ingress / Service mesh layer.
+  replicas: 1
+  selector:
+    matchLabels:
+      app: camoufox-session-broker
+  template:
+    metadata:
+      labels:
+        app: camoufox-session-broker
+    spec:
+      containers:
+      - name: broker
+        image: camoufox-slim:latest
+        command:
+        - python3
+        - -m
+        - camoufox
+        - cloud-broker
+        - --host
+        - "0.0.0.0"
+        - --port
+        - "8000"
+        - --snapshot-dir
+        - /var/lib/camoufox/snapshots
+        - --pool-size
+        - "5"
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+        ports:
+        - containerPort: 8000
+        env:
+        - name: CAMOUFOX_STORE_BACKEND
+          value: "redis"
+        - name: CAMOUFOX_POOL_BACKEND
+          value: "redis"
+        - name: CAMOUFOX_REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: camoufox-redis
+              key: url
+              optional: true
+        # Required because the broker binds 0.0.0.0 — startup aborts
+        # without a token. The previously available
+        # CAMOUFOX_BROKER_ALLOW_UNAUTHENTICATED=1 override was removed
+        # in K-5 / AUDIT_2026-05-18.md. The Secret must be created
+        # out-of-band.
+        - name: CAMOUFOX_BROKER_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: camoufox-broker
+              key: token
+        - name: CAMOUFOX_POOL_ENDPOINTS
+          value: "http://camoufox-pool:8000"
+        - name: CAMOUFOX_SNAPSHOT_DIR
+          value: "/var/lib/camoufox/snapshots"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 15
+          timeoutSeconds: 3
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8000
+          initialDelaySeconds: 2
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 2
+        volumeMounts:
+        - name: snapshots
+          mountPath: /var/lib/camoufox/snapshots
+      volumes:
+      - name: snapshots
+        emptyDir:
+          sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-broker
+spec:
+  selector:
+    app: camoufox-session-broker
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+---
+# HorizontalPodAutoscaler is intentionally pinned to 1/1 until the lease
+# map is externalised (see Deployment.spec.replicas comment above).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: session-broker-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: camoufox-session-broker
+  minReplicas: 1
+  maxReplicas: 1
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 65
