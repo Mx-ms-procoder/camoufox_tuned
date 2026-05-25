@@ -44,6 +44,13 @@ const int kMaxFramesInFlight = 1;
 StaticRefPtr<nsScreencastService> gScreencastService;
 
 rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> CreateWindowCapturer(nsIWidget* widget) {
+  // nsView::GetWidget() may return nullptr (view detached, no PresShell).
+  // Without this guard the headless branch static_cast'd a null and the
+  // headed branch dereferenced it via GetNativeData().
+  if (!widget) {
+    fprintf(stderr, "CreateWindowCapturer: widget is null\n");
+    return nullptr;
+  }
   if (gfxPlatform::IsHeadless()) {
     HeadlessWidget* headlessWidget = static_cast<HeadlessWidget*>(widget);
     return HeadlessWindowCapturer::Create(headlessWidget);

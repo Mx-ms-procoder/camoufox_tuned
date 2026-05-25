@@ -107,10 +107,14 @@ inline std::optional<std::string> ReadEnv(const char* name) {
   DWORD size = GetEnvironmentVariableW(wName.c_str(), nullptr, 0);
   if (size == 0) return std::nullopt;
   std::vector<wchar_t> buf(size);
-  GetEnvironmentVariableW(wName.c_str(), buf.data(), size);
+  // Race-safe: env var could grow between the size probe and the read;
+  // got >= size means truncated/unterminated and we must reject.
+  DWORD got = GetEnvironmentVariableW(wName.c_str(), buf.data(), size);
+  if (got == 0 || got >= size) return std::nullopt;
   // Simple ASCII conversion (env var values are hex/ASCII)
   std::string result;
-  for (DWORD i = 0; i < size - 1; ++i) {
+  result.reserve(got);
+  for (DWORD i = 0; i < got; ++i) {
     result.push_back(static_cast<char>(buf[i]));
   }
   return result;

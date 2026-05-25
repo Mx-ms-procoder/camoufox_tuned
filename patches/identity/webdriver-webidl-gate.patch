@@ -1,0 +1,56 @@
+# navigator.webdriver WebIDL-Gate (upstream PR #605 analogue).
+#
+# Camoufox's existing K-6 logic in patches/playwright/1-leak-fixes.patch
+# makes Navigator::Webdriver() return `false` when MOZ_CAMOUFOX_JUGGLER=1,
+# but the `webdriver` attribute itself stays exposed on the Navigator
+# prototype. Anti-bot fingerprinters that probe `'webdriver' in navigator`
+# or `typeof navigator.webdriver` therefore still see a Camoufox signature
+# (the property exists, just returns `false`).
+#
+# Vanilla Firefox without ENABLE_WEBDRIVER would not expose the attribute
+# at all. To match that behaviour we add a static pref
+# `dom.webdriver.enabled` (default `true`, set to `false` by Camoufox's
+# camoufox.cfg) and gate the WebIDL attribute on it. When the pref is
+# false the binding code generator omits the property from the prototype
+# entirely, so `'webdriver' in navigator` evaluates to `false` and
+# `typeof navigator.webdriver` evaluates to `"undefined"` — i.e. the
+# exact same observable surface as a vanilla Firefox build without
+# Marionette/RemoteAgent.
+#
+# K-6 stays in place as defense-in-depth: even if a downstream consumer
+# resets `dom.webdriver.enabled` to true at runtime (DevTools, an
+# extension, custom prefs), the getter still returns `false` under
+# MOZ_CAMOUFOX_JUGGLER=1.
+#
+# Anchors are intentionally minimal so the patch survives small upstream
+# drift around the surrounding attributes.
+
+diff --git a/modules/libpref/init/StaticPrefList.yaml b/modules/libpref/init/StaticPrefList.yaml
+--- a/modules/libpref/init/StaticPrefList.yaml
++++ b/modules/libpref/init/StaticPrefList.yaml
+@@ -3149,6 +3149,16 @@
+ - name: dom.vr.xr.enabled
+   type: bool
+   value: false
+   mirror: always
+
++# Camoufox: controls whether the `navigator.webdriver` attribute is
++# exposed on the Navigator prototype. When `false`, the binding code
++# generator omits the attribute entirely so `'webdriver' in navigator`
++# returns false. Defaults to `true` (Firefox's behaviour); camoufox.cfg
++# overrides it to `false`.
++- name: dom.webdriver.enabled
++  type: bool
++  value: true
++  mirror: always
++
+ # Enables/disables the helper to send the WebAuthn request to the parent.
+diff --git a/dom/webidl/Navigator.webidl b/dom/webidl/Navigator.webidl
+--- a/dom/webidl/Navigator.webidl
++++ b/dom/webidl/Navigator.webidl
+@@ -86,4 +86,5 @@
+   readonly attribute unsigned long hardwareConcurrency;
+
++  [Pref="dom.webdriver.enabled"]
+   readonly attribute boolean webdriver;
+ };

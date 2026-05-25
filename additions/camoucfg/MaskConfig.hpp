@@ -48,8 +48,10 @@ inline bool _IsTruthyEnv(const char* name) {
   DWORD size = GetEnvironmentVariableW(wname.c_str(), nullptr, 0);
   if (size == 0) return false;
   std::vector<wchar_t> wbuf(size);
-  if (GetEnvironmentVariableW(wname.c_str(), wbuf.data(), size) == 0)
-    return false;
+  // got >= size means env var grew between calls; the buffer is truncated
+  // and NOT NUL-terminated, so WideCharToMultiByte would read past it.
+  DWORD wgot = GetEnvironmentVariableW(wname.c_str(), wbuf.data(), size);
+  if (wgot == 0 || wgot >= size) return false;
   int utf8Size = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1,
                                      nullptr, 0, nullptr, nullptr);
   if (utf8Size <= 1) return false;
@@ -116,7 +118,11 @@ inline std::optional<std::string> get_env_utf8(const std::string& name) {
   if (size == 0) return std::nullopt;  // Environment variable not found
 
   std::vector<wchar_t> buffer(size);
-  GetEnvironmentVariableW(wName.c_str(), buffer.data(), size);
+  // Race-safe: if the env var grew between calls, `got` will equal `size`
+  // (truncated, not NUL-terminated) and we must abort instead of reading
+  // uninitialised tail bytes via wValue() ctor.
+  DWORD got = GetEnvironmentVariableW(wName.c_str(), buffer.data(), size);
+  if (got == 0 || got >= size) return std::nullopt;
   std::wstring wValue(buffer.data());
 
   // Convert UTF-16 to UTF-8 using Win32 (std::wstring_convert removed in C++26)

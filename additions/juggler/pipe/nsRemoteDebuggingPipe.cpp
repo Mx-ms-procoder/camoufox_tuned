@@ -102,19 +102,38 @@ nsresult nsRemoteDebuggingPipe::Init(nsIRemoteDebuggingPipeClient* aClient) {
   if (mClient) {
     return NS_ERROR_FAILURE;
   }
+
+#if defined(_WIN32)
+  // Wide-char variant: Win32 env vars are native UTF-16. GetEnvironmentVariableA
+  // reads the ANSI translation block which can be empty when Node.js/Playwright
+  // sets the var via the Unicode CRT — leaving the buffer uninitialised and
+  // atoi() reading stack garbage as a HANDLE. Result on Windows: invalid-handle
+  // ReadFile() escalates to STATUS_BREAKPOINT on hardened builds (issue #614).
+  // Validate handles BEFORE creating threads so failure doesn't leak them.
+  auto readEnvHandle = [](LPCWSTR name) -> HANDLE {
+    DWORD size = GetEnvironmentVariableW(name, nullptr, 0);
+    if (size == 0) return INVALID_HANDLE_VALUE;
+    std::vector<wchar_t> buf(size);
+    DWORD got = GetEnvironmentVariableW(name, buf.data(), size);
+    if (got == 0 || got >= size) return INVALID_HANDLE_VALUE;
+    return reinterpret_cast<HANDLE>(static_cast<intptr_t>(_wtoi(buf.data())));
+  };
+  HANDLE r = readEnvHandle(L"PW_PIPE_READ");
+  HANDLE w = readEnvHandle(L"PW_PIPE_WRITE");
+  if (r == INVALID_HANDLE_VALUE || w == INVALID_HANDLE_VALUE) {
+    fprintf(stderr,
+            "[juggler-pipe] PW_PIPE_READ / PW_PIPE_WRITE not set; aborting "
+            "pipe init instead of using garbage handles.\n");
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+  readHandle = r;
+  writeHandle = w;
+#endif
+
   mClient = aClient;
 
   MOZ_ALWAYS_SUCCEEDS(NS_NewNamedThread("Pipe Reader", getter_AddRefs(mReaderThread)));
   MOZ_ALWAYS_SUCCEEDS(NS_NewNamedThread("Pipe Writer", getter_AddRefs(mWriterThread)));
-
-#if defined(_WIN32)
-  CHAR pipeReadStr[20];
-  CHAR pipeWriteStr[20];
-  GetEnvironmentVariableA("PW_PIPE_READ", pipeReadStr, 20);
-  GetEnvironmentVariableA("PW_PIPE_WRITE", pipeWriteStr, 20);
-  readHandle = reinterpret_cast<HANDLE>(atoi(pipeReadStr));
-  writeHandle = reinterpret_cast<HANDLE>(atoi(pipeWriteStr));
-#endif
 
   MOZ_ALWAYS_SUCCEEDS(mReaderThread->Dispatch(NewRunnableMethod(
       "nsRemoteDebuggingPipe::ReaderLoop",

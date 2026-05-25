@@ -12,9 +12,37 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 from random import Random
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 
 import orjson
+
+# Domain separation tag for fingerprint seed derivation. Bumping the tag
+# invalidates every previously persisted seed → fingerprint mapping, so
+# only change it when the derivation semantics genuinely shift.
+_SEED_DOMAIN_TAG = b"camoufox-fingerprint-seed-v1\x00"
+
+
+def _derive_seed_material(seed_input: Union[str, int, bytes, bytearray, memoryview]) -> bytes:
+    """
+    Normalise a user-supplied fingerprint seed into bytes suitable for
+    SHA-256 hashing. Booleans are rejected on purpose — they pass
+    isinstance(..., int) in Python and would silently collapse the seed
+    space to {0, 1}.
+    """
+    if isinstance(seed_input, bool):
+        raise TypeError("fingerprint_seed must not be a bool")
+    if isinstance(seed_input, int):
+        # Use signed two's-complement so negative ints round-trip cleanly.
+        # 16 bytes covers the full int64 range with headroom for arbitrary
+        # Python ints up to 2**127.
+        return seed_input.to_bytes(16, "big", signed=True)
+    if isinstance(seed_input, str):
+        return seed_input.encode("utf-8")
+    if isinstance(seed_input, (bytes, bytearray, memoryview)):
+        return bytes(seed_input)
+    raise TypeError(
+        f"fingerprint_seed must be str, int, or bytes; got {type(seed_input).__name__}"
+    )
 
 from .device_profiles import DeviceProfile, build_font_list, sample_device_profile
 from .device_profiles.coherence import validate_coherence
@@ -122,6 +150,7 @@ class IdentityCoherenceEngine:
         custom_fonts_only: bool = False,
         webgl_enabled: bool = True,
         webgl_config: Optional[Tuple[str, str]] = None,
+        fingerprint_seed: Optional[Union[str, int, bytes, bytearray, memoryview]] = None,
     ) -> IdentityState:
         from .fingerprints import from_browserforge
 
@@ -134,6 +163,7 @@ class IdentityCoherenceEngine:
             custom_fonts_only=custom_fonts_only,
             webgl_enabled=webgl_enabled,
             webgl_config=webgl_config,
+            fingerprint_seed=fingerprint_seed,
         )
 
     def build_from_base_config(
@@ -147,20 +177,31 @@ class IdentityCoherenceEngine:
         custom_fonts_only: bool = False,
         webgl_enabled: bool = True,
         webgl_config: Optional[Tuple[str, str]] = None,
+        fingerprint_seed: Optional[Union[str, int, bytes, bytearray, memoryview]] = None,
     ) -> IdentityState:
-        payload = self._seed_payload(
-            base_config=base_config,
-            target_os=target_os,
-            user_config=user_config,
-            window=window,
-            fonts=fonts,
-            custom_fonts_only=custom_fonts_only,
-            webgl_enabled=webgl_enabled,
-            webgl_config=webgl_config,
-        )
-        digest = hashlib.sha256(
-            orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
-        ).digest()
+        if fingerprint_seed is not None:
+            # Persistent-seed mode: the digest is derived from the seed
+            # material plus a domain-separation tag, decoupling the
+            # deterministic identity from the rest of the user-supplied
+            # configuration. Two callers with the same seed get the same
+            # device profile / window metrics / canvas offsets, even when
+            # other launch parameters differ.
+            seed_bytes = _derive_seed_material(fingerprint_seed)
+            digest = hashlib.sha256(_SEED_DOMAIN_TAG + seed_bytes).digest()
+        else:
+            payload = self._seed_payload(
+                base_config=base_config,
+                target_os=target_os,
+                user_config=user_config,
+                window=window,
+                fonts=fonts,
+                custom_fonts_only=custom_fonts_only,
+                webgl_enabled=webgl_enabled,
+                webgl_config=webgl_config,
+            )
+            digest = hashlib.sha256(
+                orjson.dumps(payload, option=orjson.OPT_SORT_KEYS)
+            ).digest()
         seed = int.from_bytes(digest[:8], "big")
         generator = Random(seed)
 

@@ -425,6 +425,7 @@ def launch_options(
     i_know_what_im_doing: Optional[bool] = None,
     debug: Optional[bool] = None,
     virtual_display: Optional[str] = None,
+    fingerprint_seed: Optional[Union[str, int, bytes, bytearray, memoryview]] = None,
     **launch_options: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
@@ -503,6 +504,15 @@ def launch_options(
             Virtual display number. Ex: ':99'. This is handled by Camoufox & AsyncCamoufox.
         webgl_config (Optional[Tuple[str, str]]):
             Use a specific WebGL vendor/renderer pair. Passed as a tuple of (vendor, renderer).
+        fingerprint_seed (Optional[Union[str, int, bytes]]):
+            Persistent identity seed. When set, the deterministic device profile,
+            window metrics, canvas/audio offsets, font subset and history length
+            are derived from this seed alone (with a fixed domain-separation tag),
+            so the same seed reproduces the same fingerprint across sessions and
+            machines. Accepts a string, int (full Python int range, including
+            negatives), or bytes-like object. Booleans are rejected. Leave as
+            `None` (default) to keep the legacy behaviour where the seed is
+            derived from the full config payload.
         **launch_options (Dict[str, Any]):
             Additional Firefox launch options.
     """
@@ -626,7 +636,12 @@ def launch_options(
                 set_into(config, 'webrtc:ipv6', geoip)
 
         geolocation = get_geolocation(geoip)
-        config.update(geolocation.as_config())
+        # Non-destructive merge: an explicit user-set `timezone` /
+        # `geolocation:` / `locale:` must survive GeoIP fill-in, because
+        # MaxMind's IP→timezone often disagrees with the proxy's real
+        # region (e.g. Phoenix-AZ proxy resolves to America/Chicago),
+        # producing a detectable mismatch on browserscan / CreepJS.
+        merge_into(config, geolocation.as_config())
 
     # Raise a warning when a proxy is being used without spoofing geolocation.
     # This is a very bad idea; the warning cannot be ignored with i_know_what_im_doing.
@@ -679,6 +694,7 @@ def launch_options(
         custom_fonts_only=custom_fonts_only,
         webgl_enabled=webgl_enabled,
         webgl_config=webgl_config,
+        fingerprint_seed=fingerprint_seed,
     )
     if identity_state.manual_overrides and not i_know_what_im_doing:
         raise ManualOverrideCoherenceError(
