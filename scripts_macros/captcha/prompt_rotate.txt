@@ -1,5 +1,5 @@
 ### Task
-Act as a geometric alignment expert. Your goal is to determine the slider position on a full-page screenshot to fix an image's rotation.
+Act as a geometric alignment expert. Your goal is to determine the slider position to fix a circular image's rotation. The image you receive is a cropped screenshot of the CAPTCHA element (includes both concentric circle images and the slider track).
 
 ### Reference Anchors (Input Data)
 - Slider Track Start (X): [FÜGE HIER track_x_start EIN]

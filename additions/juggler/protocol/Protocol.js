@@ -671,6 +671,7 @@ const Page = {
     },
     'uncaughtError': {
       frameId: t.String,
+      location: runtimeTypes.ScriptLocation,
       message: t.String,
       stack: t.String,
     },

@@ -190,14 +190,14 @@ class HumanizeMouseTrajectory {
 
   int32_t getMaxTime() const {
     if (auto maxTime = MaskConfig::GetDouble("humanize:maxTime")) {
-      return static_cast<int32_t>(maxTime.value() * 100);
+      return secondsToPointCount(maxTime.value(), 150);
     }
     return 150;
   }
 
   int32_t getMinTime() const {
     if (auto minTime = MaskConfig::GetDouble("humanize:minTime")) {
-      return static_cast<int32_t>(minTime.value() * 100);
+      return secondsToPointCount(minTime.value(), 0);
     }
     return 0;
   }
@@ -214,9 +214,16 @@ class HumanizeMouseTrajectory {
     }
 
     // Uses a power scale to keep the speed consistent
-    int targetPoints = std::min(
-        getMaxTime(),
-        std::max(getMinTime() + 2, static_cast<int>(std::pow(totalLength, 0.25) * 20)));
+    int32_t minPoints = getMinTime();
+    int32_t maxPoints = std::max<int32_t>(2, getMaxTime());
+    int32_t desiredMin =
+        minPoints > std::numeric_limits<int32_t>::max() - 2
+            ? std::numeric_limits<int32_t>::max()
+            : minPoints + 2;
+    int32_t distancePoints = secondsToPointCount(
+        std::pow(totalLength, 0.25) * 0.2, 2);
+    int targetPoints =
+        std::max<int32_t>(2, std::min(maxPoints, std::max(desiredMin, distancePoints)));
 
     std::vector<std::vector<double>> res;
     for (int i = 0; i < targetPoints; i++) {
@@ -229,6 +236,15 @@ class HumanizeMouseTrajectory {
   }
 
   bool isNumeric(double val) const { return !std::isnan(val); }
+
+  int32_t secondsToPointCount(double seconds, int32_t fallback) const {
+    if (!std::isfinite(seconds) || seconds < 0.0) return fallback;
+    double points = seconds * 100.0;
+    if (points > static_cast<double>(std::numeric_limits<int32_t>::max())) {
+      return std::numeric_limits<int32_t>::max();
+    }
+    return static_cast<int32_t>(points);
+  }
 
   bool isListOfPoints(
       const std::vector<std::pair<double, double>>& points) const {

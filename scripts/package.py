@@ -21,15 +21,24 @@ def add_includes_to_tree(temp_dir, includes, fonts, new_file, target):
 
     # Add includes
     for include in includes or []:
-        if os.path.exists(include):
-            if os.path.isdir(include):
+        # Expand ~ and shell globs so patterns like
+        # ~/.mozbuild/vs/.../Microsoft.VC143.CRT/*.dll resolve to real files.
+        expanded = os.path.expanduser(os.path.expandvars(include))
+        matches = glob.glob(expanded) if any(c in expanded for c in '*?[') else [expanded]
+        if not matches:
+            print(f'Warning: include matched no files: {include}', file=sys.stderr)
+            continue
+        for match in matches:
+            if not os.path.exists(match):
+                continue
+            if os.path.isdir(match):
                 shutil.copytree(
-                    include,
-                    os.path.join(target_dir, os.path.basename(include)),
+                    match,
+                    os.path.join(target_dir, os.path.basename(match)),
                     dirs_exist_ok=True,
                 )
             else:
-                shutil.copy2(include, target_dir)
+                shutil.copy2(match, target_dir)
 
     # Add the font folders under fonts/
     fonts_dir = os.path.join(target_dir, 'fonts')

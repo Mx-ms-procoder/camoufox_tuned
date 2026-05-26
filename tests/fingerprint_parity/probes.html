@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Camoufox Fingerprint Probes</title>
+</head>
+<body>
+<h1>Fingerprint Probes</h1>
+<pre id="output">running…</pre>
+<script>
+/*
+  T3.4 (audit 2026-05-25): static fingerprint probe page.
+
+  Loaded by tests/fingerprint_parity/harness.py against both Camoufox
+  and stock Firefox to diff fingerprint surfaces. Probes are
+  intentionally cheap and deterministic — anything that depends on
+  the wall clock or random sources is excluded.
+
+  The output object is captured by the harness via
+  `await page.evaluate(...)`; we still render it into <pre> so the
+  page can be opened manually for debugging.
+*/
+
+async function collect() {
+    const out = {};
+
+    // ── Navigator ────────────────────────────────────────────────
+    out.navigator = {
+        userAgent: navigator.userAgent,
+        appVersion: navigator.appVersion,
+        platform: navigator.platform,
+        oscpu: navigator.oscpu || null,
+        language: navigator.language,
+        languages: Array.from(navigator.languages || []),
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        maxTouchPoints: navigator.maxTouchPoints,
+        webdriver: navigator.webdriver,
+        doNotTrack: navigator.doNotTrack,
+        cookieEnabled: navigator.cookieEnabled,
+        pdfViewerEnabled: navigator.pdfViewerEnabled,
+    };
+
+    // ── Screen / window ──────────────────────────────────────────
+    out.screen = {
+        width: screen.width,
+        height: screen.height,
+        availWidth: screen.availWidth,
+        availHeight: screen.availHeight,
+        colorDepth: screen.colorDepth,
+        pixelDepth: screen.pixelDepth,
+        devicePixelRatio: window.devicePixelRatio,
+    };
+    out.window = {
+        innerWidth: window.innerWidth,
+        innerHeight: window.innerHeight,
+        outerWidth: window.outerWidth,
+        outerHeight: window.outerHeight,
+    };
+
+    // ── Canvas hash (deterministic 2D draw) ──────────────────────
+    out.canvas = {};
+    try {
+        const cnv = document.createElement("canvas");
+        cnv.width = 220; cnv.height = 60;
+        const ctx = cnv.getContext("2d");
+        ctx.textBaseline = "alphabetic";
+        ctx.fillStyle = "#f60";
+        ctx.fillRect(125, 1, 62, 20);
+        ctx.fillStyle = "#069";
+        ctx.font = "11pt no-real-font-123";
+        ctx.fillText("Cwm fjordbank glyphs vext quiz, 😃", 2, 15);
+        ctx.fillStyle = "rgba(102, 204, 0, 0.7)";
+        ctx.font = "18pt Arial";
+        ctx.fillText("Cwm fjordbank glyphs vext quiz, 😃", 4, 45);
+        out.canvas.dataURL = cnv.toDataURL();
+        out.canvas.length = out.canvas.dataURL.length;
+        // SHA-256 via SubtleCrypto for compactness
+        const enc = new TextEncoder().encode(out.canvas.dataURL);
+        const digest = await crypto.subtle.digest("SHA-256", enc);
+        out.canvas.sha256 = Array.from(new Uint8Array(digest))
+            .map(b => b.toString(16).padStart(2, "0")).join("");
+    } catch (e) { out.canvas.error = String(e); }
+
+    // ── WebGL parameters ─────────────────────────────────────────
+    out.webgl = {};
+    try {
+        const wcnv = document.createElement("canvas");
+        const gl = wcnv.getContext("webgl") || wcnv.getContext("experimental-webgl");
+        if (gl) {
+            const dbg = gl.getExtension("WEBGL_debug_renderer_info");
+            out.webgl.vendor = gl.getParameter(gl.VENDOR);
+            out.webgl.renderer = gl.getParameter(gl.RENDERER);
+            out.webgl.version = gl.getParameter(gl.VERSION);
+            out.webgl.shadingLanguageVersion = gl.getParameter(gl.SHADING_LANGUAGE_VERSION);
+            out.webgl.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+            out.webgl.maxViewportDims = Array.from(gl.getParameter(gl.MAX_VIEWPORT_DIMS) || []);
+            out.webgl.maxRenderbufferSize = gl.getParameter(gl.MAX_RENDERBUFFER_SIZE);
+            out.webgl.extensions = (gl.getSupportedExtensions() || []).slice().sort();
+            if (dbg) {
+                out.webgl.unmaskedVendor = gl.getParameter(dbg.UNMASKED_VENDOR_WEBGL);
+                out.webgl.unmaskedRenderer = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+            }
+        } else {
+            out.webgl.unavailable = true;
+        }
+    } catch (e) { out.webgl.error = String(e); }
+
+    // ── AudioContext ──────────────────────────────────────────────
+    out.audio = {};
+    try {
+        const AC = window.AudioContext || window.webkitAudioContext;
+        if (AC) {
+            const ac = new AC();
+            out.audio.sampleRate = ac.sampleRate;
+            out.audio.baseLatency = ac.baseLatency;
+            out.audio.outputLatency = ac.outputLatency;
+            out.audio.state = ac.state;
+            out.audio.maxChannelCount = ac.destination.maxChannelCount;
+            await ac.close().catch(() => {});
+        } else {
+            out.audio.unavailable = true;
+        }
+    } catch (e) { out.audio.error = String(e); }
+
+    // ── Intl / locale ────────────────────────────────────────────
+    out.intl = {
+        resolvedLocale: Intl.DateTimeFormat().resolvedOptions().locale,
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    };
+
+    // ── Plugin / mimeType counts (Firefox always 0 in modern builds) ──
+    out.plugins = {
+        length: navigator.plugins ? navigator.plugins.length : null,
+        mimeTypeLength: navigator.mimeTypes ? navigator.mimeTypes.length : null,
+    };
+
+    return out;
+}
+
+collect().then(result => {
+    window.__fingerprintProbes = result;
+    document.getElementById("output").textContent =
+        JSON.stringify(result, null, 2);
+}).catch(err => {
+    window.__fingerprintProbes = { error: String(err) };
+    document.getElementById("output").textContent = "ERR: " + err;
+});
+</script>
+</body>
+</html>

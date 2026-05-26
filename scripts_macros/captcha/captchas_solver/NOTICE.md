@@ -46,15 +46,19 @@ into "rewrite"), open a PR updating this NOTICE.
 ## External API dependencies
 
 The solver wrappers under `meta_text.py`, `object_3d.py`, `rotate.py`,
-`slide.py` and the `recapctha_v2/` core call out to:
+`slide.py` call out to:
 
-- **CapSolver** (https://capsolver.com) — paid third-party CAPTCHA API.
-  Required when the local audio solver path fails. API key is read from
-  `CAPSOLVER_API_KEY`.
-- **NVIDIA NIM / Build** — vision models for 3D object / meta-text
-  challenges. API keys are read from `NVIDIA_API_KEY` (or the
-  more specific `NVIDIA_API_KEY_Qwen` / `NVIDIA_API_KEY_Gemma`).
+- **NVIDIA NIM / Build** — vision models (Qwen 2.5 VL 72B for slide/rotate/meta-text,
+  Gemma-3-27B for 3D objects). API keys are read from `NVIDIA_API_KEY` (or the
+  more specific `NVIDIA_API_KEY_Qwen` / `NVIDIA_API_KEY_Gemma`). All calls are
+  gated behind `CAMOU_CAPTCHA_ALLOW_EXTERNAL=1`.
 
-Operators using these APIs are responsible for complying with the
-respective provider terms of service. The Camoufox project does not
-ship credentials and does not endorse any specific provider.
+The `recapctha_v2/` audio solver additionally uses:
+
+- **Google Web Speech API** (via `speech_recognition.recognize_google`) — free,
+  unofficial endpoint used exclusively to transcribe the audio that reCAPTCHA
+  itself provides. No API key required. Also gated behind
+  `CAMOU_CAPTCHA_ALLOW_EXTERNAL=1`.
+
+Operators using these APIs are responsible for complying with the respective
+provider terms of service. The Camoufox project does not ship credentials.

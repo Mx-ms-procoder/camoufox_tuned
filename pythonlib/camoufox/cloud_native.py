@@ -61,6 +61,69 @@ def _sanitize_snapshot_key(value: Any) -> str:
     return key
 
 
+# T2.4 (audit): snapshots persist `request` + `launch_options`, both of
+# which can carry proxy credentials, cookies, and identity material.
+# Anyone with read access to the FileSnapshotStore directory or the
+# Redis backend can recover the identity blob — including, in
+# multi-tenant K8s, the cluster admin via `kubectl exec` on the broker
+# pod. We redact known secret-bearing fields before persistence.
+_REDACTED = "<REDACTED>"
+_SECRET_KEY_TOKENS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "api_key",
+    "apikey",
+    "auth",
+    "cookie",
+    "credential",
+    "bearer",
+    "private_key",
+)
+
+
+def _looks_secret(key: str) -> bool:
+    k = key.lower()
+    return any(tok in k for tok in _SECRET_KEY_TOKENS)
+
+
+def _redact_snapshot_payload(payload: Any) -> Any:
+    """Return a deep copy of `payload` with secret-bearing values masked.
+
+    Catches both well-known proxy credential fields (proxy.username,
+    proxy.password) and any nested key whose name looks like a secret
+    (password / token / api_key / cookie / …). The username field is
+    masked as well because proxy usernames frequently encode the
+    customer-id or rotation slot.
+    """
+    if isinstance(payload, Mapping):
+        out: Dict[str, Any] = {}
+        for k, v in payload.items():
+            if not isinstance(k, str):
+                out[k] = _redact_snapshot_payload(v)
+                continue
+            # Proxy block: redact both username and password — usernames
+            # are routinely identifying on rotating-proxy providers.
+            if k == "proxy" and isinstance(v, Mapping):
+                out[k] = {
+                    pk: (_REDACTED if pk in ("username", "password") else
+                         _redact_snapshot_payload(pv))
+                    for pk, pv in v.items()
+                }
+                continue
+            if _looks_secret(k):
+                out[k] = _REDACTED if v not in (None, "") else v
+            else:
+                out[k] = _redact_snapshot_payload(v)
+        return out
+    if isinstance(payload, list):
+        return [_redact_snapshot_payload(item) for item in payload]
+    if isinstance(payload, tuple):
+        return tuple(_redact_snapshot_payload(item) for item in payload)
+    return payload
+
+
 def _coerce_optional_tuple(value: Optional[Sequence[Any]]) -> Optional[tuple]:
     if value is None:
         return None
@@ -581,7 +644,13 @@ class SessionBroker:
             "created_at": self._now(),
         }
         try:
-            self.snapshot_store.save(snapshot_key, snapshot_payload)
+            # T2.4: redact proxy creds / cookies / API keys before
+            # persisting. The in-memory lease keeps the original
+            # artifact intact for the worker; only the persisted copy
+            # is sanitised.
+            self.snapshot_store.save(
+                snapshot_key, _redact_snapshot_payload(snapshot_payload)
+            )
         except Exception:
             with self._lock:
                 self._leases.pop(session_id, None)

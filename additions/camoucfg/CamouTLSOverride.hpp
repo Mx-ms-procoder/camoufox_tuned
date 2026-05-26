@@ -60,6 +60,7 @@
 #include <vector>
 
 #include "mozilla/glue/Debug.h"
+#include "EnvTruthy.hpp"
 
 // NSS public headers
 #include "ssl.h"
@@ -74,21 +75,17 @@ namespace CamouTLSOverride {
 
 // ── Debug gate ─────────────────────────────────────────────────────
 //
-// All TLS-override diagnostics are gated on CAMOU_TLS_DEBUG=1 to avoid
+// All TLS-override diagnostics are gated on CAMOU_TLS_DEBUG to avoid
 // leaking the operational mode of the browser to stderr in production
 // runs (see AUDIT_2026-05-18.md). When the flag is unset the overrides
 // still run silently; only the gate decides whether to print.
+//
+// Truthy semantics ("1", "true", "yes", "on" — case-insensitive)
+// shared with MaskConfig via CamouEnv::IsTruthyEnv. Previously this
+// gate matched only literal "1", so CAMOU_TLS_DEBUG=true silently
+// disabled logging — see audit T1.4.
 inline bool DebugEnabled() {
-#ifdef _WIN32
-  DWORD size = GetEnvironmentVariableW(L"CAMOU_TLS_DEBUG", nullptr, 0);
-  if (size != 2) return false;  // not exactly one character + NUL
-  wchar_t buf[2];
-  return GetEnvironmentVariableW(L"CAMOU_TLS_DEBUG", buf, 2) == 1 &&
-         buf[0] == L'1';
-#else
-  const char* val = std::getenv("CAMOU_TLS_DEBUG");
-  return val && val[0] == '1' && val[1] == '\0';
-#endif
+  return CamouEnv::IsTruthyEnv("CAMOU_TLS_DEBUG");
 }
 
 #define CAMOU_TLS_LOG(...)                                  \

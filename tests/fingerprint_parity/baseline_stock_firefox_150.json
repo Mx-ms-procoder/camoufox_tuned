@@ -1,0 +1,62 @@
+{
+  "_README": "Placeholder baseline. Replace by running: python -m tests.fingerprint_parity.harness --browser stock --executable /path/to/firefox --out tests/fingerprint_parity/baseline_stock_firefox_150.json — against a stock Firefox 150 install. Until this file is regenerated against a real FF150 build, harness will treat the listed fields as the reference; the values below are intentionally schema-shaped placeholders that any real capture will diverge from in the ALLOWED_DRIFT_FIELDS allowlist only.",
+  "audio": {
+    "baseLatency": 0,
+    "maxChannelCount": 2,
+    "outputLatency": 0,
+    "sampleRate": 48000,
+    "state": "suspended"
+  },
+  "canvas": {
+    "dataURL": "data:image/png;base64,placeholder",
+    "length": 0,
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "intl": {
+    "resolvedLocale": "en-US",
+    "timeZone": "UTC"
+  },
+  "navigator": {
+    "appVersion": "5.0 (placeholder)",
+    "cookieEnabled": true,
+    "doNotTrack": null,
+    "hardwareConcurrency": 8,
+    "language": "en-US",
+    "languages": ["en-US", "en"],
+    "maxTouchPoints": 0,
+    "oscpu": "placeholder",
+    "pdfViewerEnabled": true,
+    "platform": "placeholder",
+    "userAgent": "Mozilla/5.0 (placeholder) Gecko/20100101 Firefox/150.0",
+    "webdriver": false
+  },
+  "plugins": {
+    "length": 0,
+    "mimeTypeLength": 0
+  },
+  "screen": {
+    "availHeight": 0,
+    "availWidth": 0,
+    "colorDepth": 24,
+    "devicePixelRatio": 1,
+    "height": 0,
+    "pixelDepth": 24,
+    "width": 0
+  },
+  "webgl": {
+    "extensions": [],
+    "maxRenderbufferSize": 0,
+    "maxTextureSize": 0,
+    "maxViewportDims": [0, 0],
+    "renderer": "placeholder",
+    "shadingLanguageVersion": "placeholder",
+    "vendor": "placeholder",
+    "version": "placeholder"
+  },
+  "window": {
+    "innerHeight": 0,
+    "innerWidth": 0,
+    "outerHeight": 0,
+    "outerWidth": 0
+  }
+}

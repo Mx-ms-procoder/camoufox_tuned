@@ -66,6 +66,18 @@ SUCCESS_INDICATORS = [
     ".verify-success",
 ]
 
+# Äußerster CAPTCHA-Container: enthält sowohl die konzentrischen Kreise als
+# auch den Slider-Track. Dieser wird für den Screenshot verwendet.
+ROTATE_CONTAINER_SELECTORS = [
+    "#captcha_container",                              # TikTok V1 outer
+    ".captcha_verify_container",                       # TikTok V1 inner
+    ".captcha-verify-container",                       # TikTok V2
+    ".geetest_panel_box",                              # GeeTest
+    "[class*='captcha-container' i]",
+    "[class*='captcha-wrap' i]",
+    "[class*='captcha-box' i]",
+]
+
 
 class RotateSolver(AsyncCaptchaSolver):
     """Solver für Rotations-CAPTCHAs."""
@@ -109,8 +121,15 @@ class RotateSolver(AsyncCaptchaSolver):
 
         print(f"  📌  [RotateSolver] Track: X={track_x_start}…{track_x_end} px")
 
-        # ── 3. Vision-Call ──────────────────────────────────────────
-        image_bytes = await self.screenshot_fullpage()
+        # ── 3. Screenshot des gesamten CAPTCHA-Containers (Kreise + Slider).
+        #       screenshot_locator(track) würde nur den Slider-Balken zeigen —
+        #       ohne die konzentrischen Kreise kann das Modell den Winkel nicht bestimmen.
+        container_hit = await self.find_selector_in_frames(ROTATE_CONTAINER_SELECTORS)
+        container_el = container_hit[0].locator(container_hit[1]).first if container_hit else None
+        image_bytes = (
+            (await self.screenshot_locator(container_el) if container_el else None)
+            or await self.screenshot_fullpage()
+        )
         prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompt_rotate.txt")
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:

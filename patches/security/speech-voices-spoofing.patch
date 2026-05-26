@@ -101,6 +101,9 @@ index 0000000000..bcdef12345
 +#include "nsTHashSet.h"
 +#include "RoverfoxStorageManager.h"
 +
++struct JSContext;
++class JSObject;
++
 +namespace mozilla {
 +namespace dom {
 +

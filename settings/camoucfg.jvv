@@ -277,6 +277,7 @@
 
     "canvas:aaOffset": "int",
     "canvas:aaCapOffset": "bool",
+    "canvas:noiseSeed": "uint",
 
     "voices": "array[@VOICE_TYPE]",
     "voices:blockIfNotDefined": "bool",
@@ -286,7 +287,7 @@
     "@VOICE_TYPE": {
         "*isLocalService": "bool",
         "*isDefault": "bool",
-        "*voiceURI": "str",
+        "*voiceUri": "str",
         "*name": "str",
         "*lang": "str"
     },
@@ -304,5 +305,15 @@
     "addons": "array[str]",
     "certificatePaths": "array[str]",
     "certificates": "array[str]",
+    "http2:headerTableSize": "int[>=0]",
+    "http2:enablePush": "int[>=0]",
+    "http2:initialWindowSize": "int[>=0]",
+    "http2:maxFrameSize": "int[>=0]",
+    "http2:maxConcurrentStreams": "int[>=0]",
+    "http2:maxHeaderListSize": "int[>=0]",
+    "http2:windowUpdate": "int[>=0]",
+    "http2:priorityWeight": "int[>=0]",
+    "audio:seed": "int[>=0]",
+    "animations:disable": "bool",
     "debug": "bool"
 }

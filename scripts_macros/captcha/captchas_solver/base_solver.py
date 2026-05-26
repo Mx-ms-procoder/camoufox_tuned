@@ -22,7 +22,7 @@ import random
 import re
 from typing import Optional, List, Tuple, Any
 
-import requests
+import httpx
 from playwright.async_api import Page, Frame, Locator
 
 # Relative imports with fallback for direct execution
@@ -234,11 +234,20 @@ async def get_nvidia_vision_response(
     temperature: float = 0.0,
     top_p: float = 1.0,
 ) -> str:
-    """Standalone Helper für NVIDIA-NIM-Vision-Anfragen.
+    """Standalone Helper für NVIDIA-NIM-Vision-Anfragen (echtes async via httpx).
 
     Streamt via SSE und filtert `reasoning_content` raus (sonst würde
     der "Denk"-Anteil des Modells in die Koordinaten-Extraktion lecken).
+
+    Warum httpx statt requests+run_in_executor:
+      - Echter asyncio-kompatibel (kein Thread-Pool-Blocking)
+      - Kein Thread-Pool-Erschöpfen bei vielen gleichzeitigen Solves
+      - Bessere Timeout-Kontrolle (connect + read separat)
+      - HTTP/2-fähig
     """
+    from .api_config import require_external_captcha_allowed
+    require_external_captcha_allowed("NVIDIA NIM Vision")
+
     if not api_key:
         raise EnvironmentError(
             "NVIDIA_API_KEY fehlt — setze NVIDIA_API_KEY, NVIDIA_API_KEY_Qwen "
@@ -257,9 +266,6 @@ async def get_nvidia_vision_response(
         "temperature": temperature,
         "top_p": top_p,
         "stream": True,
-        # enable_thinking lässt Reasoning-Tokens generieren, die unten
-        # wieder rausgefiltert werden. Nützlich für komplexere Captchas
-        # (3D-Objekte), wo das Modell rechnen muss.
         "chat_template_kwargs": {"enable_thinking": True},
         "messages": [
             {
@@ -275,36 +281,27 @@ async def get_nvidia_vision_response(
         ],
     }
 
-    def _sync_fetch():
-        response = requests.post(
-            NVIDIA_INVOKE_URL, headers=headers, json=payload, stream=True, timeout=60
-        )
-        response.raise_for_status()
+    full_text = ""
+    timeout = httpx.Timeout(connect=10.0, read=60.0, write=30.0, pool=5.0)
+    async with httpx.AsyncClient(timeout=timeout, http2=True) as client:
+        async with client.stream("POST", NVIDIA_INVOKE_URL, headers=headers, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line:
+                    continue
+                data = line
+                if data.startswith("data:"):
+                    data = data[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content", "")
+                    if content:
+                        full_text += content
+                except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                    continue
 
-        full_text = ""
-        for line in response.iter_lines():
-            if not line:
-                continue
-            decoded = line.decode("utf-8")
-            if decoded.startswith("data:"):
-                decoded = decoded[5:].strip()
-            if decoded == "[DONE]":
-                break
-            try:
-                chunk = json.loads(decoded)
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                # Nur echten content, NICHT reasoning_content akkumulieren —
-                # reasoning würde Coord-/Code-Extraktion korrupieren.
-                content = delta.get("content", "")
-                if content:
-                    full_text += content
-            except (json.JSONDecodeError, KeyError, IndexError, TypeError):
-                continue
-        return full_text
-
-    loop = asyncio.get_running_loop()
-    full_text = await loop.run_in_executor(None, _sync_fetch)
-
-    # Strip any leaked <think>...</think> blocks
     full_text = re.sub(r"<think>.*?</think>", "", full_text, flags=re.DOTALL)
     return full_text.strip()

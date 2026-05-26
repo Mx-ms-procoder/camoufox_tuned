@@ -19,6 +19,7 @@ COPY . /app
 RUN apt-get update && apt-get install -y \
     # Mach build tools
     build-essential make msitools wget zip unzip nasm yasm nodejs pkg-config \
+    patch clang-18 lld-18 llvm-18 libclang-18-dev cbindgen \
     # Python
     python3 python3-dev python3-pip \
     # Camoufox build system tools
@@ -28,6 +29,15 @@ RUN apt-get update && apt-get install -y \
     # CA certificates
     ca-certificates \
     && update-ca-certificates
+
+RUN update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100 && \
+    update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100 && \
+    update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100 && \
+    update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-18 100 && \
+    update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-18 100 && \
+    update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-18 100 && \
+    update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-18 100 && \
+    update-alternatives --install /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-18 100
 
 # K-17 (AUDIT_2026-05-18.md): replace pipe-to-shell Rust install with a
 # pinned, checksum-verified rustup-init download. The previous form

@@ -24,6 +24,15 @@ export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
 export RANLIB="$MINGW_TRIPLE-ranlib"
 
+# Statically link the MinGW C/C++ runtime so the packaged camoufox.exe and
+# xul.dll have no transitive dependency on libgcc_s_seh-1.dll, libstdc++-6.dll
+# or libwinpthread-1.dll. Without this, package-windows would have to ship
+# those DLLs alongside the binaries -- and the Makefile only references the
+# MSVC redist path, which does not exist on the CI runner (CI uses MinGW gcc,
+# not MSVC, and `make bootstrap` is intentionally not invoked). Static linking
+# is the cleaner fix: one self-contained ZIP, no host-runtime hunt at startup.
+export LDFLAGS="${LDFLAGS:+$LDFLAGS }-static-libgcc -static-libstdc++ -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic"
+
 if command -v llvm-dlltool >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool
 elif command -v llvm-dlltool-18 >/dev/null 2>&1; then

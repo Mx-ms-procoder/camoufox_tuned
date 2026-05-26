@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..abcdef0001
 --- /dev/null
 +++ b/dom/base/FontListManager.cpp
-@@ -0,0 +1,89 @@
+@@ -0,0 +1,91 @@
 +/* Camoufox: Per-context font list manager */
 +#include "FontListManager.h"
 +#include "MaskConfig.hpp"
@@ -57,10 +57,12 @@ index 0000000000..abcdef0001
 +
 +bool FontListManager::IsFontAllowed(uint32_t aId,
 +                                     const nsACString& aFontName) {
++  nsAutoCString fontName(aFontName);
++  ToLowerCase(fontName);
 +  MutexAutoLock lock(sFontListMutex);
 +  auto entry = sFontLists.Lookup(aId);
 +  if (!entry) return true;
-+  return entry.Data().Contains(aFontName);
++  return entry.Data().Contains(fontName);
 +}
 +
 +void FontListManager::SetCurrentContext(uint32_t aId) {
@@ -108,6 +110,9 @@ index 0000000000..abcdef0002
 +#include "nsHashKeys.h"
 +#include "nsTHashSet.h"
 +#include "RoverfoxStorageManager.h"
++
++struct JSContext;
++class JSObject;
 +
 +namespace mozilla {
 +namespace dom {

@@ -44,7 +44,7 @@ def main():
         validator = JsonValidator(property_types)
 
         if args.check:
-            print("✓ Property types are valid")
+            print("OK: Property types are valid")
             return
 
         if not args.input:
@@ -53,7 +53,7 @@ def main():
         # Load and validate data
         data = load_json(args.input)
         validator.validate(data)
-        print("✓ Data is valid")
+        print("OK: Data is valid")
 
     except (InvalidPropertyType, UnknownProperty) as e:
         print(f"Validation Error: {e}", file=sys.stderr)

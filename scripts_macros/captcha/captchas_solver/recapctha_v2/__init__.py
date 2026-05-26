@@ -3,6 +3,9 @@
 import os
 import shutil
 
+from ..errors import RecaptchaSolveError
+from ..api_config import require_external_captcha_allowed, ExternalServiceDisabledError
+
 _async_import_error = None
 _sync_import_error = None
 
@@ -61,6 +64,12 @@ async def solve(page) -> bool:
         return False
 
     try:
+        require_external_captcha_allowed("Google Web Speech API (reCAPTCHA audio)")
+    except ExternalServiceDisabledError as e:
+        print(f"  [ReCaptchaV2] Externer Aufruf blockiert: {e}")
+        return False
+
+    try:
         solver = AsyncSolver(page)
         token = await solver.solve_recaptcha(attempts=3)
         if token:
@@ -68,13 +77,14 @@ async def solve(page) -> bool:
             return True
         print("  [ReCaptchaV2] Konnte kein Token generieren.")
         return False
-    except NotImplementedError as e:
-        # Image-Challenge: bewusst nicht supported, klare Meldung
-        print(
-            f"  [ReCaptchaV2] Bild-Challenge wurde angeboten — Audio-Solver kann "
-            f"das nicht lösen ({e}). Versuche einen anderen User-Agent / IP oder "
-            f"einen externen Solver-Service (z.B. CapSolver)."
-        )
+    except RecaptchaSolveError as e:
+        if "image challenge" in str(e).lower():
+            print(
+                f"  [ReCaptchaV2] Bild-Challenge wurde angeboten — Audio-Solver "
+                f"kann das nicht lösen. IP/Proxy wechseln und erneut versuchen."
+            )
+        else:
+            print(f"  [ReCaptchaV2] Konnte reCAPTCHA nicht lösen: {e}")
         return False
     except Exception as e:
         print(f"  [ReCaptchaV2] Fehler beim Loesen: {e}")

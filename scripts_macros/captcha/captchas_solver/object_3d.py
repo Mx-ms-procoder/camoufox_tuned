@@ -138,8 +138,8 @@ class Object3DSolver(AsyncCaptchaSolver):
         else:
             print("  ⚠️   [Object3DSolver] Keine DOM-Anweisung gefunden — Modell muss aus Bild raten.")
 
-        # ── 3. Vision-Call ──────────────────────────────────────────
-        image_bytes = await self.screenshot_fullpage()
+        # ── 3. Element-Screenshot der CAPTCHA-Box (kein PII aus Rest der Seite) ──
+        image_bytes = await self.screenshot_locator(box) or await self.screenshot_fullpage()
         prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompt_3d.txt")
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:

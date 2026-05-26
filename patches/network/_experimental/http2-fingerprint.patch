@@ -54,8 +54,10 @@
 diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http2Session.cpp
 --- a/netwerk/protocol/http/Http2Session.cpp
 +++ b/netwerk/protocol/http/Http2Session.cpp
-@@ -31,7 +31,8 @@
+@@ -31,7 +31,10 @@
  #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
++#include <cstring>
++#include <optional>
  #include "nsHttp.h"
  #include "nsHttpConnection.h"
  #include "nsHttpHandler.h"
@@ -63,7 +65,7 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
  #include "nsHttpConnectionMgr.h"
  #include "nsIRequestContext.h"
  #include "nsISupportsPriority.h"
-@@ -1038,5 +1039,40 @@
+@@ -1038,5 +1041,61 @@
  //    these streams (3, 5, 7, 9, b, d) build a dependency tree that all other
  //    streams will be direct leaves of.
 +
@@ -78,33 +80,54 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
 +// IdentityStateProvider::Http2State. Keep the string literals in sync
 +// with the keys emitted by
 +// pythonlib/camoufox/tls_profiles.get_http2_config().
++static inline bool Http2SettingInRange(const char* key, uint32_t value) {
++  if (!strcmp(key, "enablePush")) return value <= 1;
++  if (!strcmp(key, "initialWindowSize")) return value <= 2147483647U;
++  if (!strcmp(key, "maxFrameSize"))
++    return value >= 16384U && value <= 16777215U;
++  if (!strcmp(key, "windowUpdate"))
++    return value >= 1U && value <= 2147483647U;
++  if (!strcmp(key, "priorityWeight")) return value >= 1U && value <= 256U;
++  if (!strcmp(key, "maxConcurrentStreams")) return value >= 1U;
++  return true;
++}
++
++static inline uint32_t ResolveOptionalHttp2Setting(
++    const char* key, const std::optional<uint32_t>& configured,
++    uint32_t upstream_default) {
++  if (!configured || !Http2SettingInRange(key, *configured)) {
++    return upstream_default;
++  }
++  return *configured;
++}
++
 +static inline uint32_t ResolveHttp2Setting(const char* key,
 +                                           uint32_t upstream_default) {
 +  auto state = IdentityStateProvider::GetHttp2State();
 +  if (!state) return upstream_default;
 +  if (!strcmp(key, "headerTableSize"))
-+    return state->headerTableSize.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->headerTableSize, upstream_default);
 +  if (!strcmp(key, "enablePush"))
-+    return state->enablePush.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->enablePush, upstream_default);
 +  if (!strcmp(key, "initialWindowSize"))
-+    return state->initialWindowSize.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->initialWindowSize, upstream_default);
 +  if (!strcmp(key, "maxFrameSize"))
-+    return state->maxFrameSize.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->maxFrameSize, upstream_default);
 +  if (!strcmp(key, "maxConcurrentStreams"))
-+    return state->maxConcurrentStreams.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->maxConcurrentStreams, upstream_default);
 +  if (!strcmp(key, "maxHeaderListSize"))
-+    return state->maxHeaderListSize.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->maxHeaderListSize, upstream_default);
 +  if (!strcmp(key, "windowUpdate"))
-+    return state->windowUpdate.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->windowUpdate, upstream_default);
 +  if (!strcmp(key, "priorityWeight"))
-+    return state->priorityWeight.value_or(upstream_default);
++    return ResolveOptionalHttp2Setting(key, state->priorityWeight, upstream_default);
 +  return upstream_default;
 +}
 +
  void Http2Session::SendHello() {
    MOZ_ASSERT(OnSocketThread(), "not on socket thread");
    LOG3(("Http2Session::SendHello %p\n", this));
-@@ -1074,7 +1110,7 @@
+@@ -1074,7 +1133,7 @@
                               SETTINGS_TYPE_HEADER_TABLE_SIZE);
    NetworkEndian::writeUint32(
        packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
@@ -113,7 +136,7 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
    numberOfEntries++;
 
    // We don't support HTTP/2 Push. Set SETTINGS_TYPE_ENABLE_PUSH to 0
-@@ -1100,7 +1136,8 @@
+@@ -1100,7 +1159,8 @@
    NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
                               SETTINGS_TYPE_INITIAL_WINDOW);
    NetworkEndian::writeUint32(
@@ -123,7 +146,7 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
    numberOfEntries++;
 
    // Make sure the other endpoint knows that we're sticking to the default max
-@@ -1108,7 +1145,8 @@
+@@ -1108,7 +1168,8 @@
    NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
                               SETTINGS_TYPE_MAX_FRAME_SIZE);
    NetworkEndian::writeUint32(
@@ -133,7 +156,7 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
    numberOfEntries++;
 
    bool disableRFC7540Priorities =
-@@ -1136,7 +1174,8 @@
+@@ -1136,7 +1197,8 @@
          kFrameHeaderBytes + dataLen);
 
    // now bump the local session window from 64KB

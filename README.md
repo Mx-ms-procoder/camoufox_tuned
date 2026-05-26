@@ -19,7 +19,7 @@ Camoufox is an open source anti-detect browser for robust fingerprint injection 
 > All of the latest documentation is avaliable at [camoufox.com](https://camoufox.com).
 
 > [!WARNING]
-> This fork is experimental and currently targets `150.0.2-beta.25` in `upstream.sh`.
+> This fork is experimental and currently targets `150.0.3-beta.25` in `upstream.sh`.
 > The historical upstream documentation below contains broad marketing claims and legacy sections that are not a substitute for build/test verification.
 > See `AUDIT_2026-05-18.md` for the current local technical audit and known build/runtime risks.
 

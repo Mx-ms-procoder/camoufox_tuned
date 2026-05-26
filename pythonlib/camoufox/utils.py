@@ -15,6 +15,7 @@ from ua_parser import user_agent_parser
 
 from .addons import DefaultAddons, add_default_addons, confirm_paths
 from .exceptions import (
+    IdentityCoherenceError,
     InvalidOS,
     InvalidPropertyType,
     ManualOverrideCoherenceError,
@@ -42,22 +43,42 @@ CACHE_PREFS = {
 }
 
 
+_TRUTHY_ENV = {"1", "true", "yes", "on"}
+
+
 def _secure_config_via_file_enabled() -> bool:
     """
-    K-18 / S-B (AUDIT_2026-05-18.md): the launcher can write the
-    identity blob to a 0600 temp file and pass only the path through
-    the environment, instead of stuffing the full JSON into
-    CAMOU_CONFIG_1..N where any same-UID process can read it from
-    /proc/<pid>/environ. The C++ side (`MaskConfig::GetJson`) reads
-    `CAMOU_CONFIG_FILE` first and falls back to the chunked env vars,
-    so the change is backward-compatible with older Camoufox binaries.
+    T2.1 (audit): the file-based identity transport is now the DEFAULT.
 
-    Trigger: set CAMOUFOX_SECURE_CONFIG=1 in the launcher's own
-    environment. Off by default because the C++ side must be on a
-    build that includes the file-read path; older binaries silently
-    fall back to env vars and would receive an empty config.
+    The legacy chunked CAMOU_CONFIG_1..N path leaks the entire identity
+    blob (cookies, geolocation, UA, screen, fonts, network profile)
+    into /proc/<pid>/environ, where any same-UID process — and any
+    Kubernetes node admin via the API — can read it. This was a real
+    multi-tenant risk and the most-cited unresolved item from the
+    expert audits.
+
+    The file-based path writes the JSON to a 0600 tempfile and passes
+    only the path through env. `MaskConfig::GetJson` (C++) reads
+    CAMOU_CONFIG_FILE first and falls back to the chunked env vars, so
+    a fork built with the K-18 patch handles both.
+
+    Defaults:
+      * Default: file transport (secure).
+      * CAMOUFOX_LEGACY_ENV_CONFIG=1 (or CAMOUFOX_SECURE_CONFIG=0):
+        opt back into env-var transport. Only needed if you run a
+        Camoufox binary that predates the K-18 fix and therefore has
+        no CAMOU_CONFIG_FILE reader.
+      * CAMOUFOX_SECURE_CONFIG=1: explicit opt-in (matches new default).
     """
-    return os.environ.get("CAMOUFOX_SECURE_CONFIG") == "1"
+    secure = os.environ.get("CAMOUFOX_SECURE_CONFIG", "").strip().lower()
+    if secure in _TRUTHY_ENV:
+        return True
+    if secure in {"0", "false", "no", "off"}:
+        return False
+    legacy = os.environ.get("CAMOUFOX_LEGACY_ENV_CONFIG", "").strip().lower()
+    if legacy in _TRUTHY_ENV:
+        return False
+    return True
 
 
 def _write_config_to_secure_file(config_str: str) -> str:
@@ -702,6 +723,24 @@ def launch_options(
             + ', '.join(identity_state.manual_overrides)
         )
 
+    # T1.2: device-profile coherence issues were previously logged into
+    # state.coherence_issues but never enforced — a profile with e.g.
+    # Mesa fonts on a Windows OS family would still be launched. The
+    # resampler in sample_device_profile() retries until it finds a
+    # coherent profile but falls back to the last (incoherent) one if
+    # it never does. Hard-fail in that case unless the operator has
+    # explicitly opted in.
+    if (
+        identity_state.coherence_issues
+        and os.environ.get("CAMOUFOX_ALLOW_INCOHERENT_IDENTITY", "").lower()
+            not in ("1", "true", "yes", "on")
+    ):
+        raise IdentityCoherenceError(
+            'Identity coherence issues detected (set '
+            'CAMOUFOX_ALLOW_INCOHERENT_IDENTITY=1 to bypass): '
+            + ', '.join(identity_state.coherence_issues)
+        )
+
     merge_into(config, identity_state.config)
     merge_into(firefox_user_prefs, identity_state.firefox_user_prefs)
 
@@ -716,14 +755,9 @@ def launch_options(
 
     # Inject TLS fingerprint profile matching the browser identity.
     # TLS env vars go directly to NSS (before Gecko starts) — see
-    # CamouTLSOverride. HTTP/2 SETTINGS are merged into CAMOU_CONFIG
-    # only when the operator opts in via
-    # `CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1`; without the flag
-    # `get_http2_config` returns `{}` to avoid the K-2 dead-config
-    # regression. The consumer
-    # (`IdentityStateProvider::GetHttp2State`) is now spliced into
-    # `Http2Session::SendHello` by the K-21 patch which sits in
-    # `patches/manifests/network.yaml` and runs on every build.
+    # CamouTLSOverride. HTTP/2 SETTINGS are merged into CAMOU_CONFIG and
+    # consumed by the K-21 Http2Session patch; operators running an older
+    # binary can opt out with CAMOUFOX_HTTP2_FINGERPRINT_DISABLED=1.
     _tls_profile = identity_state.network_profile
     if _tls_profile:
         merge_into(config, get_http2_config(_tls_profile))

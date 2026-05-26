@@ -21,6 +21,14 @@ const obs = Cc["@mozilla.org/observer-service;1"].getService(
 
 const helper = new Helper();
 
+function fallbackErrorLocation(frame) {
+  return {
+    lineNumber: 0,
+    columnNumber: 0,
+    url: frame ? frame.url() : '',
+  };
+}
+
 class WorkerData {
   constructor(pageAgent, browserChannel, worker) {
     this._workerRuntime = worker.channel().connect('runtime');
@@ -132,6 +140,7 @@ export class PageAgent {
           return;
         this._browserPage.emit('pageUncaughtError', {
           frameId: frame.id(),
+          location: fallbackErrorLocation(frame),
           message,
           stack,
         });
@@ -263,9 +272,12 @@ export class PageAgent {
     });
   }
 
-  _onRuntimeError({ executionContext, message, stack }) {
+  _onRuntimeError({ executionContext, location, message, stack }) {
+    const frameId = executionContext.auxData().frameId;
+    const frame = this._frameTree.frame(frameId);
     this._browserPage.emit('pageUncaughtError', {
-      frameId: executionContext.auxData().frameId,
+      frameId,
+      location: location || fallbackErrorLocation(frame),
       message: message.toString(),
       stack: stack.toString(),
     });
@@ -708,5 +720,4 @@ export class PageAgent {
     };
   }
 }
-
 

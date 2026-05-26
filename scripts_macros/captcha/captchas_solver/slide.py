@@ -62,6 +62,20 @@ SUCCESS_INDICATORS = [
     ".verify-success",
 ]
 
+# Äußerster CAPTCHA-Container: enthält sowohl das Puzzle-Bild als auch den
+# Slider-Track. Dieses Element wird für den Screenshot verwendet, damit das
+# Vision-Modell Bild UND Slider gleichzeitig sieht.
+SLIDE_CONTAINER_SELECTORS = [
+    "#captcha_container",                              # TikTok V1 outer
+    ".captcha_verify_container",                       # TikTok V1 inner
+    ".captcha-verify-container",                       # TikTok V2
+    ".geetest_panel_box",                              # GeeTest
+    ".geetest_panel",                                  # GeeTest alt
+    "[class*='captcha-container' i]",
+    "[class*='captcha-wrap' i]",
+    "[class*='captcha-box' i]",
+]
+
 
 class SlideSolver(AsyncCaptchaSolver):
     """Solver für Puzzle-Slide-CAPTCHAs."""
@@ -102,8 +116,25 @@ class SlideSolver(AsyncCaptchaSolver):
 
         print(f"  📍  [SlideSolver] Track: X={track_x_start}…{track_x_end} px (Breite {track_width})")
 
-        # ── 2. Full-Page-Screenshot + Vision-Call ───────────────────
-        image_bytes = await self.screenshot_fullpage()
+        # ── 2. Screenshot des gesamten CAPTCHA-Containers (Bild + Slider).
+        #       screenshot_locator(track) würde nur den Slider-Balken zeigen —
+        #       das Modell sähe kein Puzzle und könnte nichts bestimmen.
+        #       Container-BoundingBox wird für die Koordinaten-Formel im Prompt
+        #       benötigt (image_width ≠ track_width wenn der Container Padding hat).
+        container_hit = await self.find_selector_in_frames(SLIDE_CONTAINER_SELECTORS)
+        container_el = container_hit[0].locator(container_hit[1]).first if container_hit else None
+        container_bbox = await container_el.bounding_box() if container_el else None
+        if container_bbox:
+            c_x = int(container_bbox["x"])
+            c_x_end = c_x + int(container_bbox["width"])
+        else:
+            # Fallback: Container-Koords = Track-Koords (gleiche Breite angenommen)
+            c_x = track_x_start
+            c_x_end = track_x_end
+        image_bytes = (
+            (await self.screenshot_locator(container_el) if container_el else None)
+            or await self.screenshot_fullpage()
+        )
         prompt_path = os.path.join(os.path.dirname(__file__), "..", "prompt_slide.txt")
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
@@ -112,8 +143,10 @@ class SlideSolver(AsyncCaptchaSolver):
             print(f"  ❌  [SlideSolver] Konnte prompt_slide.txt nicht lesen: {e}")
             return False
 
-        prompt = prompt.replace("[FÜGE HIER track_x_start EIN]", str(track_x_start))
-        prompt = prompt.replace("[FÜGE HIER track_x_start + track_width EIN]", str(track_x_end))
+        prompt = prompt.replace("[CONTAINER_X_START]", str(c_x))
+        prompt = prompt.replace("[CONTAINER_X_END]", str(c_x_end))
+        prompt = prompt.replace("[TRACK_X_START]", str(track_x_start))
+        prompt = prompt.replace("[TRACK_X_END]", str(track_x_end))
 
         try:
             raw_response = await self.get_vision_response(image_bytes, prompt)

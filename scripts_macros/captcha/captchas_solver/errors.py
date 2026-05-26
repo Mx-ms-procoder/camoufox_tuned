@@ -1,6 +1,3 @@
-class CapSolverError(Exception):
-    pass
-
 class RecaptchaNotFoundError(Exception):
     pass
 

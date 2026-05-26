@@ -190,6 +190,11 @@ class Runtime {
         } else {
           emitEvent(this.events.onRuntimeError, {
             executionContext,
+            location: {
+              lineNumber: message.lineNumber || 0,
+              columnNumber: message.columnNumber || 0,
+              url: message.sourceName || '',
+            },
             message: message.errorMessage,
             stack: message.stack?.toString() || '',
           });

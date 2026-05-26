@@ -1,17 +1,24 @@
 ### Task
-Act as a high-precision spatial coordinate engine. Your goal is to find the exact horizontal (X) screen coordinate for a slider CAPTCHA on a full-page screenshot.
+Act as a high-precision spatial coordinate engine. Your goal is to find the exact horizontal (X) screen coordinate for a slider CAPTCHA.
 
-### Reference Anchors (Input Data)
-- Slider Track Start (X): [FÜGE HIER track_x_start EIN]
-- Slider Track End (X): [FÜGE HIER track_x_start + track_width EIN]
+### Image Description
+The image you see is a cropped screenshot of the full CAPTCHA container (puzzle image above + slider track below).
+
+### Reference Anchors (absolute screen pixel coordinates)
+- Container Left  (X): [CONTAINER_X_START]
+- Container Right (X): [CONTAINER_X_END]
+- Slider Track Start (X): [TRACK_X_START]
+- Slider Track End   (X): [TRACK_X_END]
 
 ### Precision Protocol
-1. FOCUS: Look only at the horizontal segment between the Start and End X-coordinates provided above.
-2. DETECT: Locate the puzzle piece and the target shadow hole within this segment.
-3. MEASURE: 
-   - Determine the exact center-point of the target shadow hole.
-   - Use the provided X-coordinates as a scale: Start is 0, End is 1000.
-4. CALCULATE: Translate the visual position of the hole back into an absolute pixel coordinate based on the provided Start/End anchors.
+1. DETECT: Locate the target shadow hole in the puzzle background image.
+2. MEASURE: Find the horizontal center of the shadow hole as a fraction of the IMAGE WIDTH.
+   fraction = hole_center_pixel_x_in_image / total_image_pixel_width
+   Example: hole center is 40% from the left edge → fraction = 0.40
+3. CALCULATE the absolute screen X of the hole:
+   abs_hole_x = Container_Left + fraction × (Container_Right − Container_Left)
+4. OUTPUT: Target_X = abs_hole_x  (the slider knob moves the piece to this absolute X)
+   Round to the nearest integer.
 
 ### Output Format (Strictly Enforced)
-Target_X: [Integer: The absolute horizontal pixel coordinate for the slider destination]
+Target_X: [Integer: The absolute horizontal screen pixel coordinate for the slider destination]

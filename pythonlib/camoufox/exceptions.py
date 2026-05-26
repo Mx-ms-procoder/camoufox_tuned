@@ -163,6 +163,18 @@ class ManualOverrideCoherenceError(ValueError):
     ...
 
 
+class IdentityCoherenceError(ValueError):
+    """
+    Raised when the device profile resampler could not produce a
+    coherent identity within its retry budget (e.g. Mesa fonts ended
+    up on a Windows OS family). Operators who deliberately want to
+    launch with an incoherent profile can opt in via the
+    CAMOUFOX_ALLOW_INCOHERENT_IDENTITY environment variable.
+    """
+
+    ...
+
+
 class PatchManifestError(ValueError):
     """
     Raised when the patch manifest graph is inconsistent or unsafe.

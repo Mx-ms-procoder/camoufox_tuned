@@ -25,11 +25,10 @@ K-1 / K-2 / K-3):
   • ALPN: CAMOU_TLS_ALPN is informational. ALPN is configured per
     socket and Firefox already sets it via preferences.
 
-  • HTTP/2 SETTINGS: get_http2_config() now returns {} because no C++
-    patch reads these values out of MaskConfig. The Firefox build emits
-    its native HTTP/2 SETTINGS. If you need real HTTP/2 fingerprint
-    parity, you need a patch in netwerk/protocol/http/Http2Session.cpp
-    wired to IdentityStateProvider; that is open work.
+  • HTTP/2 SETTINGS: get_http2_config() emits the http2:* keys read by
+    patches/network/_experimental/http2-fingerprint.patch. Operators
+    running an older binary can force the historical empty config with
+    CAMOUFOX_HTTP2_FINGERPRINT_DISABLED=1.
 
   • uTLS sidecar (transport_mode="utls-sidecar"): registered profiles
     never select it. utls v1.8.2 ships HelloFirefox_120 / _148 but no
@@ -116,17 +115,21 @@ FIREFOX_135_TLS = {
     ],
 
     # Named groups / curves (ordered)
+    # Firefox 132+ (NSS 3.105+) added mlkem768x25519 (0x11ec, final NIST codepoint)
+    # for post-quantum hybrid key exchange. It sits between secp521r1 and ffdhe2048
+    # in the supported_groups extension; key_share sends x25519 + mlkem768x25519.
     "tls:namedGroups": [
-        "x25519",           # 0x001d
-        "secp256r1",        # 0x0017
-        "secp384r1",        # 0x0018
-        "secp521r1",        # 0x0019
-        "ffdhe2048",        # 0x0100
-        "ffdhe3072",        # 0x0101
+        "x25519",               # 0x001d
+        "secp256r1",            # 0x0017
+        "secp384r1",            # 0x0018
+        "secp521r1",            # 0x0019
+        "mlkem768x25519",       # 0x11ec  (PQ hybrid, Firefox 132+)
+        "ffdhe2048",            # 0x0100
+        "ffdhe3072",            # 0x0101
     ],
 
     "tls:namedGroupCodes": [
-        0x001d, 0x0017, 0x0018, 0x0019, 0x0100, 0x0101,
+        0x001d, 0x0017, 0x0018, 0x0019, 0x11ec, 0x0100, 0x0101,
     ],
 
     # Signature algorithms (ordered)
@@ -272,10 +275,11 @@ def get_tls_env_vars(profile: NetworkProfile) -> Dict[str, str]:
         codes = template["tls:cipherSuiteCodes"]
         env_vars["CAMOU_TLS_CIPHERS"] = ",".join(f"0x{c:04x}" for c in codes)
 
-    # Extension type codes as comma-separated hex
-    if "tls:extensionCodes" in template:
-        codes = template["tls:extensionCodes"]
-        env_vars["CAMOU_TLS_EXTENSIONS"] = ",".join(f"0x{c:04x}" for c in codes)
+    # NSS has no supported global extension-order API analogous to the
+    # named-group/signature-scheme hooks below. Keep extension codes in
+    # NetworkProfile for validators and the optional uTLS sidecar, but do
+    # not emit a dead CAMOU_TLS_EXTENSIONS variable that the C++ core
+    # cannot consume.
 
     # Named group codes
     if "tls:namedGroupCodes" in template:
@@ -299,27 +303,25 @@ def get_http2_config(profile: NetworkProfile) -> Dict[str, Any]:
     Return the HTTP/2 SETTINGS template that should be merged into
     CAMOU_CONFIG.
 
-    K-2 / K-21 (AUDIT_2026-05-18.md). For most of this fork's
-    lifetime, this function returned `{}` because no C++ patch read
-    the values out of MaskConfig — emitting them would have created
-    silent dead config (the original K-2 finding).
+    T3.1 (audit 2026-05-25): HTTP/2 fingerprint emission is now ON by
+    default. The consumer side
+    (`patches/network/_experimental/http2-fingerprint.patch` →
+    `Http2Session::SendHello` → `IdentityStateProvider::GetHttp2State`)
+    is wired into `patches/manifests/network.yaml`, so every fresh
+    build includes it. The dead-config risk that originally justified
+    opt-in (K-2: emit keys nobody reads) no longer applies.
 
-    K-21 added the consumer side: `IdentityStateProvider::GetHttp2State`
-    reads `http2:*` keys, and
-    `patches/network/_experimental/http2-fingerprint.patch` wires
-    `Http2Session::SendHello` through them. The patch was verified
-    against mozilla-beta tip on 2026-05-18 (all six hunks apply, one
-    with fuzz=1) and is now listed in
-    `patches/manifests/network.yaml`, so a fresh `make build`
-    splices the consumer code in automatically. Producer emission is
-    still opt-in via `CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1`
-    because (a) at runtime the C++ side falls back to upstream
-    Firefox defaults when no `http2:*` keys are present and (b) older
-    Camoufox binaries without the consumer-side change silently swallow
-    the keys — without the opt-in we keep returning `{}` so a forgotten
-    deployment cannot regress to K-2 dead-config behaviour.
+    Operators who run a Camoufox binary that PREDATES the K-21 patch
+    can opt out via ``CAMOUFOX_HTTP2_FINGERPRINT_DISABLED=1`` — that
+    keeps the legacy ``{}`` behaviour so the absent C++ reader does
+    not silently swallow keys. The old
+    ``CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1`` flag remains a
+    recognised force-on (it was the prior opt-in) so existing launch
+    scripts keep working.
     """
-    if os.environ.get("CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL") != "1":
+    if os.environ.get("CAMOUFOX_HTTP2_FINGERPRINT_DISABLED", "").strip().lower() in (
+        "1", "true", "yes", "on"
+    ):
         return {}
     if not profile.http2_template:
         return {}

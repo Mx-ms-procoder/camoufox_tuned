@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Union
 from .exceptions import InvalidPropertyType
 from .strings import string_validator
 
-TYPE_NAMES = {'array', 'tuple', 'str', 'int', 'double', 'bool', 'any', 'nil', 'tuple'}
+TYPE_NAMES = {'array', 'tuple', 'str', 'int', 'uint', 'double', 'bool', 'any', 'nil', 'tuple'}
 
 
 class Type(ABC):
@@ -131,6 +131,19 @@ class NumericalType(Type):
 class IntType(NumericalType):
     def __init__(self, conditions: Optional[str] = None):
         super().__init__(conditions=conditions, numeric_type=int, type_name="int")
+
+
+@dataclass
+class UintType(NumericalType):
+    def __init__(self, conditions: Optional[str] = None):
+        super().__init__(conditions=conditions, numeric_type=int, type_name="uint")
+
+    def validate(self, value: Any, path: List[str], type_registry: Dict[str, Type]) -> None:
+        super().validate(value, path, type_registry)
+        if value < 0:
+            raise InvalidPropertyType(
+                f"Invalid value at {'.'.join(path)}: expected uint, got negative value {value}"
+            )
 
 
 @dataclass

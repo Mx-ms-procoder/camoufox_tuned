@@ -87,6 +87,7 @@ import sys
 import os
 import time
 import json
+import secrets
 import asyncio
 import urllib.request
 from datetime import datetime
@@ -109,14 +110,62 @@ _observer_injected: WeakKeyDictionary[Any, str] = WeakKeyDictionary()
 
 
 # ══════════════════════════════════════════════════════════════════
+#  Per-session marker randomization (T1.1 / T1.5)
+# ══════════════════════════════════════════════════════════════════
+#
+# Previously the scanner used fixed marker names — window.__CSI_KEY__,
+# window.__INJECTED_KEY__, window.__REPORT_BINDING__ and a
+# hard-coded 800 ms debounce. Any page that enumerated window
+# properties or pattern-matched against those constants could detect
+# the automation harness in a single line. We now generate per-process
+# random identifiers for each marker and randomize the debounce per
+# render, so the surface looks different in every session.
+
+def _gen_marker() -> str:
+    # Underscore prefix keeps the name a legal JS identifier; 16 hex
+    # chars (64 bits) is enough entropy that bruteforce-enumeration
+    # against window is not a credible discovery path.
+    return "_" + secrets.token_hex(8)
+
+_CSI_KEY = _gen_marker()
+_INJECTED_KEY = _gen_marker()
+_REPORT_BINDING = _gen_marker()
+
+
+def _regenerate_session_markers() -> None:
+    """Rotate the per-session JS markers. Call between unrelated runs."""
+    global _CSI_KEY, _INJECTED_KEY, _REPORT_BINDING
+    _CSI_KEY = _gen_marker()
+    _INJECTED_KEY = _gen_marker()
+    _REPORT_BINDING = _gen_marker()
+
+
+def _render(template: str) -> str:
+    """Substitute marker / debounce placeholders in a JS template.
+
+    `__CSI_KEY__`, `__INJECTED_KEY__`, `__REPORT_BINDING__` are stable
+    for the lifetime of the process so Phase-1 inject and Phase-2 scan
+    see the same window property. `__SCAN_DEBOUNCE_MS__` is sampled
+    per render in [600, 1000] so the MutationObserver timing is not a
+    constant fingerprint either.
+    """
+    debounce_ms = 600 + secrets.randbelow(401)
+    return (template
+        .replace("__CSI_KEY__", _CSI_KEY)
+        .replace("__INJECTED_KEY__", _INJECTED_KEY)
+        .replace("__REPORT_BINDING__", _REPORT_BINDING)
+        .replace("__SCAN_DEBOUNCE_MS__", str(debounce_ms)))
+
+
+# ══════════════════════════════════════════════════════════════════
 #  Phase 1: observer injection (once per page/URL)
 # ══════════════════════════════════════════════════════════════════
 
 JS_INJECT_OBSERVERS = r"""
 (function() {
-if (window.__csi) return "already_injected";
+if (window.__CSI_KEY__) return "already_injected";
 
-window.__csi = {
+window.__CSI_KEY__ = {
     geetest: { solved: false, ts: 0, challenge: "", validate: "", seccode: "" },
 };
 
@@ -125,12 +174,12 @@ function checkGeeTestTriad() {
     const v = document.querySelector('input[name="geetest_validate"]');
     const s = document.querySelector('input[name="geetest_seccode"]');
     if (c && v && s && c.value && v.value && s.value) {
-        window.__csi.geetest = {
+        window.__CSI_KEY__.geetest = {
             solved: true, ts: Date.now(),
             challenge: c.value, validate: v.value, seccode: s.value,
         };
-    } else if (window.__csi.geetest.solved && !(c || v || s)) {
-        window.__csi.geetest = { solved: false, ts: 0, challenge: "", validate: "", seccode: "" };
+    } else if (window.__CSI_KEY__.geetest.solved && !(c || v || s)) {
+        window.__CSI_KEY__.geetest = { solved: false, ts: 0, challenge: "", validate: "", seccode: "" };
     }
 }
 
@@ -240,7 +289,7 @@ const scriptHas     = p  => scriptSrcs.some(s => s.includes(p));
 const iframeMatchRe = re => iframeSrcs.some(s => re.test(s));
 
 // Observer-State (von Phase 1 injiziert)
-const csi = window.__csi || {
+const csi = window.__CSI_KEY__ || {
     geetest: { solved: false },
 };
 
@@ -602,8 +651,8 @@ class TikTokRotateProvider extends CaptchaProvider {
                         "Rotate CAPTCHA (V1) – Inneres Bild ist rotiert.",
                         "  ➜ Slider (.secsdk-captcha-drag-icon) horizontal ziehen bis",
                         "    das innere Bild [data-testid=whirl-inner-img] korrekt ausgerichtet ist.",
-                        "  ➜ Lösungsweg: Screenshot inneres + äußeres Bild → SadCaptcha-API",
-                        "    liefert Winkel → Slider um entsprechenden Pixel-Offset verschieben.",
+                        "  ➜ Lösungsweg: Screenshot CAPTCHA-Element → NVIDIA NIM Vision",
+                        "    schätzt Rotationswinkel → Slider um entsprechenden Pixel-Offset verschieben.",
                     ].join("\n"),
                 });
             }
@@ -635,8 +684,8 @@ class TikTokRotateProvider extends CaptchaProvider {
                         "Rotate CAPTCHA (V2) – Zwei überlagerte Kreisbilder.",
                         "  ➜ Slider (.captcha-verify-container div[draggable=true]) ziehen.",
                         "  ➜ Inneres Bild: img.cap-absolute  |  Äußeres: img:first-child",
-                        "  ➜ Lösungsweg: Screenshot beider Bilder → Winkel-API →",
-                        "    mouse.down() → mouse.move(slider_x + offset) → mouse.up()",
+                        "  ➜ Lösungsweg: Screenshot CAPTCHA-Element → NVIDIA NIM Vision →",
+                        "    humanized_drag(knob → target_x)",
                     ].join("\n"),
                 });
             }
@@ -715,8 +764,8 @@ class TikTokSlideProvider extends CaptchaProvider {
                         "  ➜ Puzzleteil: img.captcha_verify_img_slide",
                         "  ➜ Hintergrund mit Lücke: #captcha-verify-image",
                         "  ➜ Slider: .secsdk-captcha-drag-icon  (horizontal ziehen)",
-                        "  ➜ Lösungsweg: Template-Matching (Puzzleteil vs. Hintergrund)",
-                        "    → Pixel-Offset berechnen → Slider entsprechend verschieben.",
+                        "  ➜ Lösungsweg: Screenshot CAPTCHA-Element → NVIDIA NIM Vision",
+                        "    schätzt Lückenposition → humanized_drag(knob → target_x).",
                     ].join("\n"),
                 });
             }
@@ -752,8 +801,8 @@ class TikTokSlideProvider extends CaptchaProvider {
                         "Puzzle Slide CAPTCHA (V2) – Puzzleteil (.cap-absolute img) schieben.",
                         "  ➜ Hintergrund mit Lücke: #captcha-verify-image",
                         "  ➜ Slider: .captcha-verify-container div[draggable=true]",
-                        "  ➜ Lösungsweg: Screenshot Puzzleteil + Hintergrund →",
-                        "    Template-Matching → Offset → mouse.move() mit steps.",
+                        "  ➜ Lösungsweg: Screenshot CAPTCHA-Element → NVIDIA NIM Vision →",
+                        "    humanized_drag(knob → target_x).",
                     ].join("\n"),
                 });
             }
@@ -833,9 +882,9 @@ class TikTok3DObjectsProvider extends CaptchaProvider {
                         "  ➜ Bild: #captcha-verify-image  (enthält alle Objekte)",
                         "  ➜ Submit: .verify-captcha-submit-button  (nach allen Klicks)",
                         hasInstruction,
-                        "  ➜ Lösungsweg: Screenshot → SadCaptcha-API liefert",
-                        "    relative (x,y)-Koordinaten pro Objekt → page.mouse.click()",
-                        "    mit Zufallsoffset (±3–5 px) + Pause 500–1500 ms zwischen Klicks.",
+                        "  ➜ Lösungsweg: Screenshot → NVIDIA NIM Vision liefert",
+                        "    (x,y)-Koordinaten pro Objekt → humanized_click()",
+                        "    mit Bezier-Trajektorie + Pause 500–1500 ms zwischen Klicks.",
                     ].filter(Boolean).join("\n"),
                 });
             }
@@ -855,9 +904,9 @@ class TikTok3DObjectsProvider extends CaptchaProvider {
                         "  ➜ Bild: .captcha-verify-container div.cap-relative img",
                         "  ➜ Submit: button.cap-w-full  (nach allen Klicks absenden)",
                         instrV2 ? "  ➜ Anweisung: .captcha-verify-container > div > div > span" : "",
-                        "  ➜ Lösungsweg: Screenshot → SadCaptcha-API liefert",
-                        "    relative (x,y)-Koordinaten → page.mouse.click() mit",
-                        "    Zufallsoffset + menschlicher Pause zwischen Klicks.",
+                        "  ➜ Lösungsweg: Screenshot → NVIDIA NIM Vision liefert",
+                        "    (x,y)-Koordinaten → humanized_click() mit",
+                        "    Bezier-Trajektorie + menschlicher Pause zwischen Klicks.",
                     ].filter(Boolean).join("\n"),
                 });
             }
@@ -1317,8 +1366,8 @@ updateGlobals();
 const scanner = new CaptchaScanner();
 const initialResults = scanner.scan();
 
-if (window.__eventScannerInjected) return initialResults;
-window.__eventScannerInjected = true;
+if (window.__INJECTED_KEY__) return initialResults;
+window.__INJECTED_KEY__ = true;
 
 const reported = new Set(initialResults.map(r => r.name + (r.solved ? "_solved" : "")));
 let debounceTimer = null;
@@ -1336,8 +1385,8 @@ function runScanEvent() {
         const key = res.name + (res.solved ? "_solved" : "");
         if (!reported.has(key)) {
             reported.add(key);
-            if (window.__reportCaptchaEvent) {
-                window.__reportCaptchaEvent(res);
+            if (window.__REPORT_BINDING__) {
+                window.__REPORT_BINDING__(res);
             }
         }
     }
@@ -1361,7 +1410,7 @@ const obsEvent = new MutationObserver((mutations) => {
     }
     if (shouldScan) {
         if (debounceTimer) clearTimeout(debounceTimer);
-        debounceTimer = setTimeout(runScanEvent, 800);
+        debounceTimer = setTimeout(runScanEvent, __SCAN_DEBOUNCE_MS__);
     }
 });
 
@@ -1435,7 +1484,7 @@ async def _inject_observer(page) -> None:
         except Exception:
             continue
         try:
-            await frame.evaluate(JS_INJECT_OBSERVERS)
+            await frame.evaluate(_render(JS_INJECT_OBSERVERS))
             injected_any = True
         except Exception:
             # Cross-origin / CSP / navigation race — Observer für
@@ -1480,7 +1529,7 @@ async def scan_page(page) -> list[dict]:
         except Exception:
             continue
         try:
-            result = await frame.evaluate(JS_DEEP_SCAN)
+            result = await frame.evaluate(_render(JS_DEEP_SCAN))
         except Exception:
             # Cross-origin restrictions, navigation in flight, oder
             # CSP blockiert eval — alle erwartet, kein Loud-Print.
@@ -1562,12 +1611,15 @@ async def auto_solve_captcha(cap: dict, page) -> bool:
     for _attempt in range(MAX_SOLVER_RETRIES):
         try:
             solver_mod = _import_solver(module_name)
-            return await solver_mod.solve(page)
+            solved = await solver_mod.solve(page)
+            if solved:
+                return True
+            print(f"  ❌  [AutoSolver] {label} meldete ungelöst (Versuch {_attempt+1}/{MAX_SOLVER_RETRIES}).")
         except Exception as e:
             print(f"  ❌  [AutoSolver] {label} fehlgeschlagen (Versuch {_attempt+1}/{MAX_SOLVER_RETRIES}): {e}")
-            if _attempt < MAX_SOLVER_RETRIES - 1:
-                print(f"  ⏳  [AutoSolver] Warte 2s vor nächstem Versuch...")
-                await asyncio.sleep(2)
+        if _attempt < MAX_SOLVER_RETRIES - 1:
+            print(f"  ⏳  [AutoSolver] Warte 2s vor nächstem Versuch...")
+            await asyncio.sleep(2)
     return False
 
 
@@ -1657,7 +1709,7 @@ async def live_scan(
         await handle_captcha(captcha_data, page)
 
     try:
-        await context.expose_binding("__reportCaptchaEvent", __report_captcha_event)
+        await context.expose_binding(_REPORT_BINDING, __report_captcha_event)
     except Exception as e:
         print(f"  ⚠️   [Scanner] Binding-Fehler (bereits registriert?): {e}")
 
@@ -1665,7 +1717,7 @@ async def live_scan(
     # Page-Script ausgeführt wird. Ohne das fängt der Observer erst ab
     # dem Zeitpunkt _inject_observer() läuft (Race gegen XHR-Mounts).
     try:
-        await context.add_init_script(JS_INJECT_OBSERVERS)
+        await context.add_init_script(_render(JS_INJECT_OBSERVERS))
     except Exception as e:
         print(f"  ⚠️   [Scanner] add_init_script fehlgeschlagen: {e}")
 
@@ -1680,15 +1732,6 @@ async def live_scan(
         except Exception:
             pass
 
-    def _on_response(response, page):
-        try:
-            url = (response.url or "").lower()
-        except Exception:
-            return
-        if not any(h in url for h in CAPTCHA_URL_HINTS):
-            return
-        asyncio.create_task(_delayed_rescan(page, delay_ms=500))
-
     async def setup_page(page):
         try:
             await _inject_observer(page)
@@ -1698,12 +1741,53 @@ async def live_scan(
                 if isinstance(cap, dict):
                     await handle_captcha(cap, page)
 
+            # Per-page cooldown: verhindert Task-Flut bei schnellen Netzwerkantworten.
+            # Minimum 1 s zwischen zwei response-getriggerten Rescans für diese Page.
+            _last_response_rescan: list[float] = [0.0]
+            _RESPONSE_COOLDOWN = 1.0
+
+            def _on_response(response):
+                try:
+                    url = (response.url or "").lower()
+                except Exception:
+                    return
+                if not any(h in url for h in CAPTCHA_URL_HINTS):
+                    return
+                loop = asyncio.get_running_loop()
+                now = loop.time()
+                if now - _last_response_rescan[0] < _RESPONSE_COOLDOWN:
+                    return
+                _last_response_rescan[0] = now
+                asyncio.create_task(_delayed_rescan(page, delay_ms=500))
+
+            def _on_framenavigated(frame):
+                asyncio.create_task(_delayed_rescan(page, 300))
+
+            def _on_load(_p=None):
+                asyncio.create_task(_delayed_rescan(page, 600))
+
+            def _on_close(_p=None):
+                # Alle Listener bereinigen, damit kein Leak entsteht wenn die Page
+                # geschlossen wird. Danach Dedup-State für diese Page entfernen.
+                for event, handler in (
+                    ("response", _on_response),
+                    ("framenavigated", _on_framenavigated),
+                    ("load", _on_load),
+                ):
+                    try:
+                        page.remove_listener(event, handler)
+                    except Exception:
+                        pass
+                _handled_in_session.pop(id(page), None)
+
             # Network-Listener für Captcha-URLs (XHR-spät-Mounts abfangen)
-            page.on("response", lambda r: _on_response(r, page))
+            page.on("response", _on_response)
             # Frame-Navigation -> Observer in neue Frames injizieren
-            page.on("framenavigated", lambda frame: asyncio.create_task(_delayed_rescan(page, 300)))
+            page.on("framenavigated", _on_framenavigated)
             # Page-Load -> Re-scan (manche Sites mounten captcha bei load)
-            page.on("load", lambda _p=None: asyncio.create_task(_delayed_rescan(page, 600)))
+            page.on("load", _on_load)
+            # Cleanup beim Schließen der Page
+            page.once("close", _on_close)
         except Exception as e:
             print(f"  ⚠️   [Scanner] Setup-Fehler für Page {getattr(page, 'url', 'unknown')}: {e}")
 
@@ -1856,11 +1940,11 @@ def scan_with_camoufox_sync(
             except Exception:
                 continue
             try:
-                frame.evaluate(JS_INJECT_OBSERVERS)
+                frame.evaluate(_render(JS_INJECT_OBSERVERS))
             except Exception:
                 pass
             try:
-                frame_results = frame.evaluate(JS_DEEP_SCAN)
+                frame_results = frame.evaluate(_render(JS_DEEP_SCAN))
             except Exception:
                 continue
             if not isinstance(frame_results, list):
@@ -1958,5 +2042,4 @@ def live_scan_cdp(
             print(f"  [{_ts()}]  CDP-Verbindung fehlgeschlagen ({host}:{port}): {exc}")
 
         time.sleep(max(interval, 1.0))
-
 

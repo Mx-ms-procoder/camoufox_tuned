@@ -43,7 +43,7 @@ After a successful browser build:
 ```bash
 cd tests
 bash setup-venv.sh
-bash run-tests.sh --executable-path ../camoufox-150.0.2-beta.25/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin
+bash run-tests.sh --executable-path ../camoufox-150.0.3-beta.25/obj-x86_64-pc-linux-gnu/dist/bin/camoufox-bin
 ```
 
 The exact object directory depends on the selected target architecture.
@@ -98,7 +98,7 @@ toolchain.
 
 - `tests/setup-venv.sh` now installs from the root `requirements.txt`; keep this file in sync with the package metadata.
 - The patch conflict checker reports shared Gecko files across `identity`, `media`, and `security`. This is tolerated via `patches/manifests/expected_overlaps.yaml` but is a real maintenance risk when rebasing to a new Firefox version. See K-7 in `AUDIT_2026-05-18.md`.
-- The root `Dockerfile` is pinned to `ubuntu:24.04`, but it still pulls `apt`-installed `rustc` *and* runs rustup. The two toolchains can disagree on MSRV; prefer the rustup install (Rust 1.94.0 per Firefox 150 baseline).
+- The root `Dockerfile` is pinned to `ubuntu:24.04` and installs the Rust toolchain **only** via rustup (Rust 1.94.0, matching the Firefox 150 baseline). The apt-installed `rustc` is intentionally excluded — see the comment block above the rustup install step in `Dockerfile`. Bump `RUSTUP_INIT_VERSION` and `RUST_TOOLCHAIN` together when the Firefox baseline moves.
 
 ## Operational security notes (audit 2026-05-18)
 

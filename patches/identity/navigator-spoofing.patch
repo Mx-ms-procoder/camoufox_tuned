@@ -114,6 +114,9 @@ index 0000000000..918d94be04
 +#include "nsHashKeys.h"
 +#include "RoverfoxStorageManager.h"
 +
++struct JSContext;
++class JSObject;
++
 +namespace mozilla {
 +namespace dom {
 +
@@ -206,7 +209,7 @@ diff --git a/dom/base/Navigator.cpp b/dom/base/Navigator.cpp
 index 318d2edba8..12feb91573 100644
 --- a/dom/base/Navigator.cpp
 +++ b/dom/base/Navigator.cpp
-@@ -6,6 +6,10 @@
+@@ -6,6 +6,11 @@
  
  // Needs to be first.
  #include "Navigator.h"
@@ -214,6 +217,7 @@ index 318d2edba8..12feb91573 100644
 +#include "NavigatorManager.h"
 +#include "MaskConfig.hpp"
 +#include "nsJSUtils.h"
++#include <mutex>
  
  #include "Geolocation.h"
  #include "base/basictypes.h"
@@ -225,12 +229,12 @@ index 318d2edba8..12feb91573 100644
 +// Camoufox: Lazy initialization for global timezone config.
 +// Cannot use static init because SpiderMonkey may not be ready yet.
 +static void EnsureGlobalTimezoneInitialized() {
-+  static bool sInitialized = false;
-+  if (sInitialized) return;
-+  sInitialized = true;
-+  if (auto tz = MaskConfig::GetString("timezone")) {
-+    nsJSUtils::SetTimeZoneOverride(tz.value().c_str());
-+  }
++  static std::once_flag sTimezoneOnce;
++  std::call_once(sTimezoneOnce, []() {
++    if (auto tz = MaskConfig::GetString("timezone")) {
++      nsJSUtils::SetTimeZoneOverride(tz.value().c_str());
++    }
++  });
 +}
 +
  namespace mozilla::dom {
@@ -372,7 +376,7 @@ index cdd544a14d..230ded31c0 100644
  
  #include <inttypes.h>
  #include <stdio.h>
-@@ -7793,6 +7794,92 @@ void nsGlobalWindowInner::SetWebGLRenderer(const nsAString& renderer,
+@@ -7793,6 +7794,80 @@ void nsGlobalWindowInner::SetWebGLRenderer(const nsAString& renderer,
    }
  }
  
@@ -385,9 +389,6 @@ index cdd544a14d..230ded31c0 100644
 +    userContextId = bc->OriginAttributesRef().mUserContextId;
 +  }
 +  NavigatorManager::SetPlatform(userContextId, platform);
-+  if (userContextId != 0) {
-+    NavigatorManager::SetPlatform(0, platform);
-+  }
 +  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
 +  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
 +    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
@@ -406,9 +407,6 @@ index cdd544a14d..230ded31c0 100644
 +    userContextId = bc->OriginAttributesRef().mUserContextId;
 +  }
 +  NavigatorManager::SetOscpu(userContextId, oscpu);
-+  if (userContextId != 0) {
-+    NavigatorManager::SetOscpu(0, oscpu);
-+  }
 +  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
 +  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
 +    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
@@ -427,9 +425,6 @@ index cdd544a14d..230ded31c0 100644
 +    userContextId = bc->OriginAttributesRef().mUserContextId;
 +  }
 +  NavigatorManager::SetHardwareConcurrency(userContextId, cores);
-+  if (userContextId != 0) {
-+    NavigatorManager::SetHardwareConcurrency(0, cores);
-+  }
 +  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
 +  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
 +    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
@@ -448,9 +443,6 @@ index cdd544a14d..230ded31c0 100644
 +    userContextId = bc->OriginAttributesRef().mUserContextId;
 +  }
 +  NavigatorManager::SetUserAgent(userContextId, ua);
-+  if (userContextId != 0) {
-+    NavigatorManager::SetUserAgent(0, ua);
-+  }
 +  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
 +  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
 +    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));

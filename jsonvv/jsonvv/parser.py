@@ -15,6 +15,7 @@ from .types import (
     SubtractionType,
     TupleType,
     Type,
+    UintType,
     UnionType,
 )
 
@@ -111,6 +112,8 @@ class Parser:
             return StringType(conditions)
         elif name == 'int':
             return IntType(conditions)
+        elif name == 'uint':
+            return UintType(conditions)
         elif name == 'double':
             return DoubleType(conditions)
         elif name == 'bool':

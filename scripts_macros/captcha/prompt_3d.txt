@@ -1,19 +1,26 @@
 ### Task
-Identify the EXACT center coordinates for the two identical symbols in this CAPTCHA. 
+Identify the EXACT center coordinates for each target symbol in this CAPTCHA image.
+The number of targets and their identity are specified in the "Page Instruction" block that
+precedes this prompt (if present). If no instruction block is present, find all identical
+symbols (matching pair or group) in the image.
 
-### Identity Rule
-Find the only pair of identical characters (e.g., two lowercase 'e's). Note: Visual size may differ, but the character structure must be identical. Case-sensitive: 'G' and 'g' are NOT a pair.
+### Identity Rule (used when no explicit instruction is given)
+Find matching characters (e.g., two 'e' symbols). Visual size may differ, but character
+structure must match. Case-sensitive: 'G' and 'g' are NOT a match.
 
 ### Spatial Reference (Crucial)
-To ensure sub-pixel precision on this full-page screenshot, use the following Bounding Box of the CAPTCHA area as your coordinate system:
+The image you see is cropped to the CAPTCHA area. These are its absolute screen coordinates:
 - Top-Left Corner: [X: {box_x}, Y: {box_y}]
 - Bottom-Right Corner: [X: {box_x_end}, Y: {box_y_end}]
 
 ### Analysis Protocol
-1. Locate all identical symbols that match the identity rule.
-2. Calculate the center (X, Y) for each symbol relative to the full page.
-3. Verify: Do all coordinates fall strictly within the Bounding Box?
+1. Read the instruction (if any) to determine how many targets and which symbols are needed.
+2. Locate each target symbol in the image.
+3. For each symbol, compute its center in absolute screen coordinates:
+   abs_x = {box_x} + (pixel_x_in_image / image_width)  × ({box_x_end} − {box_x})
+   abs_y = {box_y} + (pixel_y_in_image / image_height) × ({box_y_end} − {box_y})
+4. Verify: Do all coordinates fall strictly within the Bounding Box?
 
 ### Output Format (Strictly Enforced)
-Reasoning: [1 sentence: "Identified N 'e' symbols at positions..."]
-Coordinates: x1: [int], y1: [int] ; x2: [int], y2: [int] ; x3: ...
+Reasoning: [1 sentence describing what you found]
+Coordinates: x1: [int], y1: [int] ; x2: [int], y2: [int] ; x3: [int], y3: [int] ; ...

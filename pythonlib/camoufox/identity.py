@@ -235,6 +235,15 @@ class IdentityCoherenceEngine:
             max(-24, min(24, round(generator.gauss(0.0, 8.0))))
         )
         compiled_config["canvas:aaCapOffset"] = True
+        # T4.3: seed-derived canvas noise so the C++ side
+        # (IdentityStateProvider::GetCanvasState — reads
+        # canvas:noiseSeed via GetUint64) produces a stable hash per
+        # identity. Previously this key was read but never set, so the
+        # noise injector silently fell back to its empty default and
+        # the aaOffset alone wasn't enough to break a canvas hash.
+        compiled_config["canvas:noiseSeed"] = int.from_bytes(
+            digest[14:22], "big"
+        )
         compiled_config["window.history.length"] = 1 + (digest[13] % 5)
 
         firefox_user_prefs: Dict[str, Any] = {}
@@ -269,6 +278,18 @@ class IdentityCoherenceEngine:
         if not network_profile:
             network_profile = get_tls_profile("firefox", 135)  # Fallback
 
+        # T1.3: device-profile coherence + cross-surface header/navigator
+        # checks. The latter catches operators who set headers.User-Agent
+        # or headers.Accept-Language directly while letting the engine
+        # generate navigator.userAgent / navigator.languages — a classic
+        # WAF tripwire because Firefox always sources both from the same
+        # internal pref.
+        profile_issues = list(validate_coherence(device_profile))
+        header_issues = self._header_navigator_conflicts(
+            compiled_config=compiled_config,
+            user_config=user_config,
+        )
+
         return IdentityState(
             profile_id=digest.hex()[:16],
             seed=seed,
@@ -278,7 +299,7 @@ class IdentityCoherenceEngine:
             config=compiled_config,
             firefox_user_prefs=firefox_user_prefs,
             network_profile=network_profile,
-            coherence_issues=tuple(validate_coherence(device_profile)),
+            coherence_issues=tuple(profile_issues + header_issues),
             manual_overrides=tuple(manual_overrides),
         )
 
@@ -430,6 +451,50 @@ class IdentityCoherenceEngine:
             if key in compiled_config and compiled_config[key] != value:
                 conflicts.append(key)
         return conflicts
+
+    def _header_navigator_conflicts(
+        self,
+        *,
+        compiled_config: Mapping[str, Any],
+        user_config: Optional[Mapping[str, Any]],
+    ) -> List[str]:
+        """
+        Catch the case where a user sets a request header that contradicts
+        the navigator surface the engine compiled. Both are emitted from
+        the same Firefox internal pref, so any mismatch is itself a
+        fingerprint.
+        """
+        issues: List[str] = []
+        user_config = user_config or {}
+
+        ua_header = user_config.get("headers.User-Agent")
+        ua_nav = compiled_config.get("navigator.userAgent")
+        if ua_header and ua_nav and ua_header != ua_nav:
+            issues.append(
+                f"headers.User-Agent ({ua_header!r}) != navigator.userAgent ({ua_nav!r})"
+            )
+
+        al_header = user_config.get("headers.Accept-Language")
+        nav_langs = compiled_config.get("navigator.languages")
+        if al_header and isinstance(nav_langs, (list, tuple)) and nav_langs:
+            # Accept-Language: "en-US,en;q=0.5" — first token before ',' or ';'
+            primary = str(al_header).split(",", 1)[0].split(";", 1)[0].strip()
+            if primary and primary != str(nav_langs[0]):
+                issues.append(
+                    f"headers.Accept-Language primary ({primary!r}) "
+                    f"!= navigator.languages[0] ({nav_langs[0]!r})"
+                )
+
+        nav_lang = compiled_config.get("navigator.language")
+        if al_header and nav_lang:
+            primary = str(al_header).split(",", 1)[0].split(";", 1)[0].strip()
+            if primary and primary != str(nav_lang):
+                issues.append(
+                    f"headers.Accept-Language primary ({primary!r}) "
+                    f"!= navigator.language ({nav_lang!r})"
+                )
+
+        return issues
 
 
 def _extract_subsystem(config: Mapping[str, Any], prefix: str) -> Dict[str, Any]:

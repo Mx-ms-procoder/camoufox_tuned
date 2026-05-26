@@ -1,0 +1,38 @@
+name: Upstream Security Drift
+
+# T3.3 (audit 2026-05-25): catch the case where Mozilla ships a
+# security-relevant point release (e.g. 150.0.3) while the fork's
+# upstream.sh stays pinned to an older revision (e.g. 150.0.2).
+# Runs weekly and on every push that touches upstream.sh.
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — picks up advisories landed Friday afternoon
+    # in the US without paging during the working day.
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+  push:
+    paths:
+      - "upstream.sh"
+      - "scripts/check_upstream_security.py"
+      - ".github/workflows/upstream-security-check.yml"
+
+jobs:
+  mfsa-drift:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compare upstream.sh against Mozilla MFSA index
+        # Exit code 1 fails the job, which surfaces in the repo's
+        # workflow status (and emails the owner if enabled). The
+        # script itself swallows network errors so a transient
+        # mozilla.org outage does not page.
+        run: python3 scripts/check_upstream_security.py

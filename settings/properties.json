@@ -87,6 +87,7 @@
   { "property": "webGl2:contextAttributes", "type": "dict" },
   { "property": "canvas:aaOffset", "type": "int" },
   { "property": "canvas:aaCapOffset", "type": "bool" },
+  { "property": "canvas:noiseSeed", "type": "uint" },
   { "property": "voices", "type": "array" },
   { "property": "voices:blockIfNotDefined", "type": "bool" },
   { "property": "voices:fakeCompletion", "type": "bool" },
@@ -107,7 +108,11 @@
   { "property": "http2:enablePush", "type": "uint" },
   { "property": "http2:initialWindowSize", "type": "uint" },
   { "property": "http2:maxFrameSize", "type": "uint" },
+  { "property": "http2:maxConcurrentStreams", "type": "uint" },
+  { "property": "http2:maxHeaderListSize", "type": "uint" },
   { "property": "http2:windowUpdate", "type": "uint" },
   { "property": "http2:priorityWeight", "type": "uint" },
+  { "property": "audio:seed", "type": "uint" },
+  { "property": "animations:disable", "type": "bool" },
   { "property": "debug", "type": "bool" }
 ]

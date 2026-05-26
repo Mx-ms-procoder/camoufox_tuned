@@ -98,8 +98,18 @@ class MetaTextSolver:
         url = self.page.url
         platform = "Instagram" if "instagram" in url else "Facebook"
 
-        # ── 1. Screenshot ───────────────────────────────────────────
-        image_bytes = await self.page.screenshot(type="png", full_page=True)
+        # ── 1. Screenshot — bevorzuge CAPTCHA-Bild-Element (kein PII) ──
+        image_bytes = None
+        captcha_img_hit = await self._find_in_frames(CAPTCHA_IMAGE_SELECTORS)
+        if captcha_img_hit:
+            img_frame, img_sel = captcha_img_hit
+            img_loc = img_frame.locator(img_sel).first
+            try:
+                image_bytes = await img_loc.screenshot(type="png")
+            except Exception:
+                image_bytes = None
+        if not image_bytes:
+            image_bytes = await self.page.screenshot(type="png", full_page=True)
         if not image_bytes:
             print("  ❌  [MetaSolver] Screenshot fehlgeschlagen.")
             return False

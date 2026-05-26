@@ -2,12 +2,12 @@ name: identity
 description: "Unified Identity Coherence: fingerprinting, spoofing, screen, fonts, pointers"
 patches:
   - identity/fingerprint-injection.patch
+  - identity/font-list-spoofing.patch
   - identity/navigator-spoofing.patch
   - identity/locale-spoofing.patch
   - identity/timezone-spoofing.patch
   - identity/geolocation-spoofing.patch
   - identity/screen-spoofing.patch
-  - identity/font-list-spoofing.patch
   - identity/system-ui-font-spoofing.patch
   - identity/anti-font-fingerprinting.patch
   - identity/force-default-pointer.patch

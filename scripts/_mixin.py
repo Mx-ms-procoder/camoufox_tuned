@@ -88,7 +88,23 @@ def find_src_dir(root_dir='.', version=None, release=None):
 
 
 def get_moz_target(target, arch):
-    """Get moz_target from target and arch"""
+    """Get moz_target from target and arch.
+
+    Returns the Mozilla configure triple (consumed by ``--target=`` in the
+    generated mozconfig). This is intentionally *not* the same as the Rust
+    target triple installed via ``rustup target add`` in CI:
+
+        Mozilla configure       Rust target (rustup)
+        --------------------    ----------------------
+        i686-pc-linux-gnu       i686-unknown-linux-gnu
+        x86_64-pc-mingw32       x86_64-pc-windows-gnu
+        i686-pc-mingw32         i686-pc-windows-gnu
+        *-apple-darwin          *-apple-darwin           (identical)
+
+    Mach maps Mozilla->Rust internally; do NOT "align" these by switching
+    the windows branch to ``-pc-windows-gnu``, because mozconfig parsing
+    keys off the ``mingw32`` substring to apply MinGW-specific build logic.
+    """
     if target == "linux":
         return "aarch64-unknown-linux-gnu" if arch == "arm64" else f"{arch}-pc-linux-gnu"
     if target == "windows":

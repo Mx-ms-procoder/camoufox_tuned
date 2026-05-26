@@ -105,7 +105,15 @@ class GoldenFlow:
             no_viewport=True,
             java_script_enabled=True,
         )
-        
+
+        # Rotate per-session JS markers so every new context gets unique
+        # window property names — prevents cross-session fingerprinting.
+        try:
+            from scripts_macros.captcha.scanner import _regenerate_session_markers
+            _regenerate_session_markers()
+        except ImportError:
+            pass
+
         print("  ✅  [GoldenFlow] Camoufox erstellt (Natives Stealthing).")
         return browser, context
 
@@ -115,16 +123,12 @@ class GoldenFlow:
         return page
 
     async def maximize_window(self, page: Page) -> None:
-        """Maximizes the window via CDP."""
+        """Maximizes the window via JS (Juggler/Firefox-compatible)."""
         try:
-            client = await page.context.new_cdp_session(page)
-            window_info = await client.send("Browser.getWindowForTarget")
-            window_id = window_info["windowId"]
-            await client.send("Browser.setWindowBounds", {
-                "windowId": window_id,
-                "bounds": {"windowState": "maximized"}
-            })
-            await client.detach()
+            await page.evaluate(
+                "() => { window.moveTo(0, 0); "
+                "window.resizeTo(screen.availWidth, screen.availHeight); }"
+            )
         except Exception as e:
             print(f"  ⚠️   [GoldenFlow] Konnte Fenster nicht maximieren: {e}")
 

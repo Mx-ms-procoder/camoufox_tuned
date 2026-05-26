@@ -32,6 +32,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -132,17 +133,44 @@ func loadMitmCA(certPath, keyPath string) (*mitmCA, error) {
 		return nil, fmt.Errorf("read CA key: %w", err)
 	}
 	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return nil, fmt.Errorf("decode CA cert: no PEM block found")
+	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		return nil, err
 	}
-	keyBlock, _ := pem.Decode(keyPEM)
-	key, err := x509.ParseECPrivateKey(keyBlock.Bytes)
+	key, err := parsePrivateKeyPEM(keyPEM)
 	if err != nil {
-		return nil, fmt.Errorf("parse CA key: %w", err)
+		return nil, err
 	}
 	log.Printf("[INFO] Loaded MitM CA from %s", certPath)
 	return &mitmCA{cert: cert, key: key, certPEM: certPEM, cache: make(map[string]*tls.Certificate)}, nil
+}
+
+func parsePrivateKeyPEM(keyPEM []byte) (crypto.PrivateKey, error) {
+	keyBlock, _ := pem.Decode(keyPEM)
+	if keyBlock == nil {
+		return nil, fmt.Errorf("decode CA key: no PEM block found")
+	}
+	if key, err := x509.ParseECPrivateKey(keyBlock.Bytes); err == nil {
+		return key, nil
+	}
+	if key, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes); err == nil {
+		return key, nil
+	}
+	key, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse CA key: unsupported private key format")
+	}
+	switch typed := key.(type) {
+	case *ecdsa.PrivateKey:
+		return typed, nil
+	case *rsa.PrivateKey:
+		return typed, nil
+	default:
+		return nil, fmt.Errorf("parse CA key: unsupported private key type %T", key)
+	}
 }
 
 func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
@@ -165,7 +193,11 @@ func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
 		NotAfter:     time.Now().Add(24 * time.Hour),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		DNSNames:     []string{hostname},
+	}
+	if ip := net.ParseIP(hostname); ip != nil {
+		tmpl.IPAddresses = []net.IP{ip}
+	} else {
+		tmpl.DNSNames = []string{hostname}
 	}
 	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, ca.cert, &key.PublicKey, ca.key)
 	if err != nil {
@@ -182,6 +214,61 @@ func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
 	ca.cache[hostname] = tlsCert
 	ca.mu.Unlock()
 	return tlsCert, nil
+}
+
+// ── Built-in Firefox identity defaults ──────────────────────────────
+//
+// T3.2 (audit 2026-05-25): the sidecar previously fell through to
+// utls.HelloFirefox_120 for every Firefox release >= 135 because
+// upstream utls ships no preset for them. That made the JA4 fingerprint
+// match Firefox 120 — provably wrong for any Camoufox launched as 135+.
+//
+// These constants mirror the cipher / extension / curve order from
+// pythonlib/camoufox/tls_profiles.FIREFOX_135_TLS, which is the
+// baseline NSS uses for every supported Firefox version up to 150
+// (NSS source verified: no order change between 135 and 150). With
+// no CAMOU_UTLS_IDENTITY_JSON supplied the sidecar synthesises a blob
+// from these defaults so buildCustomSpec runs the modern path instead
+// of the 120 fallback. When the launcher DOES pass an identity blob
+// (the normal Camoufox flow) that takes precedence as before.
+
+// firefoxBaselineIdentity returns the static FF135-derived identity used
+// for every modern Firefox profile in the absence of a runtime blob.
+// Keep this in lockstep with FIREFOX_135_TLS in tls_profiles.py.
+func firefoxBaselineIdentity() *IdentityBlob {
+	return &IdentityBlob{
+		TLS: IdentityTLS{
+			CipherSuiteCodes: []uint16{
+				0x1301, 0x1303, 0x1302,
+				0xc02b, 0xc02f, 0xcca9, 0xcca8,
+				0xc02c, 0xc030,
+				0xc00a, 0xc009, 0xc013, 0xc014,
+				0x009c, 0x009d, 0x002f, 0x0035,
+			},
+			ExtensionCodes: []uint16{
+				0, 23, 65281, 10, 11, 35, 16, 5, 34, 51, 43, 13, 45, 28, 21,
+			},
+			NamedGroupCodes: []uint16{
+				// Firefox 132+: mlkem768x25519 (0x11ec) inserted after secp521r1.
+				// Keep in lockstep with FIREFOX_135_TLS.namedGroupCodes in tls_profiles.py.
+				0x001d, 0x0017, 0x0018, 0x0019, 0x11ec, 0x0100, 0x0101,
+			},
+			SigAlgCodes: []uint16{
+				0x0403, 0x0503, 0x0603,
+				0x0804, 0x0805, 0x0806,
+				0x0401, 0x0501, 0x0601,
+				0x0203, 0x0201,
+			},
+			ALPN: []string{"h2", "http/1.1"},
+		},
+		HTTP2: IdentityHTTP2{
+			HeaderTableSize:   65536,
+			EnablePush:        0,
+			InitialWindowSize: 131072,
+			MaxFrameSize:      16384,
+			WindowUpdate:      12517377, // 12 MiB session bump, matches FF135+
+		},
+	}
 }
 
 // ── Custom ClientHelloSpec builder ──────────────────────────────────
@@ -210,12 +297,22 @@ func buildCustomSpec(id *IdentityBlob) *utls.ClientHelloSpec {
 		sigAlgs = append(sigAlgs, utls.SignatureScheme(code))
 	}
 
-	// Build key shares (Firefox: x25519 + p256)
+	// Build key shares (Firefox 132+: x25519 + mlkem768x25519 PQ hybrid).
+	// Do NOT take the first 2 from the supported_groups list — after inserting
+	// 0x11ec at position 4, that would pick secp256r1 instead of mlkem768x25519.
 	var keyShares []utls.KeyShareExtension
 	if len(curves) > 0 {
 		ks := utls.KeyShareExtension{KeyShares: []utls.KeyShare{}}
-		for i := 0; i < len(curves) && i < 2; i++ {
-			ks.KeyShares = append(ks.KeyShares, utls.KeyShare{Group: curves[i]})
+		for _, target := range []utls.CurveID{utls.CurveID(0x001d), utls.CurveID(0x11ec)} {
+			for _, c := range curves {
+				if c == target {
+					ks.KeyShares = append(ks.KeyShares, utls.KeyShare{Group: target})
+					break
+				}
+			}
+		}
+		if len(ks.KeyShares) == 0 {
+			ks.KeyShares = append(ks.KeyShares, utls.KeyShare{Group: curves[0]})
 		}
 		keyShares = append(keyShares, ks)
 	}
@@ -280,26 +377,21 @@ type proxyServer struct {
 }
 
 // defaultProfileSpec maps Camoufox profile IDs to the closest static utls
-// ClientHello preset. Versions newer than utls' HelloFirefox_120 fall
-// back to that preset because utls does not yet ship native presets for
-// modern Firefox releases. This fallback is only ever the *parity floor*:
-// when CAMOU_UTLS_IDENTITY_JSON is supplied (the normal Camoufox launch
-// path), buildCustomSpec replaces it with a per-version ClientHelloSpec
-// derived from the Python NetworkProfile. See AUDIT_2026-05-17 D-003.
+// ClientHello preset. This is now only the *last-resort* fallback for
+// pre-135 profiles. Profiles >= 135 synthesise a ClientHelloSpec from
+// firefoxBaselineIdentity() instead (see modernFirefoxProfiles) so the
+// JA4 fingerprint matches the Firefox-family TLS handshake rather than
+// the obsolete Firefox 120 preset.
 var defaultProfileSpec = map[string]utls.ClientHelloID{
 	"firefox105": utls.HelloFirefox_105,
 	"firefox120": utls.HelloFirefox_120,
-	"firefox135": utls.HelloFirefox_120, // closest preset for legacy callers
-	"firefox140": utls.HelloFirefox_120,
-	"firefox146": utls.HelloFirefox_120,
-	"firefox150": utls.HelloFirefox_120, // upgrade target; refresh when utls ships HelloFirefox_150+
 }
 
-// approximateProfiles lists profile IDs that, in the absence of an
-// identity blob, fall through to HelloFirefox_120. Used to surface the
-// parity gap at startup so operators don't unknowingly ship a 120
-// fingerprint as Firefox 150.
-var approximateProfiles = map[string]bool{
+// modernFirefoxProfiles lists profile IDs that synthesise a Firefox 135+
+// ClientHelloSpec from firefoxBaselineIdentity() when no runtime blob
+// is supplied. Without this map these profiles would fall back to
+// HelloFirefox_120 — provably wrong on the wire.
+var modernFirefoxProfiles = map[string]bool{
 	"firefox135": true,
 	"firefox140": true,
 	"firefox146": true,
@@ -333,18 +425,25 @@ func newProxyServer(profileName string, debug, mitmMode bool, ca *mitmCA) *proxy
 		}
 	}
 
-	// Surface the parity gap when an operator selects a profile that has
-	// no native utls preset and did not pass an identity blob. Without
-	// one of those, we silently downgrade to HelloFirefox_120 — useful
-	// info to log so the operator knows the TLS fingerprint will not
-	// match real Firefox 140+ traffic. (AUDIT_2026-05-17 D-003.)
-	if ps.customSpec == nil && approximateProfiles[profileName] {
-		log.Printf("[WARN] Profile %q has no native utls preset and no "+
-			"CAMOU_UTLS_IDENTITY_JSON was supplied; falling back to "+
-			"HelloFirefox_120. ClientHello will NOT match real %s traffic.",
-			profileName, profileName)
+	// T3.2 (audit 2026-05-25): for modern Firefox profiles without a
+	// runtime identity blob, synthesise one from firefoxBaselineIdentity()
+	// instead of silently downgrading to the static HelloFirefox_120
+	// preset (which produces a Firefox 120 JA4 fingerprint regardless
+	// of the profile name).
+	if ps.customSpec == nil && modernFirefoxProfiles[profileName] {
+		blob := firefoxBaselineIdentity()
+		ps.identity = blob
+		ps.customSpec = buildCustomSpec(blob)
+		if ps.customSpec != nil {
+			log.Printf("[INFO] Profile %q has no CAMOU_UTLS_IDENTITY_JSON; "+
+				"using built-in firefoxBaselineIdentity (FF135+ baseline) "+
+				"with %d ciphers, %d groups",
+				profileName,
+				len(blob.TLS.CipherSuiteCodes),
+				len(blob.TLS.NamedGroupCodes))
+		}
 	}
-	
+
 	ps.transport = &http.Transport{
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			return ps.dialUTLS(network, addr)
@@ -388,11 +487,23 @@ func (ps *proxyServer) logDebug(format string, args ...interface{}) {
 	}
 }
 
+func normalizeHostPort(addr, defaultPort string) (host, hostport string) {
+	if h, p, err := net.SplitHostPort(addr); err == nil {
+		h = strings.Trim(h, "[]")
+		return h, net.JoinHostPort(h, p)
+	}
+	trimmed := strings.Trim(addr, "[]")
+	if ip := net.ParseIP(trimmed); ip != nil {
+		return ip.String(), net.JoinHostPort(ip.String(), defaultPort)
+	}
+	return trimmed, net.JoinHostPort(trimmed, defaultPort)
+}
+
 // ── uTLS dialer ─────────────────────────────────────────────────────
 
 func (ps *proxyServer) dialUTLS(network, addr string) (net.Conn, error) {
-	hostname := strings.Split(addr, ":")[0]
-	rawConn, err := net.DialTimeout(network, addr, 15*time.Second)
+	hostname, targetAddr := normalizeHostPort(addr, "443")
+	rawConn, err := net.DialTimeout(network, targetAddr, 15*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -429,10 +540,7 @@ func (ps *proxyServer) dialUTLS(network, addr string) (net.Conn, error) {
 
 func (ps *proxyServer) handleConnectTransparent(w http.ResponseWriter, r *http.Request) {
 	connID := ps.connCount.Add(1)
-	targetHost := r.Host
-	if !strings.Contains(targetHost, ":") {
-		targetHost += ":443"
-	}
+	_, targetHost := normalizeHostPort(r.Host, "443")
 	ps.logDebug("[%d] CONNECT %s (transparent)", connID, targetHost)
 
 	targetConn, err := net.DialTimeout("tcp", targetHost, 15*time.Second)
@@ -461,11 +569,7 @@ func (ps *proxyServer) handleConnectTransparent(w http.ResponseWriter, r *http.R
 
 func (ps *proxyServer) handleConnectMitM(w http.ResponseWriter, r *http.Request) {
 	connID := ps.connCount.Add(1)
-	targetHost := r.Host
-	hostname := strings.Split(targetHost, ":")[0]
-	if !strings.Contains(targetHost, ":") {
-		targetHost += ":443"
-	}
+	hostname, targetHost := normalizeHostPort(r.Host, "443")
 	ps.logDebug("[%d] CONNECT %s (mitm)", connID, targetHost)
 
 	// Hijack the client connection
@@ -521,11 +625,17 @@ func (ps *proxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	connID := ps.connCount.Add(1)
 	ps.logDebug("[%d] HTTP %s %s", connID, r.Method, r.URL.String())
 
-	r.Header.Del("Proxy-Connection")
-	r.Header.Del("Proxy-Authenticate")
-	r.Header.Del("Proxy-Authorization")
+	outReq := r.Clone(r.Context())
+	outReq.RequestURI = ""
+	if outReq.URL.Scheme == "" {
+		outReq.URL.Scheme = "http"
+	}
+	if outReq.URL.Host == "" {
+		outReq.URL.Host = r.Host
+	}
+	removeHopByHopHeaders(outReq.Header)
 
-	resp, err := ps.transport.RoundTrip(r)
+	resp, err := ps.transport.RoundTrip(outReq)
 	if err != nil {
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 		return
@@ -543,24 +653,46 @@ func (ps *proxyServer) handleHTTP(w http.ResponseWriter, r *http.Request) {
 
 // ── Relay helper ────────────────────────────────────────────────────
 
+func removeHopByHopHeaders(header http.Header) {
+	for _, key := range []string{
+		"Connection",
+		"Proxy-Connection",
+		"Keep-Alive",
+		"Proxy-Authenticate",
+		"Proxy-Authorization",
+		"Te",
+		"Trailer",
+		"Transfer-Encoding",
+		"Upgrade",
+	} {
+		header.Del(key)
+	}
+}
+
 func relay(a, b net.Conn) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(b, a)
-		if tc, ok := b.(*net.TCPConn); ok {
-			tc.CloseWrite()
-		}
+		closeWrite(b)
 	}()
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(a, b)
-		if tc, ok := a.(*net.TCPConn); ok {
-			tc.CloseWrite()
-		}
+		closeWrite(a)
 	}()
 	wg.Wait()
+}
+
+type closeWriter interface {
+	CloseWrite() error
+}
+
+func closeWrite(conn net.Conn) {
+	if cw, ok := conn.(closeWriter); ok {
+		_ = cw.CloseWrite()
+	}
 }
 
 // ── Control API ─────────────────────────────────────────────────────

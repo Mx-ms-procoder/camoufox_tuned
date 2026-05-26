@@ -5,6 +5,7 @@ Written by daijro.
 
 #pragma once
 #include "json.hpp"
+#include "EnvTruthy.hpp"
 #include <memory>
 #include <string>
 #include <tuple>
@@ -18,12 +19,64 @@ Written by daijro.
 #include <vector>
 #include <algorithm>
 #include <cctype>
+#include <array>
+#include <limits>
+#include <type_traits>
 
 #ifdef _WIN32
 #  include <windows.h>
 #endif
 
 namespace MaskConfig {
+
+template <typename T>
+struct IsStdArray : std::false_type {};
+
+template <typename T, size_t N>
+struct IsStdArray<std::array<T, N>> : std::true_type {};
+
+template <typename T>
+struct StdArrayTraits {};
+
+template <typename T, size_t N>
+struct StdArrayTraits<std::array<T, N>> {
+  using ValueType = T;
+  static constexpr size_t Size = N;
+};
+
+template <typename T>
+inline bool JsonScalarMatches(const nlohmann::json& value) {
+  if constexpr (std::is_same_v<T, bool>) {
+    return value.is_boolean();
+  } else if constexpr (std::is_same_v<T, std::string>) {
+    return value.is_string();
+  } else if constexpr (std::is_floating_point_v<T>) {
+    return value.is_number();
+  } else if constexpr (std::is_integral_v<T> && std::is_unsigned_v<T>) {
+    return value.is_number_unsigned();
+  } else if constexpr (std::is_integral_v<T> && std::is_signed_v<T>) {
+    return value.is_number_integer();
+  } else {
+    return true;
+  }
+}
+
+template <typename T>
+inline bool JsonValueMatches(const nlohmann::json& value) {
+  if constexpr (IsStdArray<T>::value) {
+    if (!value.is_array() || value.size() != StdArrayTraits<T>::Size) {
+      return false;
+    }
+    for (const auto& item : value) {
+      if (!JsonScalarMatches<typename StdArrayTraits<T>::ValueType>(item)) {
+        return false;
+      }
+    }
+    return true;
+  } else {
+    return JsonScalarMatches<T>(value);
+  }
+}
 
 // ── Debug gate ─────────────────────────────────────────────────────
 //
@@ -38,38 +91,17 @@ namespace MaskConfig {
 // Truthy: "1", "true", "yes", "on" (case-insensitive). Anything else
 // (including "0", "false", empty, unset) is falsy.
 //
-// Previously this checked only the length of the value on Windows
-// (size == 2), which incorrectly returned true for *any* single-byte
-// value such as "0", "x", or " ". See remediation note for §1.4.
+// Kept under MaskConfig:: because several Firefox-source patches call
+// it as ::MaskConfig::_IsTruthyEnv(...). Implementation lives in
+// EnvTruthy.hpp so CamouTLSOverride uses the same semantics — before
+// consolidation, CAMOU_TLS_DEBUG=true silently disabled debug there
+// because that gate matched only literal "1".
 inline bool _IsTruthyEnv(const char* name) {
-  std::string value;
-#ifdef _WIN32
-  std::wstring wname(name, name + std::char_traits<char>::length(name));
-  DWORD size = GetEnvironmentVariableW(wname.c_str(), nullptr, 0);
-  if (size == 0) return false;
-  std::vector<wchar_t> wbuf(size);
-  // got >= size means env var grew between calls; the buffer is truncated
-  // and NOT NUL-terminated, so WideCharToMultiByte would read past it.
-  DWORD wgot = GetEnvironmentVariableW(wname.c_str(), wbuf.data(), size);
-  if (wgot == 0 || wgot >= size) return false;
-  int utf8Size = WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1,
-                                     nullptr, 0, nullptr, nullptr);
-  if (utf8Size <= 1) return false;
-  value.resize(static_cast<size_t>(utf8Size - 1), '\0');
-  WideCharToMultiByte(CP_UTF8, 0, wbuf.data(), -1, value.data(), utf8Size,
-                      nullptr, nullptr);
-#else
-  const char* raw = std::getenv(name);
-  if (!raw || !*raw) return false;
-  value = raw;
-#endif
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return std::tolower(c); });
-  return value == "1" || value == "true" || value == "yes" || value == "on";
+  return CamouEnv::IsTruthyEnv(name);
 }
 
 inline bool DebugEnabled() {
-  return _IsTruthyEnv("CAMOU_MASKCFG_DEBUG");
+  return CamouEnv::IsTruthyEnv("CAMOU_MASKCFG_DEBUG");
 }
 
 #define CAMOU_MASKCFG_LOG(...)               \
@@ -214,6 +246,11 @@ inline bool HasKey(const std::string& key, const nlohmann::json& data) {
 inline std::optional<std::string> GetString(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
+  if (!data[key].is_string()) {
+    CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not a string\n",
+                      key.c_str());
+    return std::nullopt;
+  }
   return data[key].get<std::string>();
 }
 
@@ -221,7 +258,17 @@ inline std::vector<std::string> GetStringList(const std::string& key) {
   std::vector<std::string> result;
   const auto& data = GetJson();
   if (!HasKey(key, data)) return {};
+  if (!data[key].is_array()) {
+    CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not a string list\n",
+                      key.c_str());
+    return {};
+  }
   for (const auto& item : data[key]) {
+    if (!item.is_string()) {
+      CAMOU_MASKCFG_LOG("MaskConfig: skipping non-string item in '%s'\n",
+                        key.c_str());
+      continue;
+    }
     result.push_back(item.get<std::string>());
   }
   return result;
@@ -240,7 +287,15 @@ template <typename T>
 inline std::optional<T> GetUintImpl(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
-  if (data[key].is_number_unsigned()) return data[key].get<T>();
+  if (data[key].is_number_unsigned()) {
+    uint64_t value = data[key].get<uint64_t>();
+    if (value <= std::numeric_limits<T>::max()) {
+      return static_cast<T>(value);
+    }
+    CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is out of range\n",
+                      key.c_str());
+    return std::nullopt;
+  }
   CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not an unsigned integer\n",
                     key.c_str());
   return std::nullopt;
@@ -257,7 +312,16 @@ inline std::optional<uint32_t> GetUint32(const std::string& key) {
 inline std::optional<int32_t> GetInt32(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
-  if (data[key].is_number_integer()) return data[key].get<int32_t>();
+  if (data[key].is_number_integer()) {
+    int64_t value = data[key].get<int64_t>();
+    if (value >= std::numeric_limits<int32_t>::min() &&
+        value <= std::numeric_limits<int32_t>::max()) {
+      return static_cast<int32_t>(value);
+    }
+    CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is out of range\n",
+                      key.c_str());
+    return std::nullopt;
+  }
   CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not an integer\n",
                     key.c_str());
   return std::nullopt;
@@ -267,7 +331,9 @@ inline std::optional<double> GetDouble(const std::string& key) {
   const auto& data = GetJson();
   if (!HasKey(key, data)) return std::nullopt;
   if (data[key].is_number_float()) return data[key].get<double>();
-  if (data[key].is_number_unsigned() || data[key].is_number_integer())
+  if (data[key].is_number_unsigned())
+    return static_cast<double>(data[key].get<uint64_t>());
+  if (data[key].is_number_integer())
     return static_cast<double>(data[key].get<int64_t>());
   CAMOU_MASKCFG_LOG("MaskConfig: value for key '%s' is not a double\n",
                     key.c_str());
@@ -314,6 +380,13 @@ inline std::optional<std::array<int32_t, 4>> GetInt32Rect(
     const std::string& height) {
   if (auto optValue = GetRect(left, top, width, height)) {
     std::array<int32_t, 4> result;
+    for (const auto& val : *optValue) {
+      if (val > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())) {
+        CAMOU_MASKCFG_LOG(
+            "MaskConfig: rectangle value is out of int32 range. Using default.\n");
+        return std::nullopt;
+      }
+    }
     std::transform(optValue->begin(), optValue->end(), result.begin(),
                    [](const auto& val) { return static_cast<int32_t>(val); });
     return result;
@@ -346,6 +419,11 @@ inline std::optional<T> GetAttribute(const std::string attrib, bool isWebGL2) {
       isWebGL2 ? "webGl2:contextAttributes" : "webGl:contextAttributes",
       attrib);
   if (!value) return std::nullopt;
+  if (!JsonValueMatches<T>(value.value())) {
+    CAMOU_MASKCFG_LOG("MaskConfig: context attribute '%s' has wrong type\n",
+                      attrib.c_str());
+    return std::nullopt;
+  }
   return value.value().get<T>();
 }
 
@@ -371,6 +449,11 @@ inline T MParamGL(uint32_t pname, T defaultValue, bool isWebGL2) {
           isWebGL2 ? "webGl2:parameters" : "webGl:parameters",
           std::to_string(pname));
       value.has_value()) {
+    if (!JsonValueMatches<T>(value.value())) {
+      CAMOU_MASKCFG_LOG("MaskConfig: GL parameter '%u' has wrong type\n",
+                        pname);
+      return defaultValue;
+    }
     return value.value().get<T>();
   }
   return defaultValue;
@@ -385,6 +468,13 @@ inline std::vector<T> MParamGLVector(uint32_t pname,
           std::to_string(pname));
       value.has_value()) {
     if (value.value().is_array()) {
+      for (const auto& item : value.value()) {
+        if (!JsonScalarMatches<T>(item)) {
+          CAMOU_MASKCFG_LOG("MaskConfig: GL vector parameter '%u' has wrong type\n",
+                            pname);
+          return defaultValue;
+        }
+      }
       return value.value().get<std::vector<T>>();
     }
   }
@@ -406,9 +496,25 @@ inline std::optional<std::array<int32_t, 3UL>> MShaderData(
         !data.contains("precision")) {
       return std::nullopt;
     }
-    return std::array<int32_t, 3U>{data["rangeMin"].get<int32_t>(),
-                                   data["rangeMax"].get<int32_t>(),
-                                   data["precision"].get<int32_t>()};
+    if (!data["rangeMin"].is_number_integer() ||
+        !data["rangeMax"].is_number_integer() ||
+        !data["precision"].is_number_integer()) {
+      return std::nullopt;
+    }
+    int64_t rangeMin = data["rangeMin"].get<int64_t>();
+    int64_t rangeMax = data["rangeMax"].get<int64_t>();
+    int64_t precision = data["precision"].get<int64_t>();
+    if (rangeMin < std::numeric_limits<int32_t>::min() ||
+        rangeMin > std::numeric_limits<int32_t>::max() ||
+        rangeMax < std::numeric_limits<int32_t>::min() ||
+        rangeMax > std::numeric_limits<int32_t>::max() ||
+        precision < std::numeric_limits<int32_t>::min() ||
+        precision > std::numeric_limits<int32_t>::max()) {
+      return std::nullopt;
+    }
+    return std::array<int32_t, 3U>{static_cast<int32_t>(rangeMin),
+                                   static_cast<int32_t>(rangeMax),
+                                   static_cast<int32_t>(precision)};
   }
   return std::nullopt;
 }
@@ -428,6 +534,11 @@ MVoices() {
     if (!voice.contains("lang") || !voice.contains("name") ||
         !voice.contains("voiceUri") || !voice.contains("isDefault") ||
         !voice.contains("isLocalService")) {
+      continue;
+    }
+    if (!voice["lang"].is_string() || !voice["name"].is_string() ||
+        !voice["voiceUri"].is_string() || !voice["isDefault"].is_boolean() ||
+        !voice["isLocalService"].is_boolean()) {
       continue;
     }
 
