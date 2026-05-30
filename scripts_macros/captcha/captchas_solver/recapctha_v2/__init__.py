@@ -70,8 +70,14 @@ async def solve(page) -> bool:
         return False
 
     try:
-        solver = AsyncSolver(page)
-        token = await solver.solve_recaptcha(attempts=3)
+        # `async with` guarantees solver.close() runs, which removes the
+        # page.on("response", …) listener registered in BaseSolver.__init__.
+        # Without it every solve attempt (and every retry) leaked a response
+        # listener onto the page — they accumulated across a live_scan
+        # session and each fired a coroutine on every subsequent HTTP
+        # response.
+        async with AsyncSolver(page) as solver:
+            token = await solver.solve_recaptcha(attempts=3)
         if token:
             print("  [ReCaptchaV2] reCAPTCHA geloest.")
             return True

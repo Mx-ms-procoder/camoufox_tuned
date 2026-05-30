@@ -44,6 +44,10 @@ tabulate~=0.9.0
 zstandard~=0.23.0
 SpeechRecognition~=3.10.4
 pydub~=0.25.1
+# pydub imports the stdlib `audioop`, which was REMOVED in Python 3.13
+# (PEP 594). Without this shim `import pydub` fails on 3.13+, silently
+# disabling the reCAPTCHA audio solver. audioop-lts restores it.
+audioop-lts~=0.2.1; python_version >= "3.13"
 tenacity~=9.0.0
 
 # Optional GUI helper — only required by scripts/developer.py.

@@ -7,11 +7,17 @@
 with Files("**"):
     BUG_COMPONENT = ("Core", "DOM: UI Events & Focus Handling")
 
+# Export the transitively-included headers too (EnvTruthy.hpp, json.hpp),
+# so a consumer that only adds dist/include to its search path still finds
+# them. Without this the exported headers were not self-contained and only
+# compiled because every consumer also carried LOCAL_INCLUDES += ['/camoucfg'].
 EXPORTS += [
     "CamouTLSOverride.hpp",
+    "EnvTruthy.hpp",
     "IdentityStateProvider.hpp",
     "MaskConfig.hpp",
     "MouseTrajectories.hpp",
+    "json.hpp",
 ]
 
 LOCAL_INCLUDES += [

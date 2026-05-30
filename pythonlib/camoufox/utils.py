@@ -117,13 +117,54 @@ def _reap_config_file(path: str) -> None:
     _created_config_files.discard(path)
 
 
+def _parse_owner_pid(name: str) -> Optional[int]:
+    """Extract the launcher PID encoded in a config filename.
+
+    Files are named ``camou_config_<pid>_<random>.json``. Returns None for
+    legacy names without an embedded PID (those fall back to the age check).
+    """
+    core = name[len(_CONFIG_FILE_PREFIX):]
+    head = core.split("_", 1)[0]
+    return int(head) if head.isdigit() else None
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness check for a config file's owning launcher PID.
+
+    Conservative on uncertainty: returns True (do NOT reap) whenever we
+    cannot prove the process is gone, so a still-running sibling's file is
+    never deleted out from under it.
+    """
+    if pid <= 0:
+        return True
+    if OS_NAME == 'win':
+        # os.kill(pid, 0) is unreliable on Windows; defer to the age check.
+        return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Exists but owned by another UID — not ours to reap regardless.
+        return True
+    except OSError:
+        return True
+    return True
+
+
 def _sweep_orphan_config_files(max_age_s: float = _CONFIG_SWEEP_AGE_S) -> None:
     """Reap identity-config tempfiles orphaned by a SIGKILLed launcher.
 
-    Only files older than `max_age_s` are removed, so a concurrently
-    running sibling's freshly written file is never deleted. mkstemp
-    created these 0600 under our UID, so another user's like-named file
-    simply fails to unlink (EPERM) and is skipped.
+    A file is only removed when its owning launcher is provably gone (PID
+    dead). The previous age-only rule deleted any file older than
+    `max_age_s`, which could wipe the identity blob of a *still-running*
+    sibling session that had been alive for more than an hour — and because
+    Firefox content processes re-read CAMOU_CONFIG_FILE on spawn (Fission),
+    that unmasked every newly-spawned process in that session. Liveness via
+    the PID embedded in the filename avoids that entirely; the age check
+    survives only as a fallback for legacy (no-PID) names and on platforms
+    without a reliable liveness probe. mkstemp created these 0600 under our
+    UID, so another user's like-named file fails to unlink (EPERM) anyway.
     """
     tmpdir = tempfile.gettempdir()
     now = time.time()
@@ -136,7 +177,15 @@ def _sweep_orphan_config_files(max_age_s: float = _CONFIG_SWEEP_AGE_S) -> None:
                 and name.endswith(_CONFIG_FILE_SUFFIX)):
             continue
         path = os.path.join(tmpdir, name)
+        owner_pid = _parse_owner_pid(name)
         try:
+            if owner_pid is not None and owner_pid != os.getpid():
+                # Only reap when the owning launcher is gone. A live owner
+                # (even a >max_age_s session) keeps its file in use.
+                if not _pid_alive(owner_pid):
+                    os.unlink(path)
+                continue
+            # No parseable PID (legacy file) → age-based fallback.
             if now - os.stat(path).st_mtime < max_age_s:
                 continue
             os.unlink(path)
@@ -206,8 +255,10 @@ def _write_config_to_secure_file(config_str: str) -> str:
     # adding our own file.
     _sweep_orphan_config_files()
 
+    # Embed our PID so a sibling launcher's startup sweep can tell a live
+    # owner's file from a true orphan (see _sweep_orphan_config_files).
     fd, path = tempfile.mkstemp(
-        prefix=_CONFIG_FILE_PREFIX, suffix=_CONFIG_FILE_SUFFIX
+        prefix=f"{_CONFIG_FILE_PREFIX}{os.getpid()}_", suffix=_CONFIG_FILE_SUFFIX
     )
     try:
         os.write(fd, config_str.encode("utf-8"))
@@ -781,13 +832,21 @@ def launch_options(
         # producing a detectable mismatch on browserscan / CreepJS.
         merge_into(config, geolocation.as_config())
 
-    # Raise a warning when a proxy is being used without spoofing geolocation.
-    # This is a very bad idea; the warning cannot be ignored with i_know_what_im_doing.
+    # Refuse an external proxy without GeoIP/geolocation coherence by
+    # default. A warning was too soft here: the browser would claim one
+    # locale/timezone while the network egress said another.
     elif (
         proxy
         and 'localhost' not in proxy.get('server', '')
         and not is_domain_set(config, 'geolocation:')
     ):
+        if os.environ.get("CAMOUFOX_ALLOW_PROXY_WITHOUT_GEOIP", "").strip().lower() not in _TRUTHY_ENV:
+            raise IdentityCoherenceError(
+                "Proxy is configured without geoip/geolocation spoofing. "
+                "Pass geoip=True or an explicit proxy exit IP, set explicit "
+                "geolocation: values, or set "
+                "CAMOUFOX_ALLOW_PROXY_WITHOUT_GEOIP=1 to bypass."
+            )
         LeakWarning.warn('proxy_without_geoip')
 
     # Set locale

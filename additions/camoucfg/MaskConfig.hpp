@@ -533,7 +533,10 @@ inline std::optional<std::array<int32_t, 3UL>> MShaderData(
 inline std::optional<
     std::vector<std::tuple<std::string, std::string, std::string, bool, bool>>>
 MVoices() {
-  auto data = GetJson();
+  // Reference, not a copy: GetJson() returns a process-static blob and the
+  // previous `auto data =` deep-copied the entire identity JSON on the one
+  // call that builds the cached VoiceState. Read-only access below.
+  const auto& data = GetJson();
   if (!data.contains("voices") || !data["voices"].is_array()) {
     return std::nullopt;
   }

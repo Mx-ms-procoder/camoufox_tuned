@@ -35,6 +35,12 @@ async function collect() {
         hardwareConcurrency: navigator.hardwareConcurrency,
         maxTouchPoints: navigator.maxTouchPoints,
         webdriver: navigator.webdriver,
+        webdriverInNavigator: "webdriver" in navigator,
+        webdriverType: typeof navigator.webdriver,
+        webdriverOnPrototype: Object.prototype.hasOwnProperty.call(
+            Navigator.prototype,
+            "webdriver"
+        ),
         doNotTrack: navigator.doNotTrack,
         cookieEnabled: navigator.cookieEnabled,
         pdfViewerEnabled: navigator.pdfViewerEnabled,

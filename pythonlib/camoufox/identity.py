@@ -63,6 +63,7 @@ _IDENTITY_PREFIXES = (
     "fonts",
     "fonts:",
     "canvas:",
+    "headers.",
 )
 
 _CHROME_WIDTH_BOUNDS = {
@@ -245,6 +246,8 @@ class IdentityCoherenceEngine:
             digest[14:22], "big"
         )
         compiled_config["window.history.length"] = 1 + (digest[13] % 5)
+        self._apply_header_defaults(compiled_config)
+        self._disable_webgl_null_blocking(compiled_config)
 
         firefox_user_prefs: Dict[str, Any] = {}
         if webgl_enabled:
@@ -451,6 +454,50 @@ class IdentityCoherenceEngine:
             if key in compiled_config and compiled_config[key] != value:
                 conflicts.append(key)
         return conflicts
+
+    def _apply_header_defaults(self, compiled_config: Dict[str, Any]) -> None:
+        """Keep HTTP headers on the same identity as navigator.* by default."""
+        if compiled_config.get("navigator.userAgent"):
+            compiled_config.setdefault(
+                "headers.User-Agent", compiled_config["navigator.userAgent"]
+            )
+
+        if "headers.Accept-Language" not in compiled_config:
+            languages = compiled_config.get("navigator.languages")
+            if isinstance(languages, (list, tuple)) and languages:
+                compiled_config["headers.Accept-Language"] = (
+                    self._accept_language_header(languages)
+                )
+            elif compiled_config.get("navigator.language"):
+                compiled_config["headers.Accept-Language"] = compiled_config[
+                    "navigator.language"
+                ]
+
+        compiled_config.setdefault("headers.Accept-Encoding", "gzip, deflate, br, zstd")
+
+    @staticmethod
+    def _accept_language_header(languages: Sequence[Any]) -> str:
+        parts: List[str] = []
+        for index, language in enumerate(languages):
+            lang = str(language)
+            if not lang:
+                continue
+            if index == 0:
+                parts.append(lang)
+            else:
+                q = max(0.1, 1.0 - 0.3 * float(index))
+                parts.append(f"{lang};q={q:.1f}")
+        return ", ".join(parts)
+
+    def _disable_webgl_null_blocking(self, compiled_config: Dict[str, Any]) -> None:
+        """Prefer native WebGL fallbacks over nulling unknown parameters."""
+        for key in (
+            "webGl:parameters:blockIfNotDefined",
+            "webGl2:parameters:blockIfNotDefined",
+            "webGl:shaderPrecisionFormats:blockIfNotDefined",
+            "webGl2:shaderPrecisionFormats:blockIfNotDefined",
+        ):
+            compiled_config[key] = False
 
     def _header_navigator_conflicts(
         self,
@@ -703,7 +750,6 @@ def validate_identity_blob(blob: Dict[str, Any]) -> List[str]:
     # 7. Canvas seed should be present when canvas is configured
     canvas = blob.get("canvas", {})
     if canvas.get("aaOffset") is not None and canvas.get("noiseSeed") is None:
-        # Not strictly an error — noiseSeed is optional
-        pass
+        issues.append("Canvas aaOffset is configured without canvas noiseSeed")
 
     return issues

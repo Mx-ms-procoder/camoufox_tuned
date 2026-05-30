@@ -234,8 +234,21 @@ func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
 	ca.mu.Lock()
 	delete(ca.inflight, hostname)
 	if err == nil {
-		if len(ca.cache) > 4096 {
-			ca.cache = make(map[string]*tls.Certificate) // evict all on overflow
+		// Bounded eviction: when full, drop ~25% of entries instead of
+		// flushing the whole cache. A full flush caused a cert-regeneration
+		// storm (every still-active host re-minted at once) right after
+		// overflow. Go map iteration order is randomized, so this evicts an
+		// arbitrary subset cheaply without tracking insertion order.
+		const certCacheMax = 4096
+		if len(ca.cache) >= certCacheMax {
+			toEvict := certCacheMax / 4
+			for k := range ca.cache {
+				if toEvict <= 0 {
+					break
+				}
+				delete(ca.cache, k)
+				toEvict--
+			}
 		}
 		ca.cache[hostname] = tlsCert
 	}
@@ -589,10 +602,22 @@ func (ps *proxyServer) dialUTLS(network, addr string) (net.Conn, error) {
 		MinVersion:         tls.VersionTLS12,
 	}
 
+	// Build a FRESH ClientHelloSpec per connection. utls' ApplyPreset stores
+	// the spec's extension *pointers* by reference and mutates per-connection
+	// handshake state into them (padding length, session ticket, key shares)
+	// during the handshake. Sharing a single ps.customSpec across concurrent
+	// dials was therefore a data race. Rebuilding from the immutable identity
+	// blob on each dial is cheap (allocations only) and race-free.
 	ps.mu.RLock()
-	spec := ps.customSpec
+	identity := ps.identity
+	haveCustom := ps.customSpec != nil
 	fallback := ps.fallbackHello
 	ps.mu.RUnlock()
+
+	var spec *utls.ClientHelloSpec
+	if haveCustom && identity != nil {
+		spec = buildCustomSpec(identity)
+	}
 
 	var utlsConn *utls.UConn
 	usedCustom := false
@@ -655,6 +680,12 @@ func (ps *proxyServer) handleConnectTransparent(w http.ResponseWriter, r *http.R
 		return
 	}
 	defer clientConn.Close()
+
+	// Clear any deadline the http.Server set from Read/WriteTimeout. After
+	// Hijack the connection becomes a long-lived tunnel; an inherited 30s
+	// read / 60s write deadline would kill an otherwise-healthy relay
+	// mid-stream. The MitM path already clears this after its TLS handshake.
+	_ = clientConn.SetDeadline(time.Time{})
 
 	_, _ = clientConn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n"))
 	relay(clientConn, targetConn)

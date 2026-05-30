@@ -124,6 +124,47 @@ def _redact_snapshot_payload(payload: Any) -> Any:
     return payload
 
 
+_SENSITIVE_ENV_PREFIXES = (
+    "CAMOU_CONFIG",
+    "CAMOU_TLS_",
+    "CAMOU_UTLS_",
+)
+
+
+def _snapshot_safe_launch_options(artifact: Mapping[str, Any]) -> Dict[str, Any]:
+    """Persist only non-sensitive launch metadata.
+
+    The raw Playwright launch artifact can include CAMOU_CONFIG chunks,
+    proxy credentials, cookies and per-session identity material. The
+    worker can receive the full in-memory artifact; snapshots should keep
+    only operational breadcrumbs that are safe to load from Redis/S3/files.
+    """
+    safe: Dict[str, Any] = {}
+    if "headless" in artifact:
+        safe["headless"] = bool(artifact.get("headless"))
+    if isinstance(artifact.get("args"), Sequence) and not isinstance(
+        artifact.get("args"), (str, bytes, bytearray)
+    ):
+        safe["args_count"] = len(artifact.get("args") or [])
+    proxy = artifact.get("proxy")
+    if isinstance(proxy, Mapping):
+        safe["proxy"] = {
+            "server": proxy.get("server"),
+            "has_username": bool(proxy.get("username")),
+            "has_password": bool(proxy.get("password")),
+        }
+    env = artifact.get("env")
+    if isinstance(env, Mapping):
+        safe["env_keys"] = sorted(
+            key
+            for key in env
+            if isinstance(key, str)
+            and not _looks_secret(key)
+            and not any(key.startswith(prefix) for prefix in _SENSITIVE_ENV_PREFIXES)
+        )
+    return safe
+
+
 def _coerce_optional_tuple(value: Optional[Sequence[Any]]) -> Optional[tuple]:
     if value is None:
         return None
@@ -635,7 +676,7 @@ class SessionBroker:
             "session_id": session_id,
             "snapshot_key": snapshot_key,
             "request": asdict(request),
-            "launch_options": artifact,
+            "launch_options": _snapshot_safe_launch_options(artifact),
             "network_profile": network_metadata,
             "worker": {
                 "worker_id": lease.worker_id,

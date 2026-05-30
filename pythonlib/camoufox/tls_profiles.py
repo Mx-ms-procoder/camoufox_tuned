@@ -22,8 +22,9 @@ K-1 / K-2 / K-3):
     (SSL_NamedGroupConfig / SSL_SignatureSchemePrefSet) and the order
     is honoured.
 
-  • ALPN: CAMOU_TLS_ALPN is informational. ALPN is configured per
-    socket and Firefox already sets it via preferences.
+  • ALPN: configured by Firefox per socket. We intentionally do not
+    emit CAMOU_TLS_ALPN because the C++ hook can only warn; it cannot
+    change ALPN on the wire.
 
   • HTTP/2 SETTINGS: get_http2_config() emits the http2:* keys read by
     patches/network/_experimental/http2-fingerprint.patch. Operators
@@ -52,20 +53,21 @@ from .network_profile import NetworkProfile
 
 
 # ── Firefox TLS Profile (135 baseline) ───────────────────────────────
-# Captured from a clean Firefox 135.0.1 installation. Re-used for 140/146/
-# 150 entries because NSS handshake parameters did not observably drift
-# across these versions in upstream Mozilla source. Re-capture against a
-# real Firefox 150 binary if downstream JA3/JA4 telemetry shows divergence.
+# Captured from a clean Firefox 135.0.1 installation. This captured
+# template is used only for Firefox 135. Newer registered Firefox
+# versions deliberately use native NSS runtime defaults instead of
+# inheriting this stale capture.
 #
 # R6 — FF150 baseline protection. This single dict is the source of truth
-# for EVERY registered Firefox version, including 150. There is no separate
-# FF150 capture, so a careless edit here silently corrupts the 150 profile
-# (and all others) with no compile-time signal. Two safeguards apply:
+# for the captured Firefox 135 profile. There is no separate FF150
+# capture in this repository, so newer versions do not emit NSS
+# overrides from this baseline. Two safeguards apply:
 #   1. _verify_baseline_integrity() runs at import and refuses to load a
 #      structurally broken baseline (name/code length mismatch, TLS 1.3 not
 #      first, server_name not first, missing PQ group, key_share order).
-#   2. The per-version profiles carry parity_baseline=135 so callers can
-#      tell an inherited approximation from a ground-truth capture.
+#   2. Newer per-version profiles carry fingerprint_source=native-nss-runtime
+#      and supports_nss_env_overrides=False so stale overrides are not
+#      applied to a newer browser binary.
 # If you intentionally change the on-wire shape, update the integrity
 # invariants below in the SAME commit so the guard stays meaningful.
 
@@ -265,32 +267,40 @@ _verify_baseline_integrity(FIREFOX_135_TLS)
 
 # ── Profile Registry ─────────────────────────────────────────────────
 
-# Firefox majors with a registered network profile. All inherit the
-# BASELINE_FIREFOX_VERSION (135) template; anything other than 135 is an
-# approximation flagged via parity_baseline. Regenerate from a real
-# capture (tests/fingerprint_parity/) before trusting 140/146/150 for a
-# go/no-go fingerprint decision.
+# Firefox majors with a registered network profile. Firefox 135 has a
+# captured template; newer versions use the browser's native NSS/HTTP2
+# runtime defaults instead of applying stale 135 overrides.
 SUPPORTED_FIREFOX_VERSIONS = (133, 134, 135, 140, 146, 150)
 
 
 def _build_firefox_profile(major_version: int) -> NetworkProfile:
     """Build a per-version Firefox profile.
 
-    PARITY NOTE (see AUDIT_2026-05-18.md): the underlying templates
-    currently derive from a captured Firefox 135 ClientHello. We do not
-    yet have ground-truth ClientHello / HTTP/2 captures for Firefox 140,
-    146 or 150, so those versions inherit the 135 baseline with the
-    ``parity_baseline`` flag set so callers can detect that the profile
-    is approximate. Because the actual ClientHello cipher *order* on
-    the wire is whatever NSS emits natively (see K-1), the practical
-    impact of this approximation is limited to which suites are
-    enabled, not their on-wire order.
+    PARITY NOTE (see AUDIT_2026-05-18.md): only Firefox 135 has a
+    ground-truth ClientHello / HTTP/2 capture in this repository. For
+    every other registered major we still return metadata so the Python
+    identity remains version-aware, but we leave NSS and Necko on their
+    native runtime defaults by not emitting CAMOU_TLS_* or http2:* keys.
+    That avoids forcing a Firefox 135 fingerprint onto a newer browser.
     """
+    if major_version != BASELINE_FIREFOX_VERSION:
+        return NetworkProfile(
+            browser_family="firefox",
+            major_version=major_version,
+            tls_profile_id=f"firefox{major_version}",
+            client_hello_template={},
+            http2_template={},
+            alpn_policy=["h2", "http/1.1"],
+            proxy_egress_class="nss",
+            transport_mode="firefox-native",
+            grease_enabled=False,
+            ja4_family="firefox",
+            supports_nss_env_overrides=False,
+            fingerprint_source="native-nss-runtime",
+        )
+
     baseline_template = deepcopy(FIREFOX_135_TLS)
     baseline_http2 = deepcopy(FIREFOX_135_HTTP2)
-    parity_baseline = (
-        BASELINE_FIREFOX_VERSION if major_version != BASELINE_FIREFOX_VERSION else None
-    )
     return NetworkProfile(
         browser_family="firefox",
         major_version=major_version,
@@ -307,7 +317,8 @@ def _build_firefox_profile(major_version: int) -> NetworkProfile:
         nss_extension_overrides=list(baseline_template["tls:extensionCodes"]),
         nss_named_group_overrides=list(baseline_template["tls:namedGroupCodes"]),
         nss_sigalg_overrides=list(baseline_template["tls:signatureAlgorithmCodes"]),
-        parity_baseline=parity_baseline,
+        parity_baseline=None,
+        fingerprint_source="captured-firefox135",
     )
 
 
@@ -383,10 +394,6 @@ def get_tls_env_vars(profile: NetworkProfile) -> Dict[str, str]:
     if "tls:signatureAlgorithmCodes" in template:
         codes = template["tls:signatureAlgorithmCodes"]
         env_vars["CAMOU_TLS_SIGALGS"] = ",".join(f"0x{c:04x}" for c in codes)
-
-    # ALPN
-    if "tls:alpn" in template:
-        env_vars["CAMOU_TLS_ALPN"] = ",".join(template["tls:alpn"])
 
     return env_vars
 

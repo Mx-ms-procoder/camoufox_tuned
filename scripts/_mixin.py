@@ -365,6 +365,33 @@ def is_bootstrap_patch(name):
     return bool(re.match(r'\d+\-.*', os.path.basename(name)))
 
 
+def list_bootstrap_patches(root_dir='../patches', suffix='*.patch', validate=True):
+    """Return on-disk *bootstrap* patches (numeric-prefixed), sorted by basename.
+
+    Bootstrap patches — e.g. ``playwright/0-playwright.patch`` and
+    ``playwright/1-leak-fixes.patch`` — are foundational: they wire the
+    Juggler/Playwright layer into the source tree (``DIRS += ["/juggler"]``
+    in toolkit.mozbuild, the package-manifest entries, the observer hooks)
+    and MUST be applied BEFORE any manifest-claimed feature patch, because
+    the feature patches' context lines are authored against the
+    post-bootstrap source. They are deliberately not claimed by a feature
+    manifest (and are therefore exempt from the unclaimed-file check in
+    :func:`list_patches`); this helper is the counterpart that actually
+    returns them for application.
+
+    The ``0-``/``1-`` numeric prefixes define the apply order, so we sort
+    by basename to guarantee ``0-`` lands before ``1-``.
+    """
+    paths = sorted(
+        (path for path in list_files(root_dir, suffix) if is_bootstrap_patch(path)),
+        key=os.path.basename,
+    )
+    if validate:
+        for patch_path in paths:
+            validate_patch_file(patch_path)
+    return paths
+
+
 @dataclass
 class ConflictReport:
     """Report of two manifests modifying the same Gecko source file."""
@@ -855,6 +882,8 @@ __all__ = [
     'get_moz_target',
     'load_patch_manifests',
     'list_patches',
+    'list_bootstrap_patches',
+    'is_bootstrap_patch',
     'patch',
     'run',
     'script_exit',

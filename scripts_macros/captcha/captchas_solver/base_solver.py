@@ -38,9 +38,15 @@ except (ImportError, ValueError):  # pragma: no cover
 # ══════════════════════════════════════════════════════════════════
 
 try:
-    from .api_config import NVIDIA_API_KEY_Qwen, NVIDIA_API_KEY_Gemma
+    from .api_config import (
+        NVIDIA_API_KEY_Qwen,
+        NVIDIA_API_KEY_Gemma,
+        require_external_captcha_allowed,
+    )
 except ImportError:  # pragma: no cover
     NVIDIA_API_KEY_Qwen = NVIDIA_API_KEY_Gemma = ""
+    def require_external_captcha_allowed(service_name: str) -> None:
+        return None
 
 if not NVIDIA_API_KEY_Qwen or "DEIN_" in NVIDIA_API_KEY_Qwen:
     NVIDIA_API_KEY_Qwen = os.environ.get(
@@ -104,6 +110,7 @@ class AsyncCaptchaSolver:
     """
 
     def __init__(self, page: Page, model: Optional[str] = None):
+        require_external_captcha_allowed("NVIDIA NIM Vision")
         self.page = page
         self.model = model or NVIDIA_MODEL
         # Default: Qwen-Key, es sei denn das Modell ist eine Gemma-Variante
@@ -320,7 +327,6 @@ async def get_nvidia_vision_response(
       - Bessere Timeout-Kontrolle (connect + read separat)
       - HTTP/2-fähig
     """
-    from .api_config import require_external_captcha_allowed
     require_external_captcha_allowed("NVIDIA NIM Vision")
 
     if not api_key:

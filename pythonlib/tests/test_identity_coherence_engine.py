@@ -1,7 +1,11 @@
 import pytest
 
 from camoufox.device_profiles import build_font_list, sample_device_profile
-from camoufox.identity import IdentityCoherenceEngine, _derive_seed_material
+from camoufox.identity import (
+    IdentityCoherenceEngine,
+    _derive_seed_material,
+    validate_identity_blob,
+)
 
 
 def test_sample_device_profile_is_os_coherent():
@@ -68,6 +72,74 @@ def test_identity_engine_tracks_manual_override_conflicts():
     )
 
     assert "navigator.platform" in state.manual_overrides
+
+
+def test_identity_engine_tracks_header_override_conflicts():
+    engine = IdentityCoherenceEngine()
+    state = engine.build_from_base_config(
+        base_config={
+            "navigator.userAgent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) "
+                "Gecko/20100101 Firefox/135.0"
+            ),
+            "navigator.language": "en-US",
+            "navigator.languages": ["en-US", "en"],
+            "screen.width": 1920,
+            "screen.height": 1080,
+        },
+        target_os="win",
+        user_config={
+            "headers.User-Agent": "Mozilla/5.0 mismatched",
+            "headers.Accept-Language": "de-DE,de;q=0.7",
+        },
+        webgl_enabled=False,
+    )
+
+    assert state.config["headers.User-Agent"].endswith("Firefox/135.0")
+    assert state.config["headers.Accept-Language"] == "en-US, en;q=0.7"
+    assert "headers.User-Agent" in state.manual_overrides
+    assert "headers.Accept-Language" in state.manual_overrides
+    assert any("headers.User-Agent" in issue for issue in state.coherence_issues)
+    assert any("headers.Accept-Language" in issue for issue in state.coherence_issues)
+
+
+def test_identity_engine_disables_webgl_unknown_parameter_nulling():
+    engine = IdentityCoherenceEngine()
+    state = engine.build_from_base_config(
+        base_config={
+            "navigator.userAgent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) "
+                "Gecko/20100101 Firefox/135.0"
+            ),
+            "screen.width": 1920,
+            "screen.height": 1080,
+            "webGl:parameters:blockIfNotDefined": True,
+            "webGl2:parameters:blockIfNotDefined": True,
+            "webGl:shaderPrecisionFormats:blockIfNotDefined": True,
+            "webGl2:shaderPrecisionFormats:blockIfNotDefined": True,
+        },
+        target_os="win",
+        webgl_enabled=False,
+    )
+
+    assert state.config["webGl:parameters:blockIfNotDefined"] is False
+    assert state.config["webGl2:parameters:blockIfNotDefined"] is False
+    assert state.config["webGl:shaderPrecisionFormats:blockIfNotDefined"] is False
+    assert state.config["webGl2:shaderPrecisionFormats:blockIfNotDefined"] is False
+
+
+def test_validate_identity_blob_requires_canvas_noise_seed():
+    issues = validate_identity_blob(
+        {
+            "canvas": {"aaOffset": 3},
+            "display": {},
+            "navigator": {},
+            "audio": {},
+            "network": {},
+        }
+    )
+
+    assert "Canvas aaOffset is configured without canvas noiseSeed" in issues
 
 
 def test_identity_engine_matches_network_profile_to_effective_user_agent():

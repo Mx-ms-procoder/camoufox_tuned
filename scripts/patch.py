@@ -26,6 +26,7 @@ from _mixin import (
     find_src_dir,
     get_moz_target,
     get_options,
+    list_bootstrap_patches,
     list_patches,
     load_patch_manifests,
     patch,
@@ -94,13 +95,29 @@ class Patcher:
             self._update_mozconfig()
 
             if not options.mozconfig_only:
-                # Apply all other patches
+                # Apply foundational bootstrap patches FIRST. These are the
+                # numeric-prefixed playwright/juggler patches that are not
+                # claimed by any feature manifest; every feature patch below
+                # is authored against the post-bootstrap tree, so this order
+                # is load-bearing. Restores the pre-manifest-refactor
+                # behaviour where 0-/1- prefixed patches sorted ahead of
+                # everything else. Skipped in targeted --feature/--bundle
+                # runs, which operate on an explicit subset chosen by the
+                # developer (the full production build sets no features).
+                bootstrap_files = [] if features else list_bootstrap_patches(root_dir=patch_root)
+                for patch_file in bootstrap_files:
+                    patch(patch_file)
+
+                # Apply all manifest-claimed feature patches
                 applied = 0
                 for patch_file in patch_files:
                     patch(patch_file)
                     applied += 1
 
-                print(f'\n--- Applied {applied} patch(es) successfully ---')
+                print(
+                    f'\n--- Applied {len(bootstrap_files)} bootstrap '
+                    f'+ {applied} feature patch(es) successfully ---'
+                )
 
             print('Complete!')
 

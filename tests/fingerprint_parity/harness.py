@@ -170,6 +170,19 @@ def diff_probes(
     return regressions, allowed_drift, warnings
 
 
+def stealth_invariants(captured: Dict[str, Any]) -> List[str]:
+    """Hard stealth assertions that should hold regardless of stock drift."""
+    navigator = captured.get("navigator", {})
+    issues: List[str] = []
+    if navigator.get("webdriverInNavigator") is not False:
+        issues.append("'webdriver' in navigator must be false")
+    if navigator.get("webdriverType") != "undefined":
+        issues.append("typeof navigator.webdriver must be 'undefined'")
+    if navigator.get("webdriverOnPrototype") is not False:
+        issues.append("Navigator.prototype must not expose webdriver")
+    return issues
+
+
 async def capture_probes(
     browser_kind: str,
     executable: Optional[str] = None,
@@ -252,6 +265,8 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     regressions, allowed_drift, warnings = diff_probes(captured, baseline)
+    if args.browser == "camoufox":
+        regressions.extend(stealth_invariants(captured))
 
     if args.json:
         json.dump({

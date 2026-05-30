@@ -37,6 +37,7 @@ class NetworkProfile:
     # ``None`` means the templates are native captures of ``major_version``
     # and the fingerprint can be treated as 1:1.
     parity_baseline: Optional[int] = None
+    fingerprint_source: str = "captured"
 
     def is_parity_approximate(self) -> bool:
         return self.parity_baseline is not None
@@ -104,6 +105,7 @@ class NetworkProfile:
             "alpn_policy": list(self.alpn_policy),
             "sidecar_template": dict(self.sidecar_template),
             "parity_baseline": self.parity_baseline,
+            "fingerprint_source": self.fingerprint_source,
         }
 
     def to_env_metadata(self) -> str:
@@ -167,4 +169,3 @@ class NetworkProfile:
 
         blob = {"tls": tls_data, "http2": http2_data}
         return json.dumps(blob, sort_keys=True, separators=(",", ":"))
-

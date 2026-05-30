@@ -46,10 +46,35 @@ jobs:
       - name: Run pythonlib tests
         run: pytest -q pythonlib/tests
 
+  build-utls-proxy:
+    # Compile + vet the experimental uTLS sidecar in the main CI. Previously
+    # the matrix installed Go (`Set up Go`) but never built the proxy, so a
+    # Go regression was only caught inside Dockerfile.slim's builder stage —
+    # i.e. never in a PR. This fast job closes that gap.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Vet and build sidecar
+        working-directory: bundle/_experimental
+        run: |
+          set -eux
+          go vet ./...
+          CGO_ENABLED=0 go build -o /tmp/utls_proxy ./utls_proxy.go
+
   apply-check:
     # Real apply-probe: extract Firefox $(version).$(release), git init, then
-    # run `make dir` which calls scripts/patch.py to actually apply all 56
-    # patches. If any patch has drifted from the source tree (renamed file,
+    # run `make dir` which calls scripts/patch.py to actually apply all 57
+    # patches (2 numeric-prefixed playwright/juggler bootstrap patches first,
+    # then the 55 manifest-claimed feature patches). If any patch has drifted
+    # from the source tree (renamed file,
     # moved line, removed context), it fails here in ~5 minutes instead of
     # ~30+ minutes per worker after rust+C++ compile in the matrix. Single
     # apply-check vs. 7 matrix duplications saves ~3.5h of wasted CI on a

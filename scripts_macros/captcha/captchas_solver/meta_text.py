@@ -27,6 +27,7 @@ try:
         get_nvidia_vision_response,
         NVIDIA_API_KEY_Qwen,
         NVIDIA_MODEL,
+        require_external_captcha_allowed,
     )
 except (ImportError, ValueError):
     import sys
@@ -35,6 +36,7 @@ except (ImportError, ValueError):
         get_nvidia_vision_response,
         NVIDIA_API_KEY_Qwen,
         NVIDIA_MODEL,
+        require_external_captcha_allowed,
     )
 
 # ══════════════════════════════════════════════════════════════════
@@ -88,6 +90,7 @@ class MetaTextSolver:
     """
 
     def __init__(self, page: Page, model: Optional[str] = None):
+        require_external_captcha_allowed("NVIDIA NIM Vision")
         self.page = page
         self.api_key = NVIDIA_API_KEY_Qwen
         self.model = model or os.environ.get("NVIDIA_CAPTCHA_MODEL", NVIDIA_MODEL)

@@ -140,14 +140,31 @@ def fetch_mfsa_index(timeout: float = DEFAULT_TIMEOUT_SEC) -> str:
 
 
 def newer_releases(pinned: FirefoxVersion, records: List[MFSARecord]) -> List[MFSARecord]:
-    """Return MFSAs that name a Firefox release strictly newer than `pinned`."""
+    """Return MFSAs naming a Firefox release strictly newer in the SAME major."""
     hits: List[MFSARecord] = []
     for rec in records:
         for ver in rec.firefox_versions:
-            # Only flag same-major drift (don't page on 151+ if we pin 150).
             if ver.major != pinned.major:
                 continue
             if ver.as_tuple() > pinned.as_tuple():
+                hits.append(rec)
+                break
+    return hits
+
+
+def newer_major_releases(pinned: FirefoxVersion, records: List[MFSARecord]) -> List[MFSARecord]:
+    """Return MFSAs naming a Firefox release in a HIGHER major than `pinned`.
+
+    Pinning e.g. 150.x once Mozilla has shipped 151 is itself a security
+    risk: Mozilla stops issuing point releases for the old line, so the
+    same-major check (newer_releases) goes permanently quiet while the pin
+    rots with unpatched CVEs. We surface this separately so the cron pages
+    on a stale major instead of giving a false all-clear.
+    """
+    hits: List[MFSARecord] = []
+    for rec in records:
+        for ver in rec.firefox_versions:
+            if ver.major > pinned.major:
                 hits.append(rec)
                 break
     return hits
@@ -175,32 +192,44 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     records = parse_mfsa_index(html)
     hits = newer_releases(pinned, records)
+    major_hits = newer_major_releases(pinned, records)
+
+    def _fmt(recs: List[MFSARecord]) -> list:
+        return [
+            {"id": h.id, "date": h.date, "products": h.products,
+             "highest_firefox": str(h.highest_firefox)}
+            for h in recs
+        ]
 
     if args.json:
         json.dump(
             {
                 "pinned": str(pinned),
-                "newer_advisories": [
-                    {"id": h.id, "date": h.date, "products": h.products,
-                     "highest_firefox": str(h.highest_firefox)}
-                    for h in hits
-                ],
+                "newer_advisories": _fmt(hits),
+                "newer_major_advisories": _fmt(major_hits),
             },
             sys.stdout, indent=2,
         )
         sys.stdout.write("\n")
     else:
-        if not hits:
-            print(f"OK: upstream.sh pins {pinned}; no newer same-major MFSA found.")
+        if not hits and not major_hits:
+            print(f"OK: upstream.sh pins {pinned}; no newer MFSA found.")
             return 0
-        print(f"DRIFT: upstream.sh pins {pinned}; "
-              f"{len(hits)} MFSA(s) name a newer same-major Firefox release:")
-        for h in hits:
-            print(f"  * MFSA {h.id} ({h.date}) — {h.products}")
+        if hits:
+            print(f"DRIFT: upstream.sh pins {pinned}; "
+                  f"{len(hits)} MFSA(s) name a newer same-major Firefox release:")
+            for h in hits:
+                print(f"  * MFSA {h.id} ({h.date}) — {h.products}")
+        if major_hits:
+            print(f"MAJOR DRIFT: upstream.sh pins {pinned}; "
+                  f"{len(major_hits)} MFSA(s) name a NEWER MAJOR Firefox release. "
+                  f"The pinned line is likely unmaintained and missing security fixes:")
+            for h in major_hits:
+                print(f"  * MFSA {h.id} ({h.date}) — {h.products}")
         print("\nAction: review the listed advisories, rebase upstream.sh, "
               "and re-run scripts/validate_patches.py.")
 
-    return 1 if hits else 0
+    return 1 if (hits or major_hits) else 0
 
 
 if __name__ == "__main__":
