@@ -75,11 +75,19 @@ def _gpu_os_mesa(p: 'DeviceProfile') -> bool:
 # ── Screen ↔ OS coherence ────────────────────────────────────────────
 
 def _dpr_os(p: 'DeviceProfile') -> bool:
-    """macOS almost always has DPR 2.0 (Retina). Windows/Linux rarely exceed 1.5."""
-    if p.os_family == "mac" and p.device_pixel_ratio < 1.5:
-        return False  # Non-Retina Macs are extremely rare in 2024+
-    if p.os_family == "lin" and p.device_pixel_ratio > 2.0:
-        return False  # Linux rarely uses high DPR
+    """Plausibility bounds on device pixel ratio per OS.
+
+    R7 calibration: the previous rule rejected DPR < 1.5 on macOS, but a
+    Mac mini / Mac Pro — or any MacBook driving a standard 1080p/1440p
+    external display — legitimately reports DPR 1.0. That is a common real
+    configuration, not a tell, yet it tripped IdentityCoherenceError and
+    blocked the launch. It also capped Linux at 2.0, rejecting genuine 4K
+    Linux laptops. Keep only the genuinely implausible extremes.
+    """
+    if p.device_pixel_ratio <= 0 or p.device_pixel_ratio > 4.0:
+        return False  # No real display reports DPR <= 0 or > 4.
+    if p.os_family == "lin" and p.device_pixel_ratio > 3.0:
+        return False  # Linux HiDPI exists, but > 3.0 is unheard of.
     return True
 
 
@@ -102,9 +110,16 @@ def _screen_resolution_plausible(p: 'DeviceProfile') -> bool:
 
 
 def _screen_aspect_ratio(p: 'DeviceProfile') -> bool:
-    """Aspect ratio should be between 1:1 and 32:9 (super ultrawide)."""
+    """Aspect ratio plausibility.
+
+    R7 calibration: the old [1.0, 3.6] band rejected portrait-oriented
+    monitors (rotated displays, e.g. 1080x1920 → 0.5625) which are a real,
+    common setup for developers and finance desks. Accept portrait down to
+    9:16 while still rejecting degenerate ratios; keep the ultrawide
+    ceiling just past 32:9 (3.55).
+    """
     ratio = p.screen_width / max(p.screen_height, 1)
-    if ratio < 1.0 or ratio > 3.6:
+    if ratio < 0.5 or ratio > 3.7:
         return False
     return True
 
@@ -112,9 +127,20 @@ def _screen_aspect_ratio(p: 'DeviceProfile') -> bool:
 # ── Hardware ↔ plausibility ──────────────────────────────────────────
 
 def _hardware_concurrency_valid(p: 'DeviceProfile') -> bool:
-    """Core count must be a realistic power-of-2 or common count."""
-    valid_counts = {1, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 48, 64}
-    return p.hardware_concurrency in valid_counts
+    """Core count must be realistic.
+
+    R7 calibration: the old fixed whitelist {1,2,4,...,64} rejected real
+    high-core CPUs (36/40/44/56/72/96/128 — Threadripper / Xeon / EPYC)
+    and odd VM core counts (3/5). Accept any value in a plausible range —
+    small counts as-is, larger counts must be even (no real CPU exposes an
+    odd hardwareConcurrency above 8).
+    """
+    n = p.hardware_concurrency
+    if not isinstance(n, int) or n < 1 or n > 256:
+        return False
+    if n <= 8:
+        return True
+    return n % 2 == 0
 
 
 def _hardware_concurrency_os(p: 'DeviceProfile') -> bool:
@@ -126,17 +152,38 @@ def _hardware_concurrency_os(p: 'DeviceProfile') -> bool:
 
 # ── Audio ↔ OS coherence ─────────────────────────────────────────────
 
+# R7: standard PCM sample rates. The old list (8000/16000/22050/44100/
+# 48000/96000) rejected legitimate hardware — 32000 (broadcast), 88200
+# (mastering), 176400/192000 (hi-res DACs), 11025 (legacy) — and tripped
+# IdentityCoherenceError on real devices. Calibrated to the full set of
+# rates Firefox/AudioContext can plausibly report. Mirrored in
+# identity.validate_identity_blob.
+STANDARD_AUDIO_SAMPLE_RATES = (
+    8000, 11025, 16000, 22050, 32000, 44100, 48000,
+    88200, 96000, 176400, 192000,
+)
+
+
 def _audio_sample_rate_valid(p: 'DeviceProfile') -> bool:
-    """Sample rate must be a standard value."""
-    return p.audio_sample_rate in (8000, 16000, 22050, 44100, 48000, 96000)
+    """Sample rate must be a standard PCM value (R7-calibrated set)."""
+    return p.audio_sample_rate in STANDARD_AUDIO_SAMPLE_RATES
 
 
 def _audio_latency_os(p: 'DeviceProfile') -> bool:
-    """Output latency ranges differ by OS audio subsystem."""
-    if p.os_family == "win" and p.audio_output_latency > 0.05:
-        return False  # WASAPI is typically low-latency
-    if p.os_family == "mac" and p.audio_output_latency > 0.05:
-        return False  # CoreAudio is low-latency
+    """Output latency plausibility per OS audio subsystem.
+
+    R7 calibration: the old 0.05 s ceiling on Windows/macOS flagged
+    legitimate setups — Bluetooth output, USB DACs and loaded systems
+    routinely report 0.1–0.2 s on WASAPI/CoreAudio. Raise the ceiling to a
+    value that still rejects the absurd without false-positiving on
+    wireless audio.
+    """
+    if p.audio_output_latency < 0:
+        return False
+    if p.os_family in ("win", "mac") and p.audio_output_latency > 0.20:
+        return False
+    if p.audio_output_latency > 0.5:
+        return False  # implausible on any OS
     return True
 
 

@@ -56,6 +56,21 @@ from .network_profile import NetworkProfile
 # 150 entries because NSS handshake parameters did not observably drift
 # across these versions in upstream Mozilla source. Re-capture against a
 # real Firefox 150 binary if downstream JA3/JA4 telemetry shows divergence.
+#
+# R6 — FF150 baseline protection. This single dict is the source of truth
+# for EVERY registered Firefox version, including 150. There is no separate
+# FF150 capture, so a careless edit here silently corrupts the 150 profile
+# (and all others) with no compile-time signal. Two safeguards apply:
+#   1. _verify_baseline_integrity() runs at import and refuses to load a
+#      structurally broken baseline (name/code length mismatch, TLS 1.3 not
+#      first, server_name not first, missing PQ group, key_share order).
+#   2. The per-version profiles carry parity_baseline=135 so callers can
+#      tell an inherited approximation from a ground-truth capture.
+# If you intentionally change the on-wire shape, update the integrity
+# invariants below in the SAME commit so the guard stays meaningful.
+
+# The Firefox version the templates below were actually captured from.
+BASELINE_FIREFOX_VERSION = 135
 
 FIREFOX_135_TLS = {
     # TLS 1.3 cipher suites (these are always first)
@@ -180,7 +195,83 @@ FIREFOX_135_HTTP2 = {
 }
 
 
+# ── Baseline integrity guard (R6) ────────────────────────────────────
+
+class TLSBaselineError(ValueError):
+    """Raised at import when the FF135/150 TLS baseline is structurally
+    inconsistent — a developer mis-edited the source-of-truth template."""
+
+
+def _verify_baseline_integrity(tls: Dict[str, Any]) -> None:
+    """Fail loudly if the hand-maintained TLS baseline is corrupt.
+
+    These are definitional invariants of a Firefox ClientHello, not
+    runtime data, so a violation can only mean the template above was
+    edited incorrectly. Catching it at import keeps a silent regression
+    from propagating into the FF150 profile (and JA3/JA4 on the wire).
+    """
+    # 1. Each human-readable list must line up 1:1 with its numeric codes;
+    #    a length mismatch desyncs names from codes downstream.
+    for names_key, codes_key in (
+        ("tls:cipherSuites", "tls:cipherSuiteCodes"),
+        ("tls:extensions", "tls:extensionCodes"),
+        ("tls:namedGroups", "tls:namedGroupCodes"),
+        ("tls:signatureAlgorithms", "tls:signatureAlgorithmCodes"),
+    ):
+        n, c = len(tls.get(names_key, [])), len(tls.get(codes_key, []))
+        if n != c:
+            raise TLSBaselineError(
+                f"{names_key} has {n} entries but {codes_key} has {c}; "
+                f"names and codes must correspond 1:1."
+            )
+
+    cipher_codes = tls["tls:cipherSuiteCodes"]
+    tls13 = {0x1301, 0x1302, 0x1303}
+    # 2. Firefox always emits its TLS 1.3 suites first, contiguously.
+    seen_non13 = False
+    for code in cipher_codes:
+        if code in tls13:
+            if seen_non13:
+                raise TLSBaselineError(
+                    f"TLS 1.3 cipher 0x{code:04x} appears after a TLS 1.2 "
+                    f"cipher; Firefox sends all TLS 1.3 suites first."
+                )
+        else:
+            seen_non13 = True
+
+    ext_codes = tls["tls:extensionCodes"]
+    # 3. server_name (0) is always the first extension.
+    if not ext_codes or ext_codes[0] != 0:
+        raise TLSBaselineError(
+            "First TLS extension must be server_name (0x0000)."
+        )
+    # 4. key_share (51) precedes supported_versions (43) in Firefox.
+    if 51 in ext_codes and 43 in ext_codes and ext_codes.index(43) < ext_codes.index(51):
+        raise TLSBaselineError(
+            "supported_versions (43) must come after key_share (51)."
+        )
+    # 5. The PQ-hybrid group landed in Firefox 132 and must persist for 150.
+    if 0x11ec not in tls["tls:namedGroupCodes"]:
+        raise TLSBaselineError(
+            "mlkem768x25519 (0x11ec) missing from named groups; Firefox "
+            "132+ (incl. the 150 baseline) advertises the PQ hybrid group."
+        )
+
+
+# Validate the source-of-truth template at import. A structurally broken
+# baseline is a programming error, so failing here is intentional.
+_verify_baseline_integrity(FIREFOX_135_TLS)
+
+
 # ── Profile Registry ─────────────────────────────────────────────────
+
+# Firefox majors with a registered network profile. All inherit the
+# BASELINE_FIREFOX_VERSION (135) template; anything other than 135 is an
+# approximation flagged via parity_baseline. Regenerate from a real
+# capture (tests/fingerprint_parity/) before trusting 140/146/150 for a
+# go/no-go fingerprint decision.
+SUPPORTED_FIREFOX_VERSIONS = (133, 134, 135, 140, 146, 150)
+
 
 def _build_firefox_profile(major_version: int) -> NetworkProfile:
     """Build a per-version Firefox profile.
@@ -197,7 +288,9 @@ def _build_firefox_profile(major_version: int) -> NetworkProfile:
     """
     baseline_template = deepcopy(FIREFOX_135_TLS)
     baseline_http2 = deepcopy(FIREFOX_135_HTTP2)
-    parity_baseline = 135 if major_version != 135 else None
+    parity_baseline = (
+        BASELINE_FIREFOX_VERSION if major_version != BASELINE_FIREFOX_VERSION else None
+    )
     return NetworkProfile(
         browser_family="firefox",
         major_version=major_version,
@@ -220,7 +313,7 @@ def _build_firefox_profile(major_version: int) -> NetworkProfile:
 
 TLS_PROFILES: Dict[str, NetworkProfile] = {
     f"firefox{major_version}": _build_firefox_profile(major_version)
-    for major_version in (133, 134, 135, 140, 146, 150)
+    for major_version in SUPPORTED_FIREFOX_VERSIONS
 }
 
 

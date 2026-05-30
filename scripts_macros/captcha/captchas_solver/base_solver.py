@@ -53,6 +53,24 @@ if not NVIDIA_API_KEY_Gemma or "DEIN_" in NVIDIA_API_KEY_Gemma:
 
 NVIDIA_INVOKE_URL: str = "https://integrate.api.nvidia.com/v1/chat/completions"
 
+# R2 — Screenshot egress guard.
+# Every solved CAPTCHA ships a screenshot to the third-party NVIDIA NIM
+# vision API. A *full-page* screenshot of a logged-in page leaks far more
+# than the captcha (emails, account data, anything below the fold). To
+# bound the privacy blast-radius and bandwidth we (1) default screenshots
+# to the viewport instead of the full document, (2) prefer tight
+# element/region crops, and (3) hard-cap the bytes that may leave on a
+# single call. Override the cap via CAPTCHA_MAX_IMAGE_BYTES (bytes);
+# set 0 to disable. Default 8 MiB — comfortably above a viewport PNG,
+# below a long full-page capture.
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+CAPTCHA_MAX_IMAGE_BYTES: int = _env_int("CAPTCHA_MAX_IMAGE_BYTES", 8 * 1024 * 1024)
+
 # Real existing NVIDIA NIM model identifiers (verified against
 # build.nvidia.com catalog). The previous defaults
 # "qwen/qwen3.5-122b-a10b" and "google/gemma-4-31b-it" do NOT exist
@@ -62,7 +80,20 @@ GEMMA_VISION_MODEL_DEFAULT: str = "google/gemma-3-27b-it"
 NVIDIA_MODEL: str = QWEN_VISION_MODEL_DEFAULT  # alias for backwards compat
 
 # Allow override via env so operators can switch models without code edits.
-NVIDIA_MODEL = os.environ.get("NVIDIA_CAPTCHA_MODEL", NVIDIA_MODEL)
+# Validate shape early so a typo in the env var is surfaced at import time
+# rather than as a confusing HTTP 404 on the first vision call. NIM model
+# IDs always look like "<publisher>/<model-name>"; reject anything else
+# with a warning and fall back to the verified default.
+_ENV_MODEL_OVERRIDE = os.environ.get("NVIDIA_CAPTCHA_MODEL")
+if _ENV_MODEL_OVERRIDE:
+    if "/" in _ENV_MODEL_OVERRIDE and len(_ENV_MODEL_OVERRIDE) > 3:
+        NVIDIA_MODEL = _ENV_MODEL_OVERRIDE
+    else:
+        print(
+            f"  ⚠️   [BaseSolver] NVIDIA_CAPTCHA_MODEL={_ENV_MODEL_OVERRIDE!r} "
+            f"does not match the expected NIM '<publisher>/<model>' shape. "
+            f"Falling back to default {NVIDIA_MODEL!r}."
+        )
 
 
 class AsyncCaptchaSolver:
@@ -167,14 +198,58 @@ class AsyncCaptchaSolver:
 
     # ── Screenshot ──────────────────────────────────────────────────
 
-    async def screenshot_fullpage(self) -> bytes:
-        return await self.page.screenshot(type="png", full_page=True)
+    async def screenshot_fullpage(self, full_page: bool = False) -> bytes:
+        """Viewport screenshot by default (R2: egress reduction).
+
+        This previously captured the ENTIRE scrollable document
+        (full_page=True) and shipped it to the third-party vision API —
+        leaking everything below the fold on a logged-in page. The captcha
+        being solved is always within the viewport, so default to
+        viewport-only and require an explicit full_page=True opt-in for the
+        rare case a solver genuinely needs the whole document.
+        """
+        return await self.page.screenshot(type="png", full_page=full_page)
 
     async def screenshot_locator(self, loc: Locator) -> Optional[bytes]:
-        """Screenshot eines spezifischen Elements. Effizienter als full-page
-        für Captcha-Boxen und gibt dem Vision-Modell einen fokussierten Crop."""
+        """Screenshot eines spezifischen Elements — der bevorzugte,
+        egress-minimale Pfad. Sendet nur die Captcha-Box an das Vision-
+        Modell statt des ganzen Viewports/der ganzen Seite."""
         try:
             return await loc.screenshot(type="png")
+        except Exception:
+            return None
+
+    async def screenshot_region(self, loc: Locator, pad: int = 24) -> Optional[bytes]:
+        """Screenshot of a captcha element plus a small padding margin.
+
+        Some captchas need a little surrounding context (e.g. the prompt
+        text above a tile grid) that a tight element screenshot crops out.
+        This clips to the element bounding box + `pad` px — clamped to the
+        viewport — instead of falling back to a full viewport/page capture,
+        keeping egress to the vision API minimal (R2).
+        """
+        try:
+            box = await loc.bounding_box()
+        except Exception:
+            box = None
+        if not box:
+            return None
+        try:
+            vp = self.page.viewport_size or {}
+        except Exception:
+            vp = {}
+        x = max(0.0, box["x"] - pad)
+        y = max(0.0, box["y"] - pad)
+        w = box["width"] + 2 * pad
+        h = box["height"] + 2 * pad
+        if vp:
+            w = min(w, max(1.0, vp.get("width", x + w) - x))
+            h = min(h, max(1.0, vp.get("height", y + h) - y))
+        try:
+            return await self.page.screenshot(
+                type="png",
+                clip={"x": x, "y": y, "width": w, "height": h},
+            )
         except Exception:
             return None
 
@@ -254,6 +329,18 @@ async def get_nvidia_vision_response(
             "oder NVIDIA_API_KEY_Gemma in der Umgebung."
         )
 
+    # R2 egress guard: bound how much screenshot data leaves the machine on
+    # a single call. An oversized payload almost always means a full-page
+    # capture slipped through; the caller should send a locator/region crop.
+    img_len = len(image_bytes)
+    if CAPTCHA_MAX_IMAGE_BYTES and img_len > CAPTCHA_MAX_IMAGE_BYTES:
+        raise ValueError(
+            f"Refusing to send a {img_len} byte screenshot to {model}: exceeds "
+            f"CAPTCHA_MAX_IMAGE_BYTES={CAPTCHA_MAX_IMAGE_BYTES}. Capture a "
+            f"locator/region screenshot (screenshot_locator/screenshot_region) "
+            f"instead of a full-page image, or raise the cap explicitly."
+        )
+
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -297,11 +384,25 @@ async def get_nvidia_vision_response(
                 try:
                     chunk = json.loads(data)
                     delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    # IMPORTANT: only consume delta.content. Some NIM
+                    # reasoning models emit a separate delta.reasoning_content
+                    # field with chain-of-thought text. Concatenating that
+                    # into full_text would let the model's reasoning leak
+                    # into the downstream regex parsers (extract_target_x,
+                    # extract_percentage) which would then mis-parse a
+                    # random number from the reasoning as the CAPTCHA
+                    # coordinate. Explicitly ignore reasoning_content here.
                     content = delta.get("content", "")
                     if content:
                         full_text += content
                 except (json.JSONDecodeError, KeyError, IndexError, TypeError):
                     continue
 
+    # Strip any <think>...</think> blocks the model may still inline in
+    # content (some models do this even when reasoning_content is also
+    # available). DOTALL so multi-line reasoning blocks are caught.
     full_text = re.sub(r"<think>.*?</think>", "", full_text, flags=re.DOTALL)
+    # Also strip any unclosed <think>… tail in case the stream cut off
+    # mid-reasoning before the closing tag arrived.
+    full_text = re.sub(r"<think>.*\Z", "", full_text, flags=re.DOTALL)
     return full_text.strip()

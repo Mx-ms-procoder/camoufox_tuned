@@ -109,7 +109,10 @@ class MetaTextSolver:
             except Exception:
                 image_bytes = None
         if not image_bytes:
-            image_bytes = await self.page.screenshot(type="png", full_page=True)
+            # R2: viewport-only fallback (not full_page) — the captcha is
+            # on screen and a full-page capture would egress unrelated PII
+            # below the fold to the third-party vision API.
+            image_bytes = await self.page.screenshot(type="png", full_page=False)
         if not image_bytes:
             print("  ❌  [MetaSolver] Screenshot fehlgeschlagen.")
             return False

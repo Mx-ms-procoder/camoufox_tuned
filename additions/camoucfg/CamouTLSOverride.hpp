@@ -350,11 +350,24 @@ inline void ApplyALPNOverride() {
   auto protocols = ParseCSV(*env);
   if (protocols.empty()) return;
 
-  // ALPN cannot be set globally via SSL_* APIs — it's per-socket.
-  // We log it for debugging; actual enforcement happens in nsHttpHandler
-  // which already reads the IdentityStateProvider ALPN config.
+  // ALPN cannot be set globally via SSL_* APIs — it is per-socket.
+  // Firefox's nsHttpHandler reads the desired ALPN from
+  // IdentityStateProvider (the JSON identity blob), NOT from this
+  // CAMOU_TLS_ALPN variable. Setting CAMOU_TLS_ALPN therefore has NO
+  // EFFECT on the wire and would create a detectable fingerprint
+  // mismatch if the operator believes otherwise.
+  //
+  // Print the unconditional warning (not gated on CAMOU_TLS_DEBUG) so
+  // misconfiguration is surfaced loudly to whoever set the variable.
+  // Then echo the requested list under the debug gate for diagnostics.
+  printf_stderr(
+      "CamouTLSOverride: WARNING — CAMOU_TLS_ALPN is informational only. "
+      "ALPN is configured via the identity JSON (consumed by "
+      "nsHttpHandler/IdentityStateProvider), not via this env var. "
+      "The requested list will NOT be applied.\n");
+
   if (DebugEnabled()) {
-    printf_stderr("CamouTLSOverride: ALPN override requested: ");
+    printf_stderr("CamouTLSOverride: requested ALPN list: ");
     for (size_t i = 0; i < protocols.size(); ++i) {
       printf_stderr("%s%s", protocols[i].c_str(),
                     i + 1 < protocols.size() ? "," : "\n");

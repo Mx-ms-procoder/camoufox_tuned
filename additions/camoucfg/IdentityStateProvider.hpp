@@ -83,7 +83,9 @@ struct WebGLState {
   std::optional<std::string> vendor;
   std::optional<std::string> renderer;
   // Extended WebGL state for cross-subsystem coherence validation.
-  // MAX_VIEWPORT_DIMS should never exceed the display resolution.
+  // GL_MAX_VIEWPORT_DIMS is a GPU hardware cap (square, typically 16384
+  // or 32768) and is always *larger* than the display resolution — never
+  // equal to it. See RealisticMaxViewportDim / R8.
   std::optional<uint32_t> maxViewportWidth;
   std::optional<uint32_t> maxViewportHeight;
   bool webGl2Enabled = false;
@@ -290,22 +292,43 @@ inline std::optional<AudioState> GetAudioState() {
   return cache.value;
 }
 
+// R8: GL_MAX_VIEWPORT_DIMS is a GPU hardware constant — square, and far
+// LARGER than any display (commonly 16384 or 32768). The previous code
+// set it equal to the screen resolution, which satisfies the Python
+// validator's `>= screen` check but is itself a detectable mismatch: no
+// real GPU reports MAX_VIEWPORT_DIMS == the monitor size. Pick the
+// smallest realistic power-of-two cap that still covers the spoofed
+// screen so the value is both plausible and coherent.
+inline uint32_t RealisticMaxViewportDim(uint32_t screenMax) {
+  uint32_t cap = 16384u;              // Intel iGPU / many mobile GPUs.
+  if (screenMax > cap) cap = 32768u;  // 8K+ screens → next real GPU cap.
+  return cap;
+}
+
 inline std::optional<WebGLState> GetWebGLState() {
   static detail::CachedState<WebGLState> cache;
   std::call_once(cache.flag, []() {
     WebGLState state{
         MaskConfig::GetString("webGl:vendor"),
         MaskConfig::GetString("webGl:renderer"),
-        std::nullopt,  // maxViewportWidth — derived from display if needed
+        std::nullopt,  // maxViewportWidth — derived below (R8)
         std::nullopt,  // maxViewportHeight
         false,         // webGl2Enabled
     };
 
-    // Cross-reference with display state: MAX_VIEWPORT_DIMS must be >= screen
+    // R8: emit a realistic, square GPU viewport cap that is >= the
+    // spoofed screen — not the screen resolution itself. Honour an
+    // explicit override if the operator provided one.
+    auto cfgVpW = MaskConfig::GetUint32("webGl:maxViewportWidth");
+    auto cfgVpH = MaskConfig::GetUint32("webGl:maxViewportHeight");
     auto displayWidth = MaskConfig::GetUint32("screen.width");
     auto displayHeight = MaskConfig::GetUint32("screen.height");
-    if (displayWidth) state.maxViewportWidth = displayWidth;
-    if (displayHeight) state.maxViewportHeight = displayHeight;
+    uint32_t screenMax = 0u;
+    if (displayWidth && *displayWidth > screenMax) screenMax = *displayWidth;
+    if (displayHeight && *displayHeight > screenMax) screenMax = *displayHeight;
+    uint32_t derived = RealisticMaxViewportDim(screenMax);
+    state.maxViewportWidth = cfgVpW ? cfgVpW : std::optional<uint32_t>(derived);
+    state.maxViewportHeight = cfgVpH ? cfgVpH : std::optional<uint32_t>(derived);
 
     if (!state.vendor && !state.renderer) {
       cache.value = std::nullopt;

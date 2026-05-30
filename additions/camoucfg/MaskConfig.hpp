@@ -161,9 +161,13 @@ inline std::optional<std::string> get_env_utf8(const std::string& name) {
   int utf8Size = WideCharToMultiByte(CP_UTF8, 0, wValue.c_str(), -1,
                                      nullptr, 0, nullptr, nullptr);
   if (utf8Size <= 0) return std::nullopt;
-  std::string result(utf8Size - 1, '\0');
-  WideCharToMultiByte(CP_UTF8, 0, wValue.c_str(), -1,
-                      result.data(), utf8Size, nullptr, nullptr);
+  // Allocate the full utf8Size so WideCharToMultiByte can safely write
+  // the NUL terminator; then shrink to exclude it.
+  std::string result(static_cast<size_t>(utf8Size), '\0');
+  int written = WideCharToMultiByte(CP_UTF8, 0, wValue.c_str(), -1,
+                                    result.data(), utf8Size, nullptr, nullptr);
+  if (written <= 0) return std::nullopt;
+  result.resize(static_cast<size_t>(written - 1));
   return result;
 #else
   const char* value = std::getenv(name.c_str());
@@ -364,7 +368,7 @@ inline std::optional<std::array<uint32_t, 4>> GetRect(
     if (values[2].has_value() ^ values[3].has_value())
       CAMOU_MASKCFG_LOG(
           "MaskConfig: both %s and %s must be provided. Using default.\n",
-          height.c_str(), width.c_str());
+          width.c_str(), height.c_str());
     return std::nullopt;
   }
 
@@ -405,12 +409,19 @@ inline std::optional<nlohmann::json> GetNestedObject(const std::string& domain) 
 
 inline std::optional<nlohmann::json> GetNested(const std::string& domain,
                                                std::string keyStr) {
-  auto data = GetJson();
+  // Use a reference (not a copy) to GetJson(). GetJson() returns a const
+  // reference to a process-static nlohmann::json owned by std::call_once;
+  // the previous `auto data = GetJson();` copied the entire identity blob
+  // on every call. GetNested() is the hot path for every WebGL parameter
+  // lookup (MParamGL, MParamGLVector, MShaderData, GetAttribute), which
+  // can run hundreds of times per rendered frame on WebGL-heavy sites.
+  const auto& data = GetJson();
   if (!data.contains(domain)) return std::nullopt;
 
-  if (!data[domain].contains(keyStr)) return std::nullopt;
+  const auto& domainObj = data.at(domain);
+  if (!domainObj.contains(keyStr)) return std::nullopt;
 
-  return data[domain][keyStr];
+  return domainObj.at(keyStr);
 }
 
 template <typename T>

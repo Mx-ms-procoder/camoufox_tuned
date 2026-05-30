@@ -77,10 +77,19 @@ class GoldenFlow:
     """
     Orchestriert alle Stealth-Layer für einen Playwright-Browser.
 
-    Typische Nutzung:
+    Empfohlene Nutzung (Context-Manager, kein Browser-Leak bei Fehlern):
+        async with GoldenFlow(headless=False).launch(pw) as (browser, context):
+            page = await context.new_page()
+            ...
+        # Browser & Context werden hier automatisch geschlossen.
+
+    Legacy-Nutzung (manuelle Cleanup-Verantwortung):
         flow = GoldenFlow()
         browser, context = await flow.create_browser(pw)
-        page = await flow.new_page(context)
+        try:
+            page = await flow.new_page(context)
+        finally:
+            await browser.close()
     """
 
     def __init__(
@@ -88,6 +97,8 @@ class GoldenFlow:
         headless:   bool = False,
     ) -> None:
         self.headless   = headless
+        self._browser:  Optional[Browser]        = None
+        self._context:  Optional[BrowserContext] = None
 
     async def create_browser(self, pw) -> tuple[Browser, BrowserContext]:
         """
@@ -101,10 +112,20 @@ class GoldenFlow:
             raise SystemExit("❌  Camoufox fehlt: pip install camoufox")
 
         browser = await AsyncNewBrowser(pw, headless=self.headless)
-        context = await browser.new_context(
-            no_viewport=True,
-            java_script_enabled=True,
-        )
+        try:
+            context = await browser.new_context(
+                no_viewport=True,
+                java_script_enabled=True,
+            )
+        except Exception:
+            # If context creation fails after the browser process is up,
+            # the browser would leak. Close it explicitly before
+            # propagating the exception.
+            try:
+                await browser.close()
+            except Exception:
+                pass
+            raise
 
         # Rotate per-session JS markers so every new context gets unique
         # window property names — prevents cross-session fingerprinting.
@@ -114,8 +135,49 @@ class GoldenFlow:
         except ImportError:
             pass
 
+        self._browser = browser
+        self._context = context
         print("  ✅  [GoldenFlow] Camoufox erstellt (Natives Stealthing).")
         return browser, context
+
+    def launch(self, pw) -> "_GoldenFlowSession":
+        """Returns an async context manager that owns the launched browser.
+
+        Use this instead of create_browser() when you want guaranteed
+        cleanup on exception — the previous bare create_browser() leaked
+        a Firefox process whenever the caller forgot to wrap the result
+        in try/finally.
+        """
+        return _GoldenFlowSession(self, pw)
+
+    async def aclose(self) -> None:
+        """Close the browser+context owned by this GoldenFlow (idempotent)."""
+        if self._context is not None:
+            try:
+                await self._context.close()
+            except Exception:
+                pass
+            self._context = None
+        if self._browser is not None:
+            try:
+                await self._browser.close()
+            except Exception:
+                pass
+            self._browser = None
+
+
+class _GoldenFlowSession:
+    """Async context manager for GoldenFlow.launch()."""
+
+    def __init__(self, flow: "GoldenFlow", pw) -> None:
+        self._flow = flow
+        self._pw = pw
+
+    async def __aenter__(self) -> tuple[Browser, BrowserContext]:
+        return await self._flow.create_browser(self._pw)
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        await self._flow.aclose()
 
     async def new_page(self, context: BrowserContext) -> Page:
         page = await context.new_page()

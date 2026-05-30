@@ -1,6 +1,7 @@
 import atexit
 import os
 import tempfile
+import time
 from os.path import abspath
 from pathlib import Path
 from pprint import pprint
@@ -81,13 +82,133 @@ def _secure_config_via_file_enabled() -> bool:
     return True
 
 
+# ── Secure identity-config tempfile lifecycle (R5) ───────────────────
+#
+# The identity blob is written to a 0600 tempfile (see
+# _write_config_to_secure_file). Cleanup previously relied solely on an
+# atexit hook, which does NOT run when the launcher is killed by a
+# signal: SIGKILL is uncatchable, and the default SIGTERM disposition
+# terminates the process without running atexit handlers. Either case
+# orphans a file full of identity data (UA, cookies, geolocation,
+# network profile) in $TMPDIR.
+#
+# Mitigation on three fronts:
+#   1. atexit          — normal interpreter shutdown.
+#   2. SIGTERM/SIGINT  — caught, files reaped, then chained to the prior
+#                        handler so the host's own shutdown still runs.
+#   3. startup sweep   — SIGKILL cannot be trapped at all, so the only
+#                        guaranteed reclamation point is the next launch:
+#                        reap stale camou_config_* files older than the
+#                        sweep age (younger ones may belong to a sibling
+#                        launcher that is still alive).
+
+_CONFIG_FILE_PREFIX = "camou_config_"
+_CONFIG_FILE_SUFFIX = ".json"
+_CONFIG_SWEEP_AGE_S = 3600.0
+_created_config_files: set = set()
+_signal_handlers_installed = False
+
+
+def _reap_config_file(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    _created_config_files.discard(path)
+
+
+def _sweep_orphan_config_files(max_age_s: float = _CONFIG_SWEEP_AGE_S) -> None:
+    """Reap identity-config tempfiles orphaned by a SIGKILLed launcher.
+
+    Only files older than `max_age_s` are removed, so a concurrently
+    running sibling's freshly written file is never deleted. mkstemp
+    created these 0600 under our UID, so another user's like-named file
+    simply fails to unlink (EPERM) and is skipped.
+    """
+    tmpdir = tempfile.gettempdir()
+    now = time.time()
+    try:
+        names = os.listdir(tmpdir)
+    except OSError:
+        return
+    for name in names:
+        if not (name.startswith(_CONFIG_FILE_PREFIX)
+                and name.endswith(_CONFIG_FILE_SUFFIX)):
+            continue
+        path = os.path.join(tmpdir, name)
+        try:
+            if now - os.stat(path).st_mtime < max_age_s:
+                continue
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+def _install_cleanup_signal_handlers() -> None:
+    """Best-effort: reap config tempfiles on SIGTERM/SIGINT/SIGHUP too.
+
+    Installs once, only from the main thread (signal.signal requires it),
+    and chains to the previous handler so the host application's own
+    shutdown logic is never swallowed.
+    """
+    global _signal_handlers_installed
+    if _signal_handlers_installed:
+        return
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        return
+    _signal_handlers_installed = True
+
+    for signame in ("SIGTERM", "SIGINT", "SIGHUP"):
+        if not hasattr(signal, signame):
+            continue
+        signum = getattr(signal, signame)
+        try:
+            prev = signal.getsignal(signum)
+        except (ValueError, OSError):
+            continue
+
+        def _handler(snum, frame, _prev=prev):
+            for p in list(_created_config_files):
+                _reap_config_file(p)
+            # Chain to a previously installed Python handler if any.
+            if callable(_prev) and _prev not in (signal.SIG_DFL, signal.SIG_IGN):
+                _prev(snum, frame)
+                return
+            if _prev == signal.SIG_IGN:
+                return
+            # No prior handler: restore the default disposition and
+            # re-raise so the process terminates exactly as it would
+            # have. Guarded for platforms where os.kill on an arbitrary
+            # signal is unsupported (Windows).
+            try:
+                signal.signal(snum, signal.SIG_DFL)
+                os.kill(os.getpid(), snum)
+            except Exception:
+                os._exit(128 + (snum if isinstance(snum, int) else 0))
+
+        try:
+            signal.signal(signum, _handler)
+        except (ValueError, OSError):
+            pass
+
+
 def _write_config_to_secure_file(config_str: str) -> str:
     """
-    Persist `config_str` (the serialised identity JSON) to a tempfile
-    with 0600 permissions and register an atexit hook to remove it.
-    Returns the absolute file path.
+    Persist `config_str` (the serialised identity JSON) to a 0600
+    tempfile and arrange for its removal on normal exit, on catchable
+    termination signals, and — for the uncatchable SIGKILL case — on the
+    next launch via the startup sweep. Returns the absolute file path.
     """
-    fd, path = tempfile.mkstemp(prefix="camou_config_", suffix=".json")
+    # Reap anything a previously SIGKILLed launcher left behind before
+    # adding our own file.
+    _sweep_orphan_config_files()
+
+    fd, path = tempfile.mkstemp(
+        prefix=_CONFIG_FILE_PREFIX, suffix=_CONFIG_FILE_SUFFIX
+    )
     try:
         os.write(fd, config_str.encode("utf-8"))
     finally:
@@ -102,13 +223,9 @@ def _write_config_to_secure_file(config_str: str) -> str:
         except OSError:
             pass
 
-    def _cleanup() -> None:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-
-    atexit.register(_cleanup)
+    _created_config_files.add(path)
+    atexit.register(_reap_config_file, path)
+    _install_cleanup_signal_handlers()
     return path
 
 

@@ -668,12 +668,23 @@ def validate_identity_blob(blob: Dict[str, Any]) -> List[str]:
             f"screen.availHeight ({avail_h}) > screen.height ({screen_height})"
         )
 
-    # 5. Audio sample rate must be a standard value
+    # 5. Audio sample rate must be a standard value (R7: calibrated set,
+    #    shared with device_profiles.coherence.STANDARD_AUDIO_SAMPLE_RATES
+    #    so the two validators agree and neither false-positives on
+    #    32000 / 88200 / 176400 / 192000 hardware).
     sample_rate = audio.get("sampleRate")
-    if sample_rate and sample_rate not in (8000, 16000, 22050, 44100, 48000, 96000):
-        issues.append(
-            f"Non-standard audio sample rate: {sample_rate}"
-        )
+    if sample_rate:
+        try:
+            from .device_profiles.coherence import STANDARD_AUDIO_SAMPLE_RATES
+        except Exception:
+            STANDARD_AUDIO_SAMPLE_RATES = (
+                8000, 11025, 16000, 22050, 32000, 44100, 48000,
+                88200, 96000, 176400, 192000,
+            )
+        if sample_rate not in STANDARD_AUDIO_SAMPLE_RATES:
+            issues.append(
+                f"Non-standard audio sample rate: {sample_rate}"
+            )
 
     # 6. Network profile family must match navigator UA
     ua = navigator.get("userAgent", "")

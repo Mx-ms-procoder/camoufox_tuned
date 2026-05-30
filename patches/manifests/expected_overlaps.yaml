@@ -54,3 +54,38 @@ expected:
   - file: dom/webidl/Window.webidl
     manifests: [media, security]
     reason: WebIDL surface for the navigator/media/security properties that the .cpp overlaps implement.
+
+
+# === Ordered hunk compositions (R9) ===
+# The `expected:` list above is FILE-level: it only says two manifests
+# co-edit a file by design and downgrades the file report to info. It does
+# NOT — and must not — hide two patches that touch the *same lines*: that
+# still makes `git apply` reject the second patch and breaks the build.
+#
+# A few patch pairs legitimately DO overlap at the line level because the
+# second patch was authored against the tree *after* the first is applied
+# (its context lines already contain the first patch's additions), so they
+# compose cleanly when applied in order. Those — and ONLY those exact pairs
+# — are exempted from the hunk-overlap error here. `before` MUST apply
+# before `after`; the apply order is the alphabetical manifest order
+# (core < identity < media < security), and detect_conflicts re-checks it,
+# so a future reorder that breaks the dependency is caught, not silently
+# shipped. Any other line collision still errors. The clean long-term fix
+# is still the K-7 consolidation (single composite Window patch) that makes
+# this section unnecessary.
+ordered_hunk_overlaps:
+  - file: dom/base/nsGlobalWindowInner.h
+    before: identity/font-list-spoofing.patch
+    after: security/speech-voices-spoofing.patch
+    reason: >-
+      speech-voices declares SetSpeechVoices immediately after font-list's
+      SetFontList; its hunk context includes the font-list lines, so it
+      only applies once font-list has run.
+  - file: dom/base/nsGlobalWindowInner.h
+    before: identity/screen-spoofing.patch
+    after: media/audio-fingerprint-manager.patch
+    reason: >-
+      audio-fingerprint declares SetAudioFingerprintSeed immediately after
+      screen-spoofing's SetScreenDimensions/SetScreenColorDepth; its hunk
+      context includes those lines, so it only applies once screen-spoofing
+      has run.

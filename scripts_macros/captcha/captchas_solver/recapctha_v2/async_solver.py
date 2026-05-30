@@ -19,6 +19,7 @@ from tenacity import (
     wait_fixed,
 )
 
+from ..api_config import require_external_captcha_allowed
 from ..errors import (
     RecaptchaNotFoundError,
     RecaptchaRateLimitError,
@@ -37,14 +38,27 @@ class AsyncAudioFile(speech_recognition.AudioFile):
         executor: Optional[ThreadPoolExecutor] = None,
     ) -> None:
         super().__init__(file)
-        self._loop = asyncio.get_running_loop()
+        # Defer loop acquisition to __aenter__. asyncio.get_running_loop()
+        # raises RuntimeError when called from a synchronous context;
+        # constructing AsyncAudioFile from sync setup code (e.g. from a
+        # thread, or before the event loop is running) would crash the
+        # solver before any audio work began.
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._executor = executor
 
     async def __aenter__(self) -> AsyncAudioFile:
+        # Lazy loop binding — guaranteed to have a running loop here
+        # because __aenter__ itself is awaited.
+        self._loop = asyncio.get_running_loop()
         await self._loop.run_in_executor(self._executor, self.__enter__)
         return self
 
     async def __aexit__(self, *args: Any) -> None:
+        if self._loop is None:
+            # Defensive: __aexit__ before __aenter__ shouldn't happen,
+            # but if it does just call the sync exit directly.
+            self.__exit__(*args)
+            return
         await self._loop.run_in_executor(self._executor, self.__exit__, *args)
 
 
@@ -86,6 +100,13 @@ class AsyncSolver(BaseSolver[Page]):
     async def _transcribe_audio(
         self, audio_url: str, *, language: str = "en-US"
     ) -> Optional[str]:
+        # R4: gate the actual egress. recognize_google() ships the captcha
+        # audio to Google's unofficial Web Speech endpoint (shared key baked
+        # into SpeechRecognition, undocumented, rate-limited, ToS-gray). The
+        # package-level solve() checks this too, but enforce it here so a
+        # direct AsyncSolver user cannot bypass the CAMOU_CAPTCHA_ALLOW_EXTERNAL
+        # opt-in. Raised before any network fetch so nothing leaks early.
+        require_external_captcha_allowed("Google Web Speech API (reCAPTCHA audio)")
         loop = asyncio.get_running_loop()
         response = await self._page.request.get(audio_url)
         wav_audio = BytesIO()

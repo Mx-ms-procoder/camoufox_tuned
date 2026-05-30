@@ -110,16 +110,22 @@ _observer_injected: WeakKeyDictionary[Any, str] = WeakKeyDictionary()
 
 
 # ══════════════════════════════════════════════════════════════════
-#  Per-session marker randomization (T1.1 / T1.5)
+#  Per-page marker randomization (T1.1 / T1.5 / R1 / R3)
 # ══════════════════════════════════════════════════════════════════
 #
 # Previously the scanner used fixed marker names — window.__CSI_KEY__,
-# window.__INJECTED_KEY__, window.__REPORT_BINDING__ and a
-# hard-coded 800 ms debounce. Any page that enumerated window
-# properties or pattern-matched against those constants could detect
-# the automation harness in a single line. We now generate per-process
-# random identifiers for each marker and randomize the debounce per
-# render, so the surface looks different in every session.
+# window.__INJECTED_KEY__ — plus a Playwright expose_binding() callback
+# on window (__REPORT_BINDING__) and a hard-coded 800 ms debounce. Any
+# page that enumerated window properties or pattern-matched against
+# those constants could detect the automation harness in a single line,
+# and the bound function was a textbook Playwright tell.
+#
+# Now: (R3) each *page* gets its own random window-property names and a
+# random console-channel prefix, sampled lazily in _markers_for_page, so
+# no marker is a process-wide or cross-page constant; and (R1) newly
+# detected captchas are reported over console.debug(prefix + json),
+# parsed by a page.on("console") listener — nothing is bound onto
+# window. The MutationObserver debounce is also resampled per render.
 
 def _gen_marker() -> str:
     # Underscore prefix keeps the name a legal JS identifier; 16 hex
@@ -127,33 +133,72 @@ def _gen_marker() -> str:
     # against window is not a credible discovery path.
     return "_" + secrets.token_hex(8)
 
-_CSI_KEY = _gen_marker()
-_INJECTED_KEY = _gen_marker()
-_REPORT_BINDING = _gen_marker()
+
+def _new_marker_set() -> dict:
+    """Generate a fresh, unique set of JS markers for ONE page.
+
+    `csi` / `injected` are window-property names; `report` is the
+    console-message prefix used by the detection channel (see
+    _on_console in live_scan). Giving every page its own set means the
+    automation surface is never a process-wide constant that two pages
+    — or two colluding sites in the same process — could correlate on
+    (R3: per-page markers instead of per-process).
+    """
+    return {
+        "csi": _gen_marker(),
+        "injected": _gen_marker(),
+        # Console-message prefix for the reporting channel (R1). Not a
+        # window property, so it does not need to be a JS identifier;
+        # the trailing ':' keeps Python-side prefix matching unambiguous.
+        "report": _gen_marker() + ":",
+    }
+
+
+# Per-page marker store. WeakKeyDictionary so entries vanish when the
+# page is garbage-collected — no manual cleanup, no leak.
+_page_markers: "WeakKeyDictionary[Any, dict]" = WeakKeyDictionary()
+
+
+def _markers_for_page(page) -> dict:
+    """Return the marker set bound to `page`, creating one on first use."""
+    m = _page_markers.get(page)
+    if m is None:
+        m = _new_marker_set()
+        try:
+            _page_markers[page] = m
+        except TypeError:
+            # Page not weak-referenceable (shouldn't happen for real
+            # Playwright pages) — fall back to a fresh per-call set.
+            pass
+    return m
 
 
 def _regenerate_session_markers() -> None:
-    """Rotate the per-session JS markers. Call between unrelated runs."""
-    global _CSI_KEY, _INJECTED_KEY, _REPORT_BINDING
-    _CSI_KEY = _gen_marker()
-    _INJECTED_KEY = _gen_marker()
-    _REPORT_BINDING = _gen_marker()
+    """Deprecated no-op kept for import stability.
+
+    Markers used to be process-global and this rotated them between
+    runs. They are now per-page (see _markers_for_page), so rotation is
+    automatic and this does nothing. golden_flow.py still imports it.
+    """
+    return None
 
 
-def _render(template: str) -> str:
+def _render(template: str, markers: dict) -> str:
     """Substitute marker / debounce placeholders in a JS template.
 
-    `__CSI_KEY__`, `__INJECTED_KEY__`, `__REPORT_BINDING__` are stable
-    for the lifetime of the process so Phase-1 inject and Phase-2 scan
-    see the same window property. `__SCAN_DEBOUNCE_MS__` is sampled
-    per render in [600, 1000] so the MutationObserver timing is not a
-    constant fingerprint either.
+    `markers` is a per-page set from _markers_for_page() so that
+    `__CSI_KEY__` / `__INJECTED_KEY__` (window properties) and
+    `__REPORT_PREFIX__` (console-channel prefix) are unique per page.
+    Phase-1 inject and Phase-2 scan for the same page resolve markers
+    from the same page object, so they always agree. `__SCAN_DEBOUNCE_MS__`
+    is sampled per render in [600, 1000] so the MutationObserver timing
+    is not a constant fingerprint either.
     """
     debounce_ms = 600 + secrets.randbelow(401)
     return (template
-        .replace("__CSI_KEY__", _CSI_KEY)
-        .replace("__INJECTED_KEY__", _INJECTED_KEY)
-        .replace("__REPORT_BINDING__", _REPORT_BINDING)
+        .replace("__CSI_KEY__", markers["csi"])
+        .replace("__INJECTED_KEY__", markers["injected"])
+        .replace("__REPORT_PREFIX__", markers["report"])
         .replace("__SCAN_DEBOUNCE_MS__", str(debounce_ms)))
 
 
@@ -242,7 +287,15 @@ function deepQueryVisible(root, sel) {
 }
 
 function collectDocs(win, depth) {
-    if (depth > 1) return [];
+    // Recursion depth bumped from 1 to 4 so deeply-nested captcha
+    // iframes (e.g. Cloudflare Turnstile inside an ad iframe inside a
+    // login modal iframe) are reachable from this JS-side deep scan.
+    // The Python-side find_selector_in_frames() iterates page.frames
+    // with no depth limit; keeping the two sides aligned avoids
+    // false-negatives where the Python solver could reach a captcha
+    // that the JS detector missed. 4 is a safety cap against
+    // pathological frame trees and same-origin recursive iframes.
+    if (depth > 4) return [];
     let docs = [];
     try { if (win.document) docs.push(win.document); } catch(e) {}
     try {
@@ -1385,9 +1438,15 @@ function runScanEvent() {
         const key = res.name + (res.solved ? "_solved" : "");
         if (!reported.has(key)) {
             reported.add(key);
-            if (window.__REPORT_BINDING__) {
-                window.__REPORT_BINDING__(res);
-            }
+            // Report channel (R1): emit on console instead of calling a
+            // Playwright expose_binding() function on window. A bound
+            // window function is a one-line automation tell; a prefixed
+            // console.debug message adds nothing to the window object and
+            // is indistinguishable from ordinary page logging. The Python
+            // side filters page.on("console") on "__REPORT_PREFIX__".
+            try {
+                console.debug("__REPORT_PREFIX__" + JSON.stringify(res));
+            } catch (e) {}
         }
     }
 }
@@ -1476,6 +1535,7 @@ async def _inject_observer(page) -> None:
     url = page.url
     if _observer_injected.get(page) == url:
         return
+    markers = _markers_for_page(page)
     injected_any = False
     for frame in list(page.frames):
         try:
@@ -1484,7 +1544,7 @@ async def _inject_observer(page) -> None:
         except Exception:
             continue
         try:
-            await frame.evaluate(_render(JS_INJECT_OBSERVERS))
+            await frame.evaluate(_render(JS_INJECT_OBSERVERS, markers))
             injected_any = True
         except Exception:
             # Cross-origin / CSP / navigation race — Observer für
@@ -1515,6 +1575,7 @@ async def scan_page(page) -> list[dict]:
           "_frame_url": str}, ...]
     """
     await _inject_observer(page)
+    markers = _markers_for_page(page)
     all_results: list[dict] = []
     seen_keys: set[str] = set()
 
@@ -1529,7 +1590,7 @@ async def scan_page(page) -> list[dict]:
         except Exception:
             continue
         try:
-            result = await frame.evaluate(_render(JS_DEEP_SCAN))
+            result = await frame.evaluate(_render(JS_DEEP_SCAN, markers))
         except Exception:
             # Cross-origin restrictions, navigation in flight, oder
             # CSP blockiert eval — alle erwartet, kein Loud-Print.
@@ -1702,24 +1763,12 @@ async def live_scan(
             except Exception:
                 pass
 
-    async def __report_captcha_event(source, captcha_data):
-        page = source.get("page")
-        if not page:
-            return
-        await handle_captcha(captcha_data, page)
-
-    try:
-        await context.expose_binding(_REPORT_BINDING, __report_captcha_event)
-    except Exception as e:
-        print(f"  ⚠️   [Scanner] Binding-Fehler (bereits registriert?): {e}")
-
-    # Early-Inject: Observer läuft auf ALLEN neuen Pages bevor das erste
-    # Page-Script ausgeführt wird. Ohne das fängt der Observer erst ab
-    # dem Zeitpunkt _inject_observer() läuft (Race gegen XHR-Mounts).
-    try:
-        await context.add_init_script(_render(JS_INJECT_OBSERVERS))
-    except Exception as e:
-        print(f"  ⚠️   [Scanner] add_init_script fehlgeschlagen: {e}")
+    # R1: no context.expose_binding() here. A bound window function is a
+    # Playwright automation tell. The in-page observer now reports new
+    # captchas via console.debug(prefix + json); each page's _on_console
+    # listener (see setup_page) parses them. R3: the early-inject script
+    # is registered per page (page.add_init_script with per-page markers)
+    # instead of once on the context, so no marker is shared across pages.
 
     async def _delayed_rescan(page, delay_ms: int = 400) -> None:
         """Verzögerter Multi-Frame-Scan — wird von Network-Hints + Frame-Navs getriggert."""
@@ -1734,6 +1783,50 @@ async def live_scan(
 
     async def setup_page(page):
         try:
+            markers = _markers_for_page(page)
+            prefix = markers["report"]
+
+            def _on_console(msg):
+                """R1 report channel: the in-page observer pushes newly
+                found captchas via console.debug(prefix + json) instead
+                of a Playwright expose_binding() (which would install a
+                detectable window function). Parse those messages here
+                and dispatch them like any other detection."""
+                try:
+                    text = msg.text
+                except Exception:
+                    return
+                if not text or not text.startswith(prefix):
+                    return
+                try:
+                    cap = json.loads(text[len(prefix):])
+                except Exception:
+                    return
+                if not isinstance(cap, dict):
+                    return
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                try:
+                    loop.create_task(handle_captcha(cap, page))
+                except RuntimeError:
+                    return
+
+            # Attach the report listener before any scan so observer-driven
+            # console reports are never missed.
+            page.on("console", _on_console)
+
+            # R3: per-page early-inject at document_start with this page's
+            # own markers. Replaces the old context-level add_init_script
+            # (which forced one shared marker across every page). Only
+            # affects future navigations; _inject_observer below is the
+            # fallback for frames that already loaded.
+            try:
+                await page.add_init_script(_render(JS_INJECT_OBSERVERS, markers))
+            except Exception as e:
+                print(f"  ⚠️   [Scanner] add_init_script (page) fehlgeschlagen: {e}")
+
             await _inject_observer(page)
             # Multi-Frame Initial-Scan (scan_page handelt Cross-Origin)
             initial_results = await scan_page(page)
@@ -1741,10 +1834,37 @@ async def live_scan(
                 if isinstance(cap, dict):
                     await handle_captcha(cap, page)
 
-            # Per-page cooldown: verhindert Task-Flut bei schnellen Netzwerkantworten.
-            # Minimum 1 s zwischen zwei response-getriggerten Rescans für diese Page.
+            # Per-page cooldowns: prevent task-flood under bursty events.
+            # Minimum interval between rescans triggered by the same source.
             _last_response_rescan: list[float] = [0.0]
+            _last_framenav_rescan: list[float] = [0.0]
+            _last_load_rescan: list[float] = [0.0]
             _RESPONSE_COOLDOWN = 1.0
+            _FRAMENAV_COOLDOWN = 0.5
+            _LOAD_COOLDOWN = 0.5
+
+            def _spawn_rescan(delay_ms: int) -> None:
+                """Schedule _delayed_rescan defensively.
+
+                Playwright sometimes fires events from threads/contexts where
+                no asyncio loop is active. asyncio.create_task() would crash
+                with RuntimeError; asyncio.get_event_loop() is deprecated in
+                3.10+. Use get_running_loop() with a guarded fallback so the
+                callback NEVER raises into Playwright's dispatcher (which
+                would tear down the page).
+                """
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    # No running loop on this thread — drop the rescan
+                    # silently. The next observer-triggered scan will pick
+                    # up the captcha eventually.
+                    return
+                try:
+                    loop.create_task(_delayed_rescan(page, delay_ms=delay_ms))
+                except RuntimeError:
+                    # Loop closed mid-shutdown. Same fallback as above.
+                    return
 
             def _on_response(response):
                 try:
@@ -1753,18 +1873,37 @@ async def live_scan(
                     return
                 if not any(h in url for h in CAPTCHA_URL_HINTS):
                     return
-                loop = asyncio.get_running_loop()
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
                 now = loop.time()
                 if now - _last_response_rescan[0] < _RESPONSE_COOLDOWN:
                     return
                 _last_response_rescan[0] = now
-                asyncio.create_task(_delayed_rescan(page, delay_ms=500))
+                _spawn_rescan(500)
 
             def _on_framenavigated(frame):
-                asyncio.create_task(_delayed_rescan(page, 300))
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                now = loop.time()
+                if now - _last_framenav_rescan[0] < _FRAMENAV_COOLDOWN:
+                    return
+                _last_framenav_rescan[0] = now
+                _spawn_rescan(300)
 
             def _on_load(_p=None):
-                asyncio.create_task(_delayed_rescan(page, 600))
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    return
+                now = loop.time()
+                if now - _last_load_rescan[0] < _LOAD_COOLDOWN:
+                    return
+                _last_load_rescan[0] = now
+                _spawn_rescan(600)
 
             def _on_close(_p=None):
                 # Alle Listener bereinigen, damit kein Leak entsteht wenn die Page
@@ -1773,6 +1912,7 @@ async def live_scan(
                     ("response", _on_response),
                     ("framenavigated", _on_framenavigated),
                     ("load", _on_load),
+                    ("console", _on_console),
                 ):
                     try:
                         page.remove_listener(event, handler)
@@ -1810,14 +1950,25 @@ async def live_scan(
 # kwarg via **camoufox_kwargs (proxy, locale, geolocation, os, …).
 
 def _as_context(browser_or_context):
-    """Normalize AsyncCamoufox/Camoufox return to a BrowserContext.
+    """Normalize SYNC Camoufox return to a BrowserContext.
 
     Detection rule:
       - Browser has `.new_context()` and `.contexts`
       - BrowserContext does not have `.new_context`
-    Awaitable when given a Browser; pass-through when given a Context.
+
+    This helper is for sync Playwright/Camoufox launches only. Passing
+    an AsyncBrowser here would silently return a coroutine and break
+    the downstream `.new_page()` call — detect and refuse explicitly so
+    the failure mode is obvious instead of `AttributeError: 'coroutine'
+    object has no attribute 'new_page'`.
     """
     if hasattr(browser_or_context, "new_context"):
+        if asyncio.iscoroutinefunction(browser_or_context.new_context):
+            raise RuntimeError(
+                "_as_context() received an AsyncBrowser; use "
+                "_async_as_context() instead. The async/sync Camoufox "
+                "APIs are not interchangeable."
+            )
         # Browser: prefer existing context if Camoufox already created
         # one (some launch options do this), else create a fresh one.
         contexts = getattr(browser_or_context, "contexts", None) or []
@@ -1933,6 +2084,7 @@ def scan_with_camoufox_sync(
 
         # Inject observer in every frame, then evaluate JS_DEEP_SCAN in
         # every frame (mirrors async scan_page logic exactly).
+        markers = _markers_for_page(page)
         for frame in list(page.frames):
             try:
                 if hasattr(frame, "is_detached") and frame.is_detached():
@@ -1940,11 +2092,11 @@ def scan_with_camoufox_sync(
             except Exception:
                 continue
             try:
-                frame.evaluate(_render(JS_INJECT_OBSERVERS))
+                frame.evaluate(_render(JS_INJECT_OBSERVERS, markers))
             except Exception:
                 pass
             try:
-                frame_results = frame.evaluate(_render(JS_DEEP_SCAN))
+                frame_results = frame.evaluate(_render(JS_DEEP_SCAN, markers))
             except Exception:
                 continue
             if not isinstance(frame_results, list):

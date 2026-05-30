@@ -85,6 +85,18 @@ type mitmCA struct {
 	certPEM []byte
 	mu      sync.RWMutex
 	cache   map[string]*tls.Certificate
+	// inflight de-duplicates concurrent certFor() calls for the same
+	// hostname. Without this, N parallel CONNECTs to the same host
+	// would each generate a fresh ECDSA keypair + cert (a "cert
+	// generation storm") because the RLock-then-Lock pattern lets
+	// multiple goroutines miss the cache simultaneously.
+	inflight map[string]*certFlight
+}
+
+type certFlight struct {
+	done chan struct{}
+	cert *tls.Certificate
+	err  error
 }
 
 func newMitmCA(certPath, keyPath string) (*mitmCA, error) {
@@ -120,7 +132,13 @@ func generateMitmCA() (*mitmCA, error) {
 	}
 	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
 	log.Printf("[INFO] Generated ephemeral MitM CA (expires %s)", tmpl.NotAfter.Format("2006-01-02"))
-	return &mitmCA{cert: cert, key: key, certPEM: certPEM, cache: make(map[string]*tls.Certificate)}, nil
+	return &mitmCA{
+		cert:     cert,
+		key:      key,
+		certPEM:  certPEM,
+		cache:    make(map[string]*tls.Certificate),
+		inflight: make(map[string]*certFlight),
+	}, nil
 }
 
 func loadMitmCA(certPath, keyPath string) (*mitmCA, error) {
@@ -145,7 +163,13 @@ func loadMitmCA(certPath, keyPath string) (*mitmCA, error) {
 		return nil, err
 	}
 	log.Printf("[INFO] Loaded MitM CA from %s", certPath)
-	return &mitmCA{cert: cert, key: key, certPEM: certPEM, cache: make(map[string]*tls.Certificate)}, nil
+	return &mitmCA{
+		cert:     cert,
+		key:      key,
+		certPEM:  certPEM,
+		cache:    make(map[string]*tls.Certificate),
+		inflight: make(map[string]*certFlight),
+	}, nil
 }
 
 func parsePrivateKeyPEM(keyPEM []byte) (crypto.PrivateKey, error) {
@@ -174,6 +198,7 @@ func parsePrivateKeyPEM(keyPEM []byte) (crypto.PrivateKey, error) {
 }
 
 func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
+	// Fast path: cache hit under read lock.
 	ca.mu.RLock()
 	if cached, ok := ca.cache[hostname]; ok {
 		ca.mu.RUnlock()
@@ -181,6 +206,48 @@ func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
 	}
 	ca.mu.RUnlock()
 
+	// Slow path: take the write lock, re-check the cache (another
+	// goroutine may have populated it during the lock upgrade), and
+	// either claim the flight for this hostname or wait on an existing
+	// one. Singleflight ensures only ONE goroutine generates the cert
+	// for a given hostname under concurrent load.
+	ca.mu.Lock()
+	if cached, ok := ca.cache[hostname]; ok {
+		ca.mu.Unlock()
+		return cached, nil
+	}
+	if flight, ok := ca.inflight[hostname]; ok {
+		ca.mu.Unlock()
+		<-flight.done
+		return flight.cert, flight.err
+	}
+	flight := &certFlight{done: make(chan struct{})}
+	ca.inflight[hostname] = flight
+	ca.mu.Unlock()
+
+	// Generate the cert without holding the lock so other hostnames
+	// remain unblocked. Result is committed under the lock below.
+	tlsCert, err := ca.generateCertFor(hostname)
+	flight.cert = tlsCert
+	flight.err = err
+
+	ca.mu.Lock()
+	delete(ca.inflight, hostname)
+	if err == nil {
+		if len(ca.cache) > 4096 {
+			ca.cache = make(map[string]*tls.Certificate) // evict all on overflow
+		}
+		ca.cache[hostname] = tlsCert
+	}
+	ca.mu.Unlock()
+
+	close(flight.done)
+	return tlsCert, err
+}
+
+// generateCertFor mints a fresh leaf certificate for the given hostname
+// signed by the in-memory CA. Must NOT be called while holding ca.mu.
+func (ca *mitmCA) generateCertFor(hostname string) (*tls.Certificate, error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, err
@@ -203,17 +270,10 @@ func (ca *mitmCA) certFor(hostname string) (*tls.Certificate, error) {
 	if err != nil {
 		return nil, err
 	}
-	tlsCert := &tls.Certificate{
+	return &tls.Certificate{
 		Certificate: [][]byte{certDER, ca.cert.Raw},
 		PrivateKey:  key,
-	}
-	ca.mu.Lock()
-	if len(ca.cache) > 4096 {
-		ca.cache = make(map[string]*tls.Certificate) // evict all on overflow
-	}
-	ca.cache[hostname] = tlsCert
-	ca.mu.Unlock()
-	return tlsCert, nil
+	}, nil
 }
 
 // ── Built-in Firefox identity defaults ──────────────────────────────
@@ -465,16 +525,21 @@ func newProxyServer(profileName string, debug, mitmMode bool, ca *mitmCA) *proxy
 	//     WINDOW_UPDATE increment are NOT exposed by the pinned x/net version.
 	//     Until we ship a hand-rolled http2.Framer transport, those bits of
 	//     the identity blob (EnablePush, InitialWindowSize, MaxFrameSize,
-	//     WindowUpdate) silently take Go's defaults. JA4H and HTTP/2-derived
-	//     fingerprints WILL diverge from a real Firefox client.
-	//   * Only SETTINGS_MAX_HEADER_LIST_SIZE is reachable via the public API.
-	//     We map IdentityBlob.HTTP2.HeaderTableSize onto it as a least-bad
-	//     proxy (existing callers expect "the field gets applied"); strictly
-	//     these are two distinct HTTP/2 settings.
+	//     WindowUpdate, HeaderTableSize) silently take Go's defaults. JA4H
+	//     and HTTP/2-derived fingerprints WILL diverge from a real Firefox
+	//     client.
+	//
+	// PREVIOUS BUG: this code used to alias IdentityBlob.HTTP2.HeaderTableSize
+	// onto h2Transport.MaxHeaderListSize. Those are two semantically
+	// different HTTP/2 settings (HPACK dynamic-table size vs. maximum
+	// allowed header-list size). Aliasing them clamped the latter to
+	// ~65536 instead of Firefox's ~262144 default — actively WORSENING
+	// the H2 fingerprint that this proxy is meant to spoof. Removed; we
+	// now configure HTTP/2 transport upgrade without misapplying the
+	// identity blob.
 	if ps.identity != nil {
-		h2Transport, err := http2.ConfigureTransports(ps.transport)
-		if err == nil && h2Transport != nil && ps.identity.HTTP2.HeaderTableSize > 0 {
-			h2Transport.MaxHeaderListSize = ps.identity.HTTP2.HeaderTableSize
+		if _, err := http2.ConfigureTransports(ps.transport); err != nil {
+			log.Printf("[WARN] http2.ConfigureTransports failed: %v", err)
 		}
 	}
 
@@ -507,32 +572,62 @@ func (ps *proxyServer) dialUTLS(network, addr string) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Bound the TLS handshake. net.DialTimeout only times out the TCP
+	// connect; without a per-conn deadline a slow or unresponsive peer
+	// can pin a goroutine forever inside utlsConn.Handshake(), leaking
+	// goroutines + memory under any concurrent load. 10s mirrors the
+	// http.Transport.TLSHandshakeTimeout we already set elsewhere.
+	if err := rawConn.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		rawConn.Close()
+		return nil, fmt.Errorf("set handshake deadline: %w", err)
+	}
+
 	utlsConfig := &utls.Config{
 		ServerName:         hostname,
 		InsecureSkipVerify: false,
 		MinVersion:         tls.VersionTLS12,
 	}
 
-	var utlsConn *utls.UConn
 	ps.mu.RLock()
 	spec := ps.customSpec
+	fallback := ps.fallbackHello
 	ps.mu.RUnlock()
 
+	var utlsConn *utls.UConn
+	usedCustom := false
 	if spec != nil {
 		utlsConn = utls.UClient(rawConn, utlsConfig, utls.HelloCustom)
-		if err := utlsConn.ApplyPreset(spec); err != nil {
-			rawConn.Close()
-			return nil, fmt.Errorf("apply custom spec: %w", err)
+		if applyErr := utlsConn.ApplyPreset(spec); applyErr != nil {
+			// Custom spec rejected by utls (e.g. unsupported KeyShare
+			// group like 0x11ec on older utls). Don't fail the whole
+			// connection — fall back to the static preset so traffic
+			// keeps flowing with a *known* (if slightly mismatched)
+			// fingerprint instead of a 502 Bad Gateway for every host.
+			ps.logDebug("ApplyPreset failed for host=%s (%v); falling back to %v", hostname, applyErr, fallback)
+			utlsConn = utls.UClient(rawConn, utlsConfig, fallback)
+		} else {
+			usedCustom = true
 		}
 	} else {
-		utlsConn = utls.UClient(rawConn, utlsConfig, ps.fallbackHello)
+		utlsConn = utls.UClient(rawConn, utlsConfig, fallback)
 	}
 
 	if err := utlsConn.Handshake(); err != nil {
 		rawConn.Close()
 		return nil, fmt.Errorf("uTLS handshake (host=%s): %w", hostname, err)
 	}
-	ps.logDebug("uTLS handshake OK (host=%s, version=0x%04x)", hostname, utlsConn.ConnectionState().Version)
+
+	// Clear the handshake deadline. From here on, the conn is owned by
+	// http.Transport (or the caller's relay loop), and an absolute
+	// deadline would prematurely kill long-lived idle keepalives.
+	if err := rawConn.SetDeadline(time.Time{}); err != nil {
+		// Non-fatal: log and continue; idle close is bounded by
+		// http.Server timeouts.
+		ps.logDebug("clear handshake deadline failed (host=%s): %v", hostname, err)
+	}
+	ps.logDebug("uTLS handshake OK (host=%s, version=0x%04x, custom=%t)",
+		hostname, utlsConn.ConnectionState().Version, usedCustom)
 	return utlsConn, nil
 }
 
@@ -594,6 +689,15 @@ func (ps *proxyServer) handleConnectMitM(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Bound the browser-side TLS handshake. A misbehaving or stalled
+	// client could otherwise pin this goroutine indefinitely with no
+	// upstream deadline (the underlying clientConn was hijacked from
+	// the http server; its read/write timeouts no longer apply).
+	if err := clientConn.SetDeadline(time.Now().Add(15 * time.Second)); err != nil {
+		ps.logDebug("[%d] set client handshake deadline failed: %v", connID, err)
+		return
+	}
+
 	// Terminate browser's TLS (browser connects to us with standard TLS)
 	tlsConfig := &tls.Config{
 		Certificates: []tls.Certificate{*cert},
@@ -605,6 +709,11 @@ func (ps *proxyServer) handleConnectMitM(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer browserTLS.Close()
+
+	// Clear the deadline so the relay below isn't artificially capped.
+	if err := clientConn.SetDeadline(time.Time{}); err != nil {
+		ps.logDebug("[%d] clear client deadline failed: %v", connID, err)
+	}
 
 	// Connect to target with uTLS (spoofed Client Hello)
 	targetConn, err := ps.dialUTLS("tcp", targetHost)
@@ -671,28 +780,31 @@ func removeHopByHopHeaders(header http.Header) {
 
 func relay(a, b net.Conn) {
 	var wg sync.WaitGroup
+	// halfClose shuts down the write half of a connection when possible
+	// (plain TCP). For *tls.Conn (which has no CloseWrite) it instead
+	// sets a short read deadline on the *other* side so the blocked
+	// io.Copy returns promptly instead of hanging forever.
+	halfClose := func(writer, reader net.Conn) {
+		if cw, ok := writer.(interface{ CloseWrite() error }); ok {
+			_ = cw.CloseWrite()
+		} else {
+			// Force the peer's io.Copy to unblock by tightening
+			// the deadline on the connection it is reading from.
+			reader.SetReadDeadline(time.Now().Add(5 * time.Second))
+		}
+	}
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(b, a)
-		closeWrite(b)
+		halfClose(b, a)
 	}()
 	go func() {
 		defer wg.Done()
 		_, _ = io.Copy(a, b)
-		closeWrite(a)
+		halfClose(a, b)
 	}()
 	wg.Wait()
-}
-
-type closeWriter interface {
-	CloseWrite() error
-}
-
-func closeWrite(conn net.Conn) {
-	if cw, ok := conn.(closeWriter); ok {
-		_ = cw.CloseWrite()
-	}
 }
 
 // ── Control API ─────────────────────────────────────────────────────

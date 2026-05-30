@@ -387,46 +387,59 @@ def _parse_expected_overlaps_fallback(handle):
     Minimal parser for the fixed expected_overlaps.yaml schema.
 
     Used when PyYAML is not installed (e.g. local validation runs without
-    a virtualenv). Only handles the exact shape documented in
-    patches/manifests/expected_overlaps.yaml: a top-level ``expected:`` list
-    whose items have ``file:``, ``manifests: [a, b]`` and ``reason:`` keys.
+    a virtualenv). Handles the two top-level lists documented in
+    patches/manifests/expected_overlaps.yaml:
+      * ``expected:`` items with ``file:``, ``manifests: [a, b]``, ``reason:``
+      * ``ordered_hunk_overlaps:`` items with ``file:``, ``before:``,
+        ``after:``, ``reason:`` (R9 — precise patch-pair compositions).
+    A new top-level key ends the previous section, so neither list bleeds
+    into the other.
     """
-    entries = []
-    in_expected = False
+    sections = {'expected': [], 'ordered_hunk_overlaps': []}
+    current_section = None
     current = None
+
+    def _flush():
+        nonlocal current
+        if current is not None and current_section in sections:
+            sections[current_section].append(current)
+        current = None
+
     for raw_line in handle:
         line = raw_line.split('#', 1)[0].rstrip()
         if not line.strip():
             continue
-        if line.startswith('expected:'):
-            in_expected = True
+        # A new top-level key (no leading whitespace) starts a new section.
+        if not line[0].isspace():
+            _flush()
+            key = line.split(':', 1)[0].strip()
+            current_section = key if key in sections else None
             continue
-        if not in_expected:
+        if current_section is None:
             continue
         if line.startswith('  - '):
-            if current is not None:
-                entries.append(current)
+            _flush()
             current = {}
             line = '    ' + line[4:]
         if current is None:
             continue
         body = line.strip()
-        if body.startswith('file:'):
-            current['file'] = _strip_wrapping_quotes(body.split(':', 1)[1].strip())
-        elif body.startswith('manifests:'):
+        matched_scalar = False
+        for field in ('file', 'before', 'after', 'reason'):
+            if body.startswith(field + ':'):
+                current[field] = _strip_wrapping_quotes(body.split(':', 1)[1].strip())
+                matched_scalar = True
+                break
+        if not matched_scalar and body.startswith('manifests:'):
             value = body.split(':', 1)[1].strip()
             if value.startswith('[') and value.endswith(']'):
-                items = [
+                current['manifests'] = [
                     _strip_wrapping_quotes(part.strip())
                     for part in value[1:-1].split(',')
                     if part.strip()
                 ]
-                current['manifests'] = items
-        elif body.startswith('reason:'):
-            current['reason'] = _strip_wrapping_quotes(body.split(':', 1)[1].strip())
-    if current is not None:
-        entries.append(current)
-    return {'expected': entries}
+    _flush()
+    return sections
 
 
 def _load_expected_overlaps(root_dir):
@@ -464,6 +477,56 @@ def _load_expected_overlaps(root_dir):
         key = (file_path, frozenset(manifests))
         allowlist[key] = entry.get('reason', '') or ''
     return allowlist
+
+
+def _load_ordered_hunk_overlaps(root_dir):
+    """
+    Load the ordered-hunk-composition allowlist (R9).
+
+    Unlike the file-level ``expected:`` list (keyed on manifest pairs, which
+    only downgrades the *file* co-edit report to info), this is keyed on a
+    precise PAIR OF PATCHES that deliberately touch overlapping line ranges:
+    the ``after`` patch is authored against the tree *after* ``before`` is
+    applied, so its context lines already contain ``before``'s additions and
+    the two compose cleanly in order. Only these exact pairs are exempt from
+    the hunk-overlap error — every other line collision (even within an
+    allowlisted manifest pair) still fails.
+
+    Returns a dict mapping
+      ``(file_path, frozenset({before_basename, after_basename}))``
+    to a ``(before, after, reason)`` tuple, where before/after are the
+    manifest-relative patch paths that MUST apply in that order.
+    """
+    result = {}
+    overlaps_path = os.path.join(root_dir, 'manifests', 'expected_overlaps.yaml')
+    if not os.path.exists(overlaps_path):
+        return result
+    data = None
+    try:
+        import yaml
+        try:
+            with open(overlaps_path, 'r', encoding='utf-8') as handle:
+                data = yaml.safe_load(handle) or {}
+        except (OSError, yaml.YAMLError):
+            return result
+    except ImportError:
+        try:
+            with open(overlaps_path, 'r', encoding='utf-8') as handle:
+                data = _parse_expected_overlaps_fallback(handle)
+        except OSError:
+            return result
+    for entry in (data.get('ordered_hunk_overlaps') or []):
+        file_path = entry.get('file')
+        before = entry.get('before')
+        after = entry.get('after')
+        if not file_path or not before or not after:
+            continue
+        key = (
+            file_path,
+            frozenset({os.path.basename(before), os.path.basename(after)}),
+        )
+        result[key] = (before, after, entry.get('reason', '') or '')
+    return result
 
 
 def _extract_gecko_files(patch_path):
@@ -542,6 +605,18 @@ def detect_conflicts(manifests, root_dir='../patches'):
         List of ConflictReport instances
     """
     allowlist = _load_expected_overlaps(root_dir)
+    ordered = _load_ordered_hunk_overlaps(root_dir)
+
+    # Global apply-order index (R9): the sequence in which patches are
+    # applied — manifest order (alphabetical by filename) × in-manifest
+    # order. Used to verify that documented ordered compositions still
+    # apply in the order they depend on.
+    apply_index = {}
+    _pos = 0
+    for manifest in manifests:
+        for patch_name in manifest.get("patches", []):
+            apply_index.setdefault(os.path.basename(patch_name), _pos)
+            _pos += 1
 
     # Build a map: gecko_file -> [(manifest_name, patch_file), ...]
     file_map = {}
@@ -617,10 +692,40 @@ def detect_conflicts(manifests, root_dir='../patches'):
                 # but already caught at apply time; we focus on cross-manifest.
                 if ka[0] == kb[0]:
                     continue
-                # If this file-pair is already allowlisted as an ordered composition,
-                # don't generate a separate hunk-level error — the sequencing is
-                # intentional and documented in expected_overlaps.yaml.
-                if (gecko_file, frozenset({ka[0], kb[0]})) in allowlist:
+                # R9: the file-level `expected:` allowlist (manifest pair)
+                # only downgrades the *file* co-edit report to info — it must
+                # NOT gag this hunk-range check, or a genuine same-lines
+                # collision between two other patches in those manifests would
+                # silently break `git apply` at build time (the old behaviour,
+                # a sham green). Instead, exempt only the *precise patch pair*
+                # documented as an ordered composition in
+                # ordered_hunk_overlaps, where the `after` patch is authored
+                # against the post-`before` tree and the two compose in order.
+                pair_key = (
+                    gecko_file,
+                    frozenset({os.path.basename(ka[1]), os.path.basename(kb[1])}),
+                )
+                if pair_key in ordered:
+                    before, after, _reason = ordered[pair_key]
+                    # The composition only holds if `before` really does apply
+                    # first. Verify the apply order so a future manifest
+                    # reorder that breaks the dependency is caught here, not in
+                    # an opaque build failure.
+                    bi = apply_index.get(os.path.basename(before))
+                    ai = apply_index.get(os.path.basename(after))
+                    if bi is not None and ai is not None and bi > ai:
+                        conflicts.append(ConflictReport(
+                            file_path=gecko_file,
+                            manifest_a=ka[0],
+                            manifest_b=kb[0],
+                            severity="error",
+                            reason=(
+                                f"ordered composition broken: "
+                                f"{os.path.basename(before)} must apply before "
+                                f"{os.path.basename(after)}, but the current "
+                                f"manifest order applies it after"
+                            ),
+                        ))
                     continue
                 for (a_start, a_count) in per_patch[ka]:
                     a_end = a_start + max(a_count, 1) - 1

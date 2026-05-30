@@ -109,7 +109,13 @@ class HumanizeMouseTrajectory {
   }
 
   double easeOutQuad(double n) const {
-    assert(n >= 0.0 && n <= 1.0 && "Argument must be between 0.0 and 1.0.");
+    // assert() is a no-op under NDEBUG (Firefox release builds), so callers
+    // cannot rely on it for input validation. Clamp explicitly to mirror
+    // the Python port (human_mouse._ease_out_quad) and to guarantee
+    // mathematically sensible output even if callers pass slightly OOR
+    // values (e.g., 1.0 + epsilon from FP rounding).
+    if (n < 0.0) n = 0.0;
+    else if (n > 1.0) n = 1.0;
     return -n * (n - 2);
   }
 
@@ -206,6 +212,15 @@ class HumanizeMouseTrajectory {
       const std::vector<std::vector<double>>& points) const {
     assert(isListOfPoints(points) && "List of points not valid");
 
+    // Hard guard: empty `points` would make `points.size() - 1` wrap
+    // around (size_type is unsigned), producing UB when indexing later.
+    // The asserts above are disabled under NDEBUG so this guard must be
+    // unconditional. Matches Python human_mouse._tween_points which
+    // returns the list as-is for < 2 elements.
+    if (points.size() < 2) {
+      return points;
+    }
+
     double totalLength = 0.0;
     for (size_t i = 1; i < points.size(); ++i) {
       double dx = points[i][0] - points[i - 1][0];
@@ -226,10 +241,18 @@ class HumanizeMouseTrajectory {
         std::max<int32_t>(2, std::min(maxPoints, std::max(desiredMin, distancePoints)));
 
     std::vector<std::vector<double>> res;
+    res.reserve(static_cast<size_t>(targetPoints));
+    const int lastIdx = static_cast<int>(points.size()) - 1;
     for (int i = 0; i < targetPoints; i++) {
       double t = static_cast<double>(i) / (targetPoints - 1);
       double easedT = easeOutQuad(t);
-      int index = static_cast<int>(easedT * (points.size() - 1));
+      int index = static_cast<int>(easedT * lastIdx);
+      // Defensive bounds clamp: the casts above are nominally safe given
+      // easedT ∈ [0,1] and lastIdx ≥ 1, but FP rounding around the upper
+      // bound can place index just past lastIdx. Without this clamp, the
+      // subsequent points[index] would be UB.
+      if (index < 0) index = 0;
+      else if (index > lastIdx) index = lastIdx;
       res.push_back(points[index]);
     }
     return res;

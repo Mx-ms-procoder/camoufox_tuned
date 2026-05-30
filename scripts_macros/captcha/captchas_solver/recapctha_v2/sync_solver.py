@@ -12,6 +12,7 @@ from pydub import AudioSegment
 from pydub.exceptions import CouldntDecodeError
 from tenacity import Retrying, retry_if_exception_type, stop_after_delay, wait_fixed
 
+from ..api_config import require_external_captcha_allowed
 from ..errors import (
     RecaptchaNotFoundError,
     RecaptchaRateLimitError,
@@ -53,6 +54,11 @@ class SyncSolver(BaseSolver[Page]):
     def _transcribe_audio(
         self, audio_url: str, *, language: str = "en-US"
     ) -> Optional[str]:
+        # R4: gate the actual egress (see async_solver._transcribe_audio).
+        # recognize_google() ships the captcha audio to Google's unofficial
+        # Web Speech endpoint; enforce the opt-in here so a direct SyncSolver
+        # user cannot bypass CAMOU_CAPTCHA_ALLOW_EXTERNAL.
+        require_external_captcha_allowed("Google Web Speech API (reCAPTCHA audio)")
         response = self._page.request.get(audio_url)
         wav_audio = BytesIO()
         mp3_audio = BytesIO(response.body())

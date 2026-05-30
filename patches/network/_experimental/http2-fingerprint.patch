@@ -5,7 +5,14 @@
 # (RFC 7540 §6.5.2) and the initial connection-level WINDOW_UPDATE
 # pick up the values that
 # pythonlib/camoufox/tls_profiles.get_http2_config() emits into
-# CAMOU_CONFIG when CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1.
+# CAMOU_CONFIG.
+#
+# Gating (T3.1 — kept in sync here per R10/R12): emission is now ON BY
+# DEFAULT. get_http2_config() returns the http2:* keys for every launch.
+# CAMOUFOX_HTTP2_FINGERPRINT_DISABLED=1 forces the legacy empty config
+# (for a binary that predates this patch); the old
+# CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1 flag is still recognised as a
+# force-on alias so existing launch scripts keep working.
 #
 # Anchors verified on 2026-05-18 against the actual upstream file
 # fetched from
@@ -26,30 +33,43 @@
 # for the same reason — patching them would require adding new entries
 # to the frame rather than overriding existing values.
 #
-# Defensive contract: if MaskConfig has no http2:* keys,
+# Defensive contract (runtime): if MaskConfig has no http2:* keys,
 # ResolveHttp2Setting returns its passed-in upstream default, so the
-# patch is safe on a launcher that has not opted-in. Without
-# `CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1` the launcher emits no
-# http2:* keys and the on-wire behaviour is byte-identical to upstream.
+# on-wire SETTINGS frame is byte-identical to upstream. With emission
+# now default-on, that fallback is the safety net for the
+# CAMOUFOX_HTTP2_FINGERPRINT_DISABLED=1 / pre-patch-binary cases rather
+# than the common case.
 #
 # Patch was verified on 2026-05-18 against the actual upstream file
 # (4318 lines, mc-beta tip): all 6 hunks apply, hunk #1 with fuzz 1,
 # hunks #2-#6 with zero fuzz. After this verification the patch was
-# promoted into patches/manifests/network.yaml. Runtime is defensive
-# — each call site falls back to the upstream Firefox default when
-# no http2:* keys are in MaskConfig, so the on-wire behaviour is
-# byte-identical to upstream unless the launcher sets
-# CAMOUFOX_HTTP2_FINGERPRINT_EXPERIMENTAL=1.
+# promoted into patches/manifests/network.yaml.
 #
-# Build-time risk: Mozilla beta tip moves between Firefox versions,
-# so on a future rebase the four target lines may have shifted by a
-# small offset. Patch's default fuzz=2 recovers up to 2 lines of
-# drift, and the context lines around each hunk are intentionally
-# distinctive (the SETTINGS_TYPE_* token + the NetworkEndian::
-# writeUint{16,32} pattern is unique enough to be unambiguous even
-# under offset). If a future rebase fails, the helper function and
-# the four substitution sites can be hand-ported in <5 minutes by
-# locating each SETTINGS_TYPE_* anchor in the rebased file.
+# ── Rebase risk & safeguards (R10) ───────────────────────────────────
+# This patch targets a fast-moving upstream file (mozilla-beta `tip`),
+# so it is the single most rebase-fragile patch in the set. Safeguards,
+# in order of who catches a drift first:
+#
+#   1. apply-check CI canary — `scripts/patch.py --check-only` (and the
+#      build's `git apply --check`) is the gate: a drifted anchor fails
+#      the CI apply step LOUDLY, before any binary is produced. Treat a
+#      red apply-check here as "re-verify this patch", not "bump fuzz".
+#   2. Distinctive context — each hunk anchors on a unique
+#      `SETTINGS_TYPE_*` token plus the `NetworkEndian::writeUint{16,32}`
+#      pattern, so even under a small offset there is no ambiguous second
+#      match. Default fuzz=2 recovers ≤2 lines of pure drift.
+#   3. Drift sentinel — the upstream file was 4318 lines at verification.
+#      A rebased Http2Session.cpp whose length differs by more than a few
+#      dozen lines means SendHello() may have been restructured; re-read
+#      it before trusting a fuzzy apply.
+#   4. Fail-safe runtime — even a mis-applied/skipped patch cannot emit a
+#      wrong fingerprint, because every call site falls back to the
+#      upstream default when the http2:* keys are absent.
+#
+# Recovery if apply-check goes red: the helper function and the four
+# substitution sites can be hand-ported in <5 minutes by locating each
+# SETTINGS_TYPE_* anchor in the rebased file and re-cutting the hunks.
+# Do NOT widen fuzz to paper over a real structural change.
 
 diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http2Session.cpp
 --- a/netwerk/protocol/http/Http2Session.cpp

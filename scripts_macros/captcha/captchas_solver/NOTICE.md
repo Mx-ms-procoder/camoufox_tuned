@@ -57,8 +57,28 @@ The `recapctha_v2/` audio solver additionally uses:
 
 - **Google Web Speech API** (via `speech_recognition.recognize_google`) — free,
   unofficial endpoint used exclusively to transcribe the audio that reCAPTCHA
-  itself provides. No API key required. Also gated behind
-  `CAMOU_CAPTCHA_ALLOW_EXTERNAL=1`.
+  itself provides. No API key is required by the operator. Gated behind
+  `CAMOU_CAPTCHA_ALLOW_EXTERNAL=1`, enforced at the package entry point
+  **and** at the actual egress (`AsyncSolver._transcribe_audio` /
+  `SyncSolver._transcribe_audio`), so a direct solver caller cannot bypass
+  the opt-in.
+
+  **Risk profile — read before enabling:**
+  - **Data egress.** The reCAPTCHA audio clip (a short WAV) leaves the
+    machine and is sent to Google. The clip is provided by reCAPTCHA itself
+    and contains no operator PII, but it *is* a third-party network call
+    tied to the solving session and the egress IP/proxy.
+  - **Undocumented endpoint + shared key.** `recognize_google()` posts to
+    `www.google.com/speech-api/v2/recognize` using the demo API key baked
+    into the `SpeechRecognition` library. It is not an official, supported
+    API: it is aggressively rate-limited, can change or disappear without
+    notice, and its use may conflict with Google's terms. Treat a working
+    transcription as best-effort, never as a guarantee.
+  - **Hardening options.** For production use, replace `recognize_google`
+    with a keyed Google Cloud Speech-to-Text credential, a self-hosted
+    recognizer (e.g. `recognize_sphinx`/Vosk, fully offline — zero egress),
+    or a commercial captcha service. Leaving the gate closed
+    (`CAMOU_CAPTCHA_ALLOW_EXTERNAL` unset) disables the audio path entirely.
 
 Operators using these APIs are responsible for complying with the respective
 provider terms of service. The Camoufox project does not ship credentials.
