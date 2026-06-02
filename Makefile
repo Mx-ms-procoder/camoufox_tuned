@@ -63,13 +63,17 @@ fetch:
 		fi; \
 	fi
 	# Fetching the Firefox source tarball...
-	aria2c -x16 -s16 -k1M -o $(ff_source_tarball) "https://archive.mozilla.org/pub/firefox/releases/$(version)/source/firefox-$(version).source.tar.xz"
 	# Verify the 677MB archive against Mozilla's published checksum before the
 	# entire browser is built from it. SHA256SUMS is fetched fresh per version,
 	# so no hash is hard-coded here; a corrupted/truncated mirror, a tampered
 	# tarball, or a stale cache aborts the build immediately instead of
 	# surfacing as a cryptic compile failure (or a silently bad binary) later.
 	wget -q -O SHA256SUMS "https://archive.mozilla.org/pub/firefox/releases/$(version)/SHA256SUMS"
+	@if [ ! -f $(ff_source_tarball) ]; then \
+		aria2c -x16 -s16 -k1M -o $(ff_source_tarball) "https://archive.mozilla.org/pub/firefox/releases/$(version)/source/firefox-$(version).source.tar.xz"; \
+	else \
+		echo "Using existing $(ff_source_tarball); verifying checksum"; \
+	fi
 	@expected="$$(grep ' source/$(ff_source_tarball)$$' SHA256SUMS | awk '{print $$1}')"; \
 	if [ -z "$$expected" ]; then \
 		echo "ERROR: no SHA256 entry for $(ff_source_tarball) in SHA256SUMS" >&2; \

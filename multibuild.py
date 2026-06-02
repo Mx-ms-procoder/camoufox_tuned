@@ -97,9 +97,13 @@ def run_build(target, arch):
     # Run package
     builder.package()
     # Move assets to dist
-    print('Assets:', ', '.join(builder.assets))
+    assets = builder.assets
+    if not assets:
+        print(f'No packaged assets found for {target} {arch}; failing build.')
+        sys.exit(1)
+    print('Assets:', ', '.join(assets))
     os.makedirs('dist', exist_ok=True)
-    for asset in builder.assets:
+    for asset in assets:
         shutil.move(asset, f'dist/{asset}')
 
 
