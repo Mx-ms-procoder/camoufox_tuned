@@ -63,7 +63,21 @@ fetch:
 		fi; \
 	fi
 	# Fetching the Firefox source tarball...
-	aria2c -x16 -s16 -k1M -o $(ff_source_tarball) "https://archive.mozilla.org/pub/firefox/releases/$(version)/source/firefox-$(version).source.tar.xz"; \
+	aria2c -x16 -s16 -k1M -o $(ff_source_tarball) "https://archive.mozilla.org/pub/firefox/releases/$(version)/source/firefox-$(version).source.tar.xz"
+	# Verify the 677MB archive against Mozilla's published checksum before the
+	# entire browser is built from it. SHA256SUMS is fetched fresh per version,
+	# so no hash is hard-coded here; a corrupted/truncated mirror, a tampered
+	# tarball, or a stale cache aborts the build immediately instead of
+	# surfacing as a cryptic compile failure (or a silently bad binary) later.
+	wget -q -O SHA256SUMS "https://archive.mozilla.org/pub/firefox/releases/$(version)/SHA256SUMS"
+	@expected="$$(grep ' source/$(ff_source_tarball)$$' SHA256SUMS | awk '{print $$1}')"; \
+	if [ -z "$$expected" ]; then \
+		echo "ERROR: no SHA256 entry for $(ff_source_tarball) in SHA256SUMS" >&2; \
+		rm -f SHA256SUMS; exit 1; \
+	fi; \
+	printf '%s  %s\n' "$$expected" "$(ff_source_tarball)" | sha256sum -c -; status=$$?; \
+	rm -f SHA256SUMS; \
+	exit $$status
 
 setup-minimal:
 	# Note: Only docker containers are intended to run this directly.
@@ -79,9 +93,15 @@ setup-minimal:
 	cd $(cf_source_dir) && bash ../scripts/copy-additions.sh $(version) $(release)
 
 setup: setup-minimal
-	# Initialize local git repo for development
+	# Initialize local git repo for development.
+	# Set a repo-local identity so `git commit`/`git tag -a` work on CI
+	# runners and fresh containers that have no global user.name/user.email
+	# configured (otherwise: "fatal: empty ident name ... not allowed").
+	# Repo-local (no --global) keeps it scoped to the throwaway source tree.
 	cd $(cf_source_dir) && \
 		git init -b main && \
+		git config user.email "build@camoufox.local" && \
+		git config user.name "Camoufox Build" && \
 		git add -f -A && \
 		git commit -m "Initial commit" && \
 		git tag -a unpatched -m "Initial commit"

@@ -162,8 +162,29 @@ class Patcher:
 
 
 def add_rustup(*targets):
-    """Add rust targets"""
+    """Add rust targets.
+
+    Resolves rustup from ``~/.cargo/bin/rustup`` first, then falls back to
+    ``PATH``. If rustup cannot be found at all, this is a no-op with a
+    warning instead of a hard failure: the apply-check CI job only verifies
+    that patches apply cleanly and never compiles Rust, so a missing rust
+    toolchain there must not abort ``make dir``. Set ``CAMOUFOX_SKIP_RUSTUP``
+    to force-skip even when rustup is present (keeps the apply probe fast by
+    not downloading cross-target std libraries).
+    """
+    if os.environ.get('CAMOUFOX_SKIP_RUSTUP'):
+        print('CAMOUFOX_SKIP_RUSTUP is set -> skipping rustup target installation')
+        return
     rustup = os.path.expanduser('~/.cargo/bin/rustup')
+    if not os.path.exists(rustup):
+        rustup = shutil.which('rustup')
+    if not rustup:
+        print(
+            'warning: rustup not found (checked ~/.cargo/bin/rustup and PATH); '
+            'skipping rust target installation. This is expected for the '
+            'apply-check job; a real build must have rustup installed.'
+        )
+        return
     for rust_target in targets:
         run([rustup, 'target', 'add', rust_target])
 
