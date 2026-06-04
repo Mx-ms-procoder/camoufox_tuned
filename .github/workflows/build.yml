@@ -9,6 +9,16 @@ on:
     branches:
       - "**"
 
+# Opt every JavaScript action into the Node.js 24 runtime now. GitHub
+# deprecated Node 20 (forced to Node 24 on 2026-06-16, removed 2026-09-16);
+# this clears the "running on Node.js 20" warnings for the actions we do not
+# bump by hand (setup-go, cache, upload-artifact, download-artifact) without a
+# risky multi-major version jump. checkout/setup-python are additionally
+# bumped to their Node 24 majors below. See:
+# https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
   test-python:
     # Lightweight job that runs pythonlib unit tests and the patch conflict
@@ -17,12 +27,12 @@ jobs:
     # conflicts via patch.py --check-conflicts --strict).
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -63,7 +73,7 @@ jobs:
     # i.e. never in a PR. This fast job closes that gap.
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -92,12 +102,12 @@ jobs:
     needs: test-python
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -202,7 +212,7 @@ jobs:
           sudo apt-get autoremove -y > /dev/null || true
           sudo apt-get clean > /dev/null || true
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 1
 
@@ -212,7 +222,7 @@ jobs:
           go-version: "1.25"
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
