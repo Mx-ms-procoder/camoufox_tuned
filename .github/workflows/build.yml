@@ -322,40 +322,37 @@ jobs:
         if: matrix.target == 'windows'
         run: |
           set -eux
-          # Stub bits/requires_hosted.h wherever GCC 13 placed it.
-          found_any=0
-          for f in /usr/x86_64-w64-mingw32/include/c++/*/bits/requires_hosted.h \
-                   /usr/i686-w64-mingw32/include/c++/*/bits/requires_hosted.h \
-                   /usr/x86_64-w64-mingw32/include/c++/*/*/bits/requires_hosted.h \
-                   /usr/i686-w64-mingw32/include/c++/*/*/bits/requires_hosted.h; do
-            if [ -f "$f" ]; then
-              echo "/* stubbed by Camoufox CI for -ffreestanding cross-compile */" \
-                | sudo tee "$f" > /dev/null
+          # The MinGW libstdc++ header layout moved across GCC/Ubuntu versions,
+          # which broke the old hardcoded globs (requires_hosted.h was reported
+          # "not found"). Locate the files with `find` instead — layout-agnostic
+          # — and treat absence as a non-fatal NOTE: if a newer GCC dropped or
+          # renamed requires_hosted.h there is nothing to stub, and any real
+          # -ffreestanding breakage would then surface as a clear compile error
+          # rather than this preemptive guard aborting every Windows build.
+          echo "=== MinGW libstdc++ headers found ==="
+          find /usr \( -name requires_hosted.h -o -name cstdlib \) -path '*mingw32*' 2>/dev/null | head -40 || true
+
+          # (1) Stub requires_hosted.h wherever it lives.
+          mapfile -t rh_files < <(find /usr -path '*mingw32*' -name requires_hosted.h 2>/dev/null)
+          if [ "${#rh_files[@]}" -eq 0 ]; then
+            echo "NOTE: no requires_hosted.h under any MinGW tree; nothing to stub."
+          else
+            for f in "${rh_files[@]}"; do
+              echo "/* stubbed by Camoufox CI for -ffreestanding cross-compile */" | sudo tee "$f" > /dev/null
               echo "stubbed: $f"
-              found_any=1
-            fi
-          done
-          if [ "$found_any" != "1" ]; then
-            echo "ERROR: no bits/requires_hosted.h found under /usr/{x86_64,i686}-w64-mingw32/include/c++/"
-            echo "Listing what is there for diagnosis:"
-            ls -la /usr/x86_64-w64-mingw32/include/c++/ 2>/dev/null || true
-            ls -la /usr/i686-w64-mingw32/include/c++/ 2>/dev/null || true
-            exit 1
+            done
           fi
-          # Strip _GLIBCXX_NOTHROW from cstdlib so abort()/_Exit() don't
-          # clash with MinGW process.h declarations.
-          cstdlib_found=0
-          for f in /usr/x86_64-w64-mingw32/include/c++/*/cstdlib \
-                   /usr/i686-w64-mingw32/include/c++/*/cstdlib; do
-            if [ -f "$f" ]; then
+
+          # (2) Strip _GLIBCXX_NOTHROW from MinGW cstdlib so abort()/_Exit() do
+          # not clash with MinGW process.h declarations.
+          mapfile -t cstdlib_files < <(find /usr -path '*mingw32*' -name cstdlib 2>/dev/null)
+          if [ "${#cstdlib_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW cstdlib found; skipping _GLIBCXX_NOTHROW strip."
+          else
+            for f in "${cstdlib_files[@]}"; do
               sudo sed -i 's/_GLIBCXX_NOTHROW//g' "$f"
               echo "stripped _GLIBCXX_NOTHROW from: $f"
-              cstdlib_found=1
-            fi
-          done
-          if [ "$cstdlib_found" != "1" ]; then
-            echo "ERROR: no MinGW cstdlib found"
-            exit 1
+            done
           fi
 
       - name: Install Rust toolchain (Firefox 150 baseline)

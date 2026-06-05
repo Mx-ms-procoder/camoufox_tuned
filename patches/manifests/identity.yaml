@@ -10,4 +10,5 @@ patches:
   - identity/screen-spoofing.patch
   - identity/system-ui-font-spoofing.patch
   - identity/anti-font-fingerprinting.patch
+  - identity/font-hijacker.patch
   - identity/force-default-pointer.patch
