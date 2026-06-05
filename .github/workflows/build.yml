@@ -533,7 +533,7 @@ jobs:
           # escape hatch for invalidating without touching the upstream
           # coordinates. OSXCROSS_COMMIT pins tpoechtrager/osxcross to a
           # known-good revision so an upstream-master breakage doesn't propagate.
-          MACOS_SDK_VERSION: "14.4"
+          MACOS_SDK_VERSION: "26.1"
           OSXCROSS_REPO: "tpoechtrager/osxcross"
           OSXCROSS_COMMIT: "e6ab3fa7423f9235ce9ed6381d6d3af191b46b59"
         with:
@@ -597,19 +597,19 @@ jobs:
             done
           }
           OSXCROSS_DIR="$HOME/.mozbuild/osxcross"
-          SDK_URL="https://github.com/joseluisq/macosx-sdks/releases/download/14.4/MacOSX14.4.sdk.tar.xz"
+          SDK_URL="https://github.com/joseluisq/macosx-sdks/releases/download/26.1/MacOSX26.1.sdk.tar.xz"
           if [ ! -x "$OSXCROSS_DIR/target/bin/o64-clang" ] || [ ! -x "$OSXCROSS_DIR/target/bin/oa64-clang" ]; then
             rm -rf "$OSXCROSS_DIR"
             clone_osxcross
             mkdir -p "$OSXCROSS_DIR/tarballs"
-            curl -fsSL --retry 5 --retry-all-errors "$SDK_URL" -o "$OSXCROSS_DIR/tarballs/MacOSX14.4.sdk.tar.xz"
+            curl -fsSL --retry 5 --retry-all-errors "$SDK_URL" -o "$OSXCROSS_DIR/tarballs/MacOSX26.1.sdk.tar.xz"
             # Verify the SDK tarball against the SHA256 published in the
-            # joseluisq/macosx-sdks 14.4 release (the release also ships a
+            # joseluisq/macosx-sdks 26.1 release (the release also ships a
             # sha256sum.txt asset carrying this value). Without this gate the
             # SDK is an unauthenticated third-party fetch; a corrupted or
             # swapped tarball would surface as confusing clang/link errors deep
             # in the macOS cross build. Bump this hash when MACOS_SDK_VERSION changes.
-            echo "5170364da96521a8cfeb4c7b8ffa810f82bd7494bd7a93653b6054101ac6cbe7  $OSXCROSS_DIR/tarballs/MacOSX14.4.sdk.tar.xz" | sha256sum -c -
+            echo "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c  $OSXCROSS_DIR/tarballs/MacOSX26.1.sdk.tar.xz" | sha256sum -c -
             cd "$OSXCROSS_DIR"
             build_osxcross
           fi
@@ -622,7 +622,7 @@ jobs:
           test -f "$CLANG_RT_OSX"
           echo "CLANG_RT_OSX=$CLANG_RT_OSX" >> "$GITHUB_ENV"
           echo "OSXCROSS_ROOT=$OSXCROSS_DIR/target" >> "$GITHUB_ENV"
-          echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX14.4.sdk" >> "$GITHUB_ENV"
+          echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX26.1.sdk" >> "$GITHUB_ENV"
 
       - name: Fetch source
         run: |

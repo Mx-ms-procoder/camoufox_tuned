@@ -3,6 +3,7 @@ description: "Core runtime and browser-shell patches"
 patches:
   - core/chromeutil.patch
   - core/config.patch
+  - core/macos-sdk-min-version.patch
   - core/disable-remote-subframes.patch
   - core/global-style-sheets.patch
   - core/macos-sandbox-crash-fix.patch
