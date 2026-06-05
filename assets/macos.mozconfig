@@ -1,12 +1,18 @@
 ac_add_options --disable-update-agent
 
 # macOS is cross-compiled from the Linux runner using Mozilla's bootstrapped
-# clang + matching macOS SDK, which assets/base.mozconfig enables for the macos
-# target via `--enable-bootstrap`. configure auto-selects the cross compiler and
-# SDK for the `--target=*-apple-darwin` triple, so no osxcross / CC / CXX /
-# --with-macos-sdk overrides are needed here (mirrors upstream camoufox's
-# macos.mozconfig, where the osxcross/CROSS block is likewise commented out).
+# clang (assets/base.mozconfig enables --enable-bootstrap for the macos target).
+# That clang is new enough to parse the macOS 26 SDK's `visionOS` availability
+# tokens (host clang-18 could not). configure auto-selects the cross compiler
+# for the --target=*-apple-darwin triple.
 #
-# Packaging-related tools that the legacy osxcross flow exported (DSYMUTIL,
-# DMG_TOOL, HFS_TOOL) are provided by the bootstrapped toolchain / dmg fetch
-# when needed and are intentionally left to configure's defaults.
+# The macOS SDK itself, however, is Apple-licensed: Mozilla's bootstrapped SDK
+# artifact is private (the auto-fetch returns HTTP 403 for external builds), so
+# we supply it ourselves. The "Fetch macOS SDK" CI step downloads the public
+# MacOSX26.1 SDK and exports MACOS_SDK_DIR; --with-macos-sdk points configure at
+# it (which also suppresses the failing bootstrap SDK fetch). FF150's hardcoded
+# mac_sdk_min_version=26.2 is lowered to 26.1 by core/macos-sdk-min-version.patch
+# because the public SDK mirror tops out at 26.1.
+if [ -n "$MACOS_SDK_DIR" ]; then
+    ac_add_options --with-macos-sdk="$MACOS_SDK_DIR"
+fi

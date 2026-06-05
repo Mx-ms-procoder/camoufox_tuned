@@ -3,6 +3,12 @@ description: "Core runtime and browser-shell patches"
 patches:
   - core/chromeutil.patch
   - core/config.patch
+  # Lower mac_sdk_min_version 26.2 -> 26.1: FF150 demands SDK >= 26.2 but the
+  # public joseluisq macOS SDK mirror tops out at 26.1. The macOS cross-build
+  # provides 26.1 via --with-macos-sdk and compiles it with Mozilla's
+  # bootstrapped clang (new enough to parse the SDK's visionOS availability
+  # tokens that host clang-18 choked on). See assets/macos.mozconfig.
+  - core/macos-sdk-min-version.patch
   - core/disable-remote-subframes.patch
   - core/global-style-sheets.patch
   - core/macos-sandbox-crash-fix.patch

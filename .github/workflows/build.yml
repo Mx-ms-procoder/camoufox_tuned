@@ -540,15 +540,79 @@ jobs:
         # `visionOS` availability tokens), use Mozilla's own toolchain. `mach
         # bootstrap` provisions the host build environment; the subsequent
         # `mach build` (with --enable-bootstrap from assets/base.mozconfig's
-        # macos branch) auto-fetches the macOS cross clang + matching SDK for
-        # the --target=*-apple-darwin triple. Runs on the freshly extracted,
-        # not-yet-patched tree — bootstrap is independent of the patch graph.
+        # macos branch) auto-fetches Mozilla's cross clang for the
+        # --target=*-apple-darwin triple. The macOS SDK is supplied separately
+        # by the next step (Mozilla's SDK artifact is Apple-licensed/private and
+        # 403s for external builds). Runs on the freshly extracted, not-yet-
+        # patched tree — bootstrap is independent of the patch graph.
         if: matrix.target == 'macos'
         run: |
           set -eux
           src_dir="$(ls -d camoufox-*/ | head -n1)"
           cd "$src_dir"
           MOZBUILD_STATE_PATH="$HOME/.mozbuild" ./mach --no-interactive bootstrap --application-choice=browser
+
+      - name: Fetch macOS SDK (public mirror)
+        # Mozilla's bootstrapped macOS SDK is private (the in-build auto-fetch
+        # returns HTTP 403 externally). Supply the public MacOSX26.1 SDK and
+        # point --with-macos-sdk at it (assets/macos.mozconfig). FF150 wants
+        # >= 26.2; core/macos-sdk-min-version.patch lowers that to 26.1 because
+        # the joseluisq mirror tops out at 26.1. SHA-pinned to the value the
+        # release also publishes; a corrupted/swapped tarball would otherwise
+        # surface as confusing clang/link errors deep in the cross build.
+        if: matrix.target == 'macos'
+        env:
+          MACOS_SDK_VERSION: "26.1"
+          MACOS_SDK_SHA256: "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c"
+        run: |
+          set -eux
+          mkdir -p "$HOME/.mozbuild"
+          url="https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz"
+          curl -fsSL --retry 5 --retry-all-errors "$url" -o /tmp/macsdk.tar.xz
+          echo "${MACOS_SDK_SHA256}  /tmp/macsdk.tar.xz" | sha256sum -c -
+          tar -xJf /tmp/macsdk.tar.xz -C "$HOME/.mozbuild"
+          sdk_dir="$HOME/.mozbuild/MacOSX${MACOS_SDK_VERSION}.sdk"
+          test -d "$sdk_dir"
+          echo "MACOS_SDK_DIR=$sdk_dir" >> "$GITHUB_ENV"
+
+      - name: Fetch Windows App SDK redistributable
+        # FF150 requires the Windows App SDK for every windows compile build
+        # (toolkit/moz.configure: FatalCheckError "Windows App SDK dir not
+        # present!"). It is normally provided by --enable-bootstrap; the MinGW
+        # cross-build uses local toolchains (--disable-bootstrap), so fetch the
+        # public redistributable and extract exactly the DLLs Firefox needs,
+        # mirroring taskcluster/scripts/misc/build-WindowsAppSDK.sh. URL + SHA
+        # are the ones pinned in FF150's taskcluster/kinds/fetch/toolchains.yml.
+        # (dxcompiler.dll is NOT needed: with no MSVC Windows SDK present its
+        # configure check just disables WebGPU's DXC path with a warning.)
+        if: matrix.target == 'windows'
+        env:
+          REDIST_URL: "https://aka.ms/windowsappsdk/1.8/1.8.251106002/Microsoft.WindowsAppRuntime.Redist.1.8.zip"
+          REDIST_SHA256: "57748c37e2b0ce381518bbe7ac72e015c150771a343af89f9f0bd95aa5e9bbc0"
+          SHORT_VERSION: "1.8"
+        run: |
+          set -eux
+          case "${{ matrix.arch }}" in
+            x86_64) arch_suffix=x64 ;;
+            i686)   arch_suffix=x86 ;;
+            arm64)  arch_suffix=arm64 ;;
+            *) echo "unknown arch ${{ matrix.arch }}"; exit 1 ;;
+          esac
+          curl -fsSL --retry 5 --retry-all-errors "$REDIST_URL" -o /tmp/winappsdk.zip
+          echo "${REDIST_SHA256}  /tmp/winappsdk.zip" | sha256sum -c -
+          work=/tmp/winappsdk && rm -rf "$work" && mkdir -p "$work"
+          unzip -q /tmp/winappsdk.zip "MSIX/win10-${arch_suffix}/*" -d "$work"
+          msix="$work/MSIX/win10-${arch_suffix}/Microsoft.WindowsAppRuntime.${SHORT_VERSION}.msix"
+          unzip -q "$msix" -d "$work/extracted"
+          dest="$HOME/winappsdk-dlls"
+          rm -rf "$dest" && mkdir -p "$dest"
+          for dll in CoreMessagingXP.dll marshal.dll Microsoft.InputStateManager.dll \
+                     Microsoft.Internal.FrameworkUdk.dll Microsoft.UI.Composition.OSSupport.dll \
+                     Microsoft.UI.Input.dll Microsoft.UI.Windowing.Core.dll Microsoft.UI.Windowing.dll; do
+            cp "$work/extracted/$dll" "$dest/"
+          done
+          ls -la "$dest"
+          echo "MOZ_WINDOWS_APP_SDK_DIR=$dest" >> "$GITHUB_ENV"
 
       - name: Patch Maybe.h for freestanding cross-compile
         # mfbt/Maybe.h does `#include <ostream>` unguarded and defines a
