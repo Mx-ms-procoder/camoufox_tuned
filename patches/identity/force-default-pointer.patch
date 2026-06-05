@@ -2,16 +2,8 @@ diff --git a/layout/style/nsMediaFeatures.cpp b/layout/style/nsMediaFeatures.cpp
 index cc86d1abf6..bfc4d0f1d8 100644
 --- a/layout/style/nsMediaFeatures.cpp
 +++ b/layout/style/nsMediaFeatures.cpp
-@@ -22,6 +22,7 @@
- #include "nsDeviceContext.h"
- #include "nsGkAtoms.h"
- #include "nsGlobalWindowOuter.h"
-+#include "MaskConfig.hpp"
- #include "nsIBaseWindow.h"
- #include "nsIDocShell.h"
- #include "nsIPrintSettings.h"
-@@ -372,24 +373,21 @@ static PointerCapabilities GetPointerCapabilities(const Document* aDocument,
-
+@@ -372,24 +372,10 @@ static PointerCapabilities GetPointerCapabilities(const Document* aDocument,
+ 
    // The default value for Desktop is mouse-type pointer, and for Android
    // a coarse pointer.
 -  const PointerCapabilities kDefaultCapabilities =
@@ -19,7 +11,7 @@ index cc86d1abf6..bfc4d0f1d8 100644
 -      PointerCapabilities::Coarse;
 -#else
 -      PointerCapabilities::Fine | PointerCapabilities::Hover;
-+  return PointerCapabilities::Coarse;
++      return PointerCapabilities::Coarse;
  #endif
 -  if (aDocument->ShouldResistFingerprinting(
 -          RFPTarget::CSSPointerCapabilities)) {
@@ -30,20 +22,10 @@ index cc86d1abf6..bfc4d0f1d8 100644
 -  nsresult rv = LookAndFeel::GetInt(aID, &intValue);
 -  if (NS_FAILED(rv)) {
 -    return kDefaultCapabilities;
-+  // C-8 fix: derive pointer-capabilities from navigator.maxTouchPoints
-+  // so CSS @media (pointer: coarse / any-pointer: coarse / hover: none)
-+  // stays consistent with the spoofed identity. The previous patch
-+  // unconditionally returned Fine|Hover on every non-Android build,
-+  // which produced an inconsistent surface when the launcher spoofed
-+  // a mobile UA + non-zero maxTouchPoints: JS reported a touch device
-+  // while CSS reported a fine-pointer + hover-capable device — a
-+  // trivially detectable cross-API mismatch.
-+  if (MaskConfig::GetUint32("navigator.maxTouchPoints").value_or(0) > 0) {
-+    return PointerCapabilities::Coarse;
-   }
+-  }
 -
 -  return static_cast<PointerCapabilities>(intValue);
 +  return PointerCapabilities::Fine | PointerCapabilities::Hover;
  }
-
+ 
  PointerCapabilities Gecko_MediaFeatures_PrimaryPointerCapabilities(

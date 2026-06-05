@@ -6,11 +6,11 @@ index 067094cb6b..9088f71793 100644
  #include "nsPIDOMWindow.h"
  #include "nsGlobalWindowInner.h"
  #include "nsQueryObject.h"
-+#include "IdentityStateProvider.hpp"
++#include "MaskConfig.hpp"
  
  namespace mozilla::dom {
  
-@@ -329,52 +330,51 @@ RefPtr<MediaDeviceSetRefCnt> MediaDevices::FilterExposedDevices(
+@@ -329,52 +330,52 @@ RefPtr<MediaDeviceSetRefCnt> MediaDevices::FilterExposedDevices(
      exposed->AppendElement(device);
    }
  
@@ -30,8 +30,7 @@ index 067094cb6b..9088f71793 100644
 -      }
 -      seenKinds.Insert(device->mKind);
 -    }
-+  const auto mediaState = IdentityStateProvider::GetMediaDeviceState();
-+  if (!mediaState || !mediaState->enabled) {
++  if (!MaskConfig::GetBool("mediaDevices:enabled")) {
 +    return exposed;
 +  }
  
@@ -66,9 +65,11 @@ index 067094cb6b..9088f71793 100644
 -        exposed->AppendElement(
 -            new MediaDevice(new MediaEngineFake(), info, u""_ns));
 -      }
-+  uint32_t numMics = mediaState->microphones;
-+  uint32_t numWebcams = mediaState->webcams;
-+  uint32_t numSpeakers = mediaState->speakers;
++  uint32_t numMics = MaskConfig::GetUint32("mediaDevices:micros").value_or(3);
++  uint32_t numWebcams =
++      MaskConfig::GetUint32("mediaDevices:webcams").value_or(1);
++  uint32_t numSpeakers =
++      MaskConfig::GetUint32("mediaDevices:speakers").value_or(1);
 +
 +  // Clear existing devices. We'll add our own
 +  exposed->Clear();

@@ -1,16 +1,8 @@
 diff --git a/browser/components/asrouter/content/asrouter-admin.bundle.js b/browser/components/asrouter/content/asrouter-admin.bundle.js
+index 7d0ed87430..ea7ed22ade 100644
 --- a/browser/components/asrouter/content/asrouter-admin.bundle.js
 +++ b/browser/components/asrouter/content/asrouter-admin.bundle.js
-@@ -1144,15 +1144,15 @@
-       } else if (provider.type === "remote-settings") {
-         label = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_1___default().createElement("span", null, "remote settings (", /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_1___default().createElement("a", {
-           className: "small-text",
-           target: "_blank",
--          href: `https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/${provider.collection}/records`,
-+          href: `https://see.ticket.about.this.invalid`,
-           rel: "noopener noreferrer"
-         }, provider.collection), ")");
-       } else if (provider.type === "remote-experiments") {
+@@ -1154,7 +1154,7 @@ class ASRouterAdminInner extends (react__WEBPACK_IMPORTED_MODULE_1___default().P
          label = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_1___default().createElement("span", null, "remote settings (", /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_1___default().createElement("a", {
            className: "small-text",
            target: "_blank",
@@ -19,31 +11,3 @@ diff --git a/browser/components/asrouter/content/asrouter-admin.bundle.js b/brow
            rel: "noopener noreferrer"
          }, "nimbus-desktop-experiments"), ")");
        }
-diff --git a/services/settings/Utils.sys.mjs b/services/settings/Utils.sys.mjs
---- a/services/settings/Utils.sys.mjs
-+++ b/services/settings/Utils.sys.mjs
-@@ -54,6 +54,9 @@ ChromeUtils.defineLazyGetter(lazy, "isRunningTests", () => {
- // Overriding the server URL is normally disabled on Beta and Release channels,
- // except under some conditions.
- ChromeUtils.defineLazyGetter(lazy, "allowServerURLOverride", () => {
-+
-+  return true; // always override in LW
-+
-   if (!AppConstants.RELEASE_OR_BETA) {
-     // Always allow to override the server URL on Nightly/DevEdition.
-     return true;
-diff --git a/toolkit/components/search/SearchUtils.sys.mjs b/toolkit/components/search/SearchUtils.sys.mjs
---- a/toolkit/components/search/SearchUtils.sys.mjs
-+++ b/toolkit/components/search/SearchUtils.sys.mjs
-@@ -172,9 +172,9 @@ export var SearchUtils = {
- 
-   ENGINES_URLS: {
-     "prod-main":
--      "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/search-config/records",
-+      "https://%.invalid",
-     "prod-preview":
--      "https://firefox.settings.services.mozilla.com/v1/buckets/main-preview/collections/search-config/records",
-+      "https://%.invalid",
-     "stage-main":
-       "https://firefox.settings.services.allizom.org/v1/buckets/main/collections/search-config/records",
-     "stage-preview":

@@ -28,29 +28,6 @@ index 1cfa4b8497..bdf8d7202e 100644
        // When the fingerprinting resistance is enabled, making sure that we don't
        // have a maximum window to interfere with generating rounded window dimensions.
        document.documentElement.setAttribute("sizemode", "normal");
-@@ -109,6 +119,22 @@ var gBrowserInit = {
-     window.TabBarVisibility.update();
-     TabsInTitlebar.init();
- 
-+    // If a list of languages were passed, use them.
-+    let camouLocale = ChromeUtils.camouGetString("locale:all")
-+      || ChromeUtils.camouGetString("navigator.language");
-+    // If locale:all was NOT passed, but locale:language and locale:region was,
-+    // fall back to it instead.
-+    if (!camouLocale) {
-+      let language = ChromeUtils.camouGetString("locale:language");
-+      let region = ChromeUtils.camouGetString("locale:region");
-+      if (language && region) {
-+        camouLocale = language + "-" + region + ", " + language;
-+      }
-+    }
-+    // Set the locale if it was found.
-+    if (camouLocale)
-+      Services.prefs.setCharPref("intl.accept_languages", camouLocale);
-+
-     new LightweightThemeConsumer(document);
- 
-     if (
 @@ -310,6 +320,22 @@ var gBrowserInit = {
      // Update UI if browser is under remote control.
      gRemoteControl.updateVisualCue();
@@ -106,7 +83,7 @@ index 1cfa4b8497..bdf8d7202e 100644
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +417,155 @@ var gBrowserInit = {
+@@ -366,9 +417,152 @@ var gBrowserInit = {
        )?.removeAttribute("key");
      }
  
@@ -193,10 +170,7 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        certsRaw.map(rawCert => {
 +          try {
 +            let certData = this.processRawCertificate(rawCert);
-+            // Do not log certData itself: even though certs are technically
-+            // public, leaking the operator's MITM trust set to logs is a
-+            // detection signal. Just record the byte length. (L-001.)
-+            ChromeUtils.camouDebug("Importing raw certificate (" + certData.length + " bytes)");
++            ChromeUtils.camouDebug("Importing raw certificate: " + certData);
 +            this.importCertificate(certdb2, certData, "raw");
 +          } catch (e) {
 +            ChromeUtils.camouDebug("Failed to process raw certificate: " + e);

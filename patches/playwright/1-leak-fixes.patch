@@ -1,9 +1,9 @@
 diff --git a/dom/base/Navigator.cpp b/dom/base/Navigator.cpp
-index e0cbb3f1f8..d7868e7ae0 100644
+index 9880047350..318d2edba8 100644
 --- a/dom/base/Navigator.cpp
 +++ b/dom/base/Navigator.cpp
-@@ -2288,28 +2288,44 @@ dom::PrivateAttribution* Navigator::PrivateAttribution() {
-
+@@ -2316,28 +2316,7 @@ dom::PrivateAttribution* Navigator::PrivateAttribution() {
+ 
  /* static */
  bool Navigator::Webdriver() {
 -#ifdef ENABLE_WEBDRIVER
@@ -28,61 +28,22 @@ index e0cbb3f1f8..d7868e7ae0 100644
 -
 -  // Playwright is automating the browser, so we should pretend to be a webdriver
 -  return true;
-+  // K-6 (AUDIT_2026-05-18.md): the previous body unconditionally
-+  // returned false, which also hid any Marionette / DevTools-Remote
-+  // session that an operator might run outside the intended Juggler
-+  // path. We only lie when the Juggler bootstrap is the active
-+  // automation; otherwise we fall back to the upstream check so a
-+  // stray Marionette session is correctly reported via
-+  // navigator.webdriver.
-+  // C-6 fix: cache the env-var lookup as a function-static bool so
-+  // navigator.webdriver does not produce a measurable timing channel.
-+  // Hot-path getenv() calls (this getter is invoked from JS) leak
-+  // through performance.now() side-channels which anti-bot suites use
-+  // as a stable Camoufox-vs-vanilla discriminator.
-+  static const bool sJugglerMode = []() {
-+    const char* v = std::getenv("MOZ_CAMOUFOX_JUGGLER");
-+    return v && v[0] == '1' && v[1] == '\0';
-+  }();
-+  if (sJugglerMode) {
-+    return false;
-+  }
-+#ifdef ENABLE_WEBDRIVER
-+  nsCOMPtr<nsIMarionette> marionette = do_GetService(NS_MARIONETTE_CONTRACTID);
-+  if (marionette) {
-+    bool marionetteRunning = false;
-+    marionette->GetRunning(&marionetteRunning);
-+    if (marionetteRunning) {
-+      return true;
-+    }
-+  }
-+  nsCOMPtr<nsIRemoteAgent> agent = do_GetService(NS_REMOTEAGENT_CONTRACTID);
-+  if (agent) {
-+    bool remoteAgentRunning = false;
-+    agent->GetRunning(&remoteAgentRunning);
-+    if (remoteAgentRunning) {
-+      return true;
-+    }
-+  }
-+#endif
 +  return false;
  }
-
+ 
  AutoplayPolicy Navigator::GetAutoplayPolicy(AutoplayPolicyMediaType aType) {
 diff --git a/toolkit/components/enterprisepolicies/EnterprisePoliciesParent.sys.mjs b/toolkit/components/enterprisepolicies/EnterprisePoliciesParent.sys.mjs
-index 0eeb5924c4..8b975a8b11 100644
+index cf5ae51466..97efc14262 100644
 --- a/toolkit/components/enterprisepolicies/EnterprisePoliciesParent.sys.mjs
 +++ b/toolkit/components/enterprisepolicies/EnterprisePoliciesParent.sys.mjs
-@@ -108,12 +108,6 @@ EnterprisePoliciesManager.prototype = {
+@@ -106,9 +106,7 @@ EnterprisePoliciesManager.prototype = {
        Services.prefs.clearUserPref(PREF_POLICIES_APPLIED);
      }
  
--    // Playwright: Disable enterprise policies
--    if (true) {
--      this.status = Ci.nsIEnterprisePolicies.INACTIVE;
--      return;
--    }
--
-     let provider = this._chooseProvider();
+-    // --- Playwright begin ---
+-    let provider = new PlaywrightPoliciesProvider();
+-    // --- Playwright end ---
++    let provider = this._chooseProvider();
  
      if (provider.failed) {
+       this.status = Ci.nsIEnterprisePolicies.FAILED;

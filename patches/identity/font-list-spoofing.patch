@@ -3,10 +3,9 @@ new file mode 100644
 index 0000000000..abcdef0001
 --- /dev/null
 +++ b/dom/base/FontListManager.cpp
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,85 @@
 +/* Camoufox: Per-context font list manager */
 +#include "FontListManager.h"
-+#include "MaskConfig.hpp"
 +
 +#include "mozilla/Mutex.h"
 +#include "mozilla/dom/BrowsingContext.h"
@@ -57,12 +56,10 @@ index 0000000000..abcdef0001
 +
 +bool FontListManager::IsFontAllowed(uint32_t aId,
 +                                     const nsACString& aFontName) {
-+  nsAutoCString fontName(aFontName);
-+  ToLowerCase(fontName);
 +  MutexAutoLock lock(sFontListMutex);
 +  auto entry = sFontLists.Lookup(aId);
 +  if (!entry) return true;
-+  return entry.Data().Contains(fontName);
++  return entry.Data().Contains(aFontName);
 +}
 +
 +void FontListManager::SetCurrentContext(uint32_t aId) {
@@ -79,9 +76,6 @@ index 0000000000..abcdef0001
 +
 +bool FontListManager::IsFunctionEnabledForWebIDL(JSContext* aCx,
 +                                                  JSObject* aObj) {
-+  static const bool sAllow =
-+      ::MaskConfig::_IsTruthyEnv("MOZ_CAMOUFOX_ALLOW_RUNTIME_SETTERS");
-+  if (!sAllow) return false;
 +  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
 +  if (!win) return false;
 +  uint32_t id = 0;
@@ -110,9 +104,6 @@ index 0000000000..abcdef0002
 +#include "nsHashKeys.h"
 +#include "nsTHashSet.h"
 +#include "RoverfoxStorageManager.h"
-+
-+struct JSContext;
-+class JSObject;
 +
 +namespace mozilla {
 +namespace dom {

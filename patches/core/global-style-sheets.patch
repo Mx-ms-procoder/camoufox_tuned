@@ -7,18 +7,16 @@ index 13d65c2d3e..c51f1da030 100644
  
  #include "GlobalStyleSheetCache.h"
 +#include "nsDirectoryServiceDefs.h"
-+#include "IdentityStateProvider.hpp"
++#include "MaskConfig.hpp"
  
  #include "nsAppDirectoryServiceDefs.h"
  #include "nsExceptionHandler.h"
-@@ -446,6 +448,11 @@ void GlobalStyleSheetCache::InitFromProfile() {
+@@ -446,6 +448,9 @@ void GlobalStyleSheetCache::InitFromProfile() {
    if (!Preferences::GetBool(PREF_LEGACY_STYLESHEET_CUSTOMIZATION)) {
      return;
    }
-+  if (auto runtimeState = IdentityStateProvider::GetRuntimeState()) {
-+    if (runtimeState->disableTheming.value_or(false)) {
-+      return;
-+    }
++  if (MaskConfig::GetBool("disableTheming")) {
++    return;
 +  }
  
    nsCOMPtr<nsIXULRuntime> appInfo =

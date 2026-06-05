@@ -3,10 +3,9 @@ new file mode 100644
 index 0000000000..abcdef1234
 --- /dev/null
 +++ b/dom/base/SpeechVoicesManager.cpp
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,77 @@
 +/* Camoufox: Per-context speech voices manager */
 +#include "SpeechVoicesManager.h"
-+#include "MaskConfig.hpp"
 +
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "mozilla/Mutex.h"
@@ -69,9 +68,6 @@ index 0000000000..abcdef1234
 +
 +bool SpeechVoicesManager::IsFunctionEnabledForWebIDL(JSContext* aCx,
 +                                                      JSObject* aObj) {
-+  static const bool sAllow =
-+      ::MaskConfig::_IsTruthyEnv("MOZ_CAMOUFOX_ALLOW_RUNTIME_SETTERS");
-+  if (!sAllow) return false;
 +  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
 +  if (!win) return false;
 +  uint32_t id = 0;
@@ -101,9 +97,6 @@ index 0000000000..bcdef12345
 +#include "nsTHashSet.h"
 +#include "RoverfoxStorageManager.h"
 +
-+struct JSContext;
-+class JSObject;
-+
 +namespace mozilla {
 +namespace dom {
 +
@@ -127,10 +120,10 @@ diff --git a/dom/base/moz.build b/dom/base/moz.build
 index xxxxxxxxxx..yyyyyyyyyy 100644
 --- a/dom/base/moz.build
 +++ b/dom/base/moz.build
-@@ -541,5 +541,13 @@
-     "FontListManager.h",
+@@ -534,5 +534,13 @@
+     "nsPluginArray.cpp",
  ]
- 
+
 +# SpeechVoicesManager compiled separately to avoid unified build scope issues
 +# (includes RoverfoxStorageManager.h which can affect compilation units)
 +SOURCES += ["SpeechVoicesManager.cpp"]
@@ -145,9 +138,9 @@ diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
 index xxxxxxxxxx..yyyyyyyyyy 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
-@@ -688,6 +688,9 @@
-   // Per-context font list spoofing
-   void SetFontList(const nsAString& aFontList, mozilla::ErrorResult& aRv);
+@@ -685,6 +685,9 @@
+
+   void ForgetSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
 
 +  // Per-context speech voices
 +  void SetSpeechVoices(const nsAString& aVoices, mozilla::ErrorResult& aRv);
@@ -164,8 +157,8 @@ index xxxxxxxxxx..yyyyyyyyyy 100644
  #include "Crypto.h"
 +#include "SpeechVoicesManager.h"
  #include "MainThreadUtils.h"
-@@ -7497,6 +7498,25 @@
-   }
+@@ -7477,6 +7478,25 @@
+   mSharedWorkers.RemoveElement(aSharedWorker);
  }
 
 +void nsGlobalWindowInner::SetSpeechVoices(const nsAString& aVoices,
@@ -194,8 +187,8 @@ diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 index xxxxxxxxxx..yyyyyyyyyy 100644
 --- a/dom/webidl/Window.webidl
 +++ b/dom/webidl/Window.webidl
-@@ -898,6 +898,12 @@ partial interface Window {
-   undefined setFontList(DOMString fontList);
+@@ -892,6 +892,12 @@ partial interface Window {
+   readonly attribute VisualViewport visualViewport;
  };
 
 +// Per-context speech voices
