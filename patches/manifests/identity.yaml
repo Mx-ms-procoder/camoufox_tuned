@@ -11,4 +11,3 @@ patches:
   - identity/system-ui-font-spoofing.patch
   - identity/anti-font-fingerprinting.patch
   - identity/force-default-pointer.patch
-  - identity/webdriver-webidl-gate.patch

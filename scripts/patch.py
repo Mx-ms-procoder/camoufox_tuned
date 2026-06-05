@@ -108,9 +108,20 @@ class Patcher:
                 for patch_file in bootstrap_files:
                     patch(patch_file)
 
-                # Apply all manifest-claimed feature patches
+                # Apply all manifest-claimed feature patches in basename order.
+                # Upstream camoufox keeps patches in a flat patches/ dir and
+                # applies them in basename order; many of its patches are
+                # inter-dependent (e.g. timezone-spoofing's hunk uses the
+                # `#include "FontSpacingSeedManager.h"` line that
+                # anti-font-fingerprinting adds as context, so anti-font MUST
+                # apply first). The manifest refactor groups patches by feature
+                # (core/identity/...) which reorders these inter-dependent
+                # patches and breaks the composition. Sorting by basename here
+                # restores upstream's apply order while keeping the manifests
+                # for validation/conflict reporting. Bootstrap (0-/1-) patches
+                # are already applied above and excluded from this list.
                 applied = 0
-                for patch_file in patch_files:
+                for patch_file in sorted(patch_files, key=lambda p: os.path.basename(p)):
                     patch(patch_file)
                     applied += 1
 
