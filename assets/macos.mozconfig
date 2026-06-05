@@ -1,30 +1,12 @@
 ac_add_options --disable-update-agent
 
-# Packaging related
-# #export DSYMUTIL="$MOZBUILD/clang/bin/dsymutil"
-# export DMG_TOOL="$MOZBUILD/dmg/dmg"
-# export HFS_TOOL="$MOZBUILD/dmg/hfsplus"
-
-# Build related
-if [ -n "$OSXCROSS_ROOT" ]; then
-    mk_add_options "export PATH=$OSXCROSS_ROOT/bin:$PATH"
-    mk_add_options "export LD_LIBRARY_PATH=$OSXCROSS_ROOT/lib:$LD_LIBRARY_PATH"
-    export HOST_CC="${HOST_CC:-/usr/bin/clang}"
-    export HOST_CXX="${HOST_CXX:-/usr/bin/clang++}"
-
-    if [ "$BUILD_TARGET" = "macos,arm64" ]; then
-        export CC="$OSXCROSS_ROOT/bin/oa64-clang"
-        export CXX="$OSXCROSS_ROOT/bin/oa64-clang++"
-    else
-        export CC="$OSXCROSS_ROOT/bin/o64-clang"
-        export CXX="$OSXCROSS_ROOT/bin/o64-clang++"
-    fi
-
-    if [ -n "$MACOS_SDK_DIR" ]; then
-        ac_add_options --with-macos-sdk="$MACOS_SDK_DIR"
-    fi
-
-    if [ -n "$CLANG_RT_OSX" ] && [ -f "$CLANG_RT_OSX" ]; then
-        export LDFLAGS="${LDFLAGS:+$LDFLAGS }$CLANG_RT_OSX"
-    fi
-fi
+# macOS is cross-compiled from the Linux runner using Mozilla's bootstrapped
+# clang + matching macOS SDK, which assets/base.mozconfig enables for the macos
+# target via `--enable-bootstrap`. configure auto-selects the cross compiler and
+# SDK for the `--target=*-apple-darwin` triple, so no osxcross / CC / CXX /
+# --with-macos-sdk overrides are needed here (mirrors upstream camoufox's
+# macos.mozconfig, where the osxcross/CROSS block is likewise commented out).
+#
+# Packaging-related tools that the legacy osxcross flow exported (DSYMUTIL,
+# DMG_TOOL, HFS_TOOL) are provided by the bootstrapped toolchain / dmg fetch
+# when needed and are intentionally left to configure's defaults.

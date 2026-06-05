@@ -4,6 +4,7 @@
 
 #include "nsScreencastService.h"
 
+#include "gfxPlatform.h"
 #include "ScreencastEncoder.h"
 #include "HeadlessWidget.h"
 #include "HeadlessWindowCapturer.h"
@@ -16,9 +17,11 @@
 #include "nsIRandomGenerator.h"
 #include "nsISupportsPrimitives.h"
 #include "nsThreadManager.h"
-#include "nsView.h"
-#include "nsViewManager.h"
 #include "modules/desktop_capture/desktop_capturer.h"
+
+// Compatibility namespace alias: libwebrtc converted rtc:: to webrtc:: in Fx150
+namespace rtc = webrtc;
+
 #include "modules/desktop_capture/desktop_capture_options.h"
 #include "modules/desktop_capture/desktop_frame.h"
 #include "modules/video_capture/video_capture.h"
@@ -44,13 +47,6 @@ const int kMaxFramesInFlight = 1;
 StaticRefPtr<nsScreencastService> gScreencastService;
 
 rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> CreateWindowCapturer(nsIWidget* widget) {
-  // nsView::GetWidget() may return nullptr (view detached, no PresShell).
-  // Without this guard the headless branch static_cast'd a null and the
-  // headed branch dereferenced it via GetNativeData().
-  if (!widget) {
-    fprintf(stderr, "CreateWindowCapturer: widget is null\n");
-    return nullptr;
-  }
   if (gfxPlatform::IsHeadless()) {
     HeadlessWidget* headlessWidget = static_cast<HeadlessWidget*>(widget);
     return HeadlessWindowCapturer::Create(headlessWidget);
@@ -330,13 +326,9 @@ nsresult nsScreencastService::StartVideoRecording(nsIScreencastServiceClient* aC
   PresShell* presShell = aDocShell->GetPresShell();
   if (!presShell)
     return NS_ERROR_UNEXPECTED;
-  nsViewManager* viewManager = presShell->GetViewManager();
-  if (!viewManager)
+  nsIWidget* widget = presShell->GetRootWidget();
+  if (!widget)
     return NS_ERROR_UNEXPECTED;
-  nsView* view = viewManager->GetRootView();
-  if (!view)
-    return NS_ERROR_UNEXPECTED;
-  nsIWidget* widget = view->GetWidget();
 
   rtc::scoped_refptr<webrtc::VideoCaptureModuleEx> capturer = nullptr;
   for (auto& it : mIdToSession) {
@@ -350,10 +342,17 @@ nsresult nsScreencastService::StartVideoRecording(nsIScreencastServiceClient* aC
     return NS_ERROR_FAILURE;
 
   gfx::IntMargin margin;
-  auto bounds = widget->GetScreenBounds().ToUnknownRect();
+  // Screen bounds is the widget location on screen.
+  auto screenBounds = widget->GetScreenBounds().ToUnknownRect();
+  // Client bounds is the content location, in terms of parent widget.
+  // To use it, we need to translate it to screen coordinates first.
   auto clientBounds = widget->GetClientBounds().ToUnknownRect();
+  for (auto parent = widget->GetParent(); parent != nullptr; parent = parent->GetParent()) {
+    auto pb = parent->GetClientBounds().ToUnknownRect();
+    clientBounds.MoveBy(pb.X(), pb.Y());
+  }
   // Crop the image to exclude frame (if any).
-  margin = bounds - clientBounds;
+  margin = screenBounds - clientBounds;
   // Crop the image to exclude controls.
   margin.top += offsetTop;
 

@@ -297,9 +297,10 @@ jobs:
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-pc-mingw32-windres
           fi
-          if [ "${{ matrix.target }}" = "macos" ]; then
-            sudo apt-get install -y autoconf automake cmake git libbz2-dev libgmp-dev liblzma-dev libmpc-dev libmpfr-dev libssl-dev libtool libxml2-dev uuid-dev zlib1g-dev
-          fi
+          # macOS is cross-compiled with Mozilla's bootstrapped clang + SDK
+          # (see the "Bootstrap macOS cross toolchain" step). `mach bootstrap`
+          # installs whatever host packages it needs itself, so no osxcross
+          # build prerequisites are required here.
 
       - name: Fix GCC 13 MinGW headers for clang cross-compilation
         # Ubuntu Noble's gcc-mingw-w64 ships GCC 13 C++ headers that introduce
@@ -524,106 +525,6 @@ jobs:
           # raw wine binary and re-introduce the HLSL path bug.
           python3 -c "import subprocess; print(subprocess.check_output(['/usr/local/bin/wine-fxc-wrapper', '--version']).decode().strip())"
 
-      - name: Cache macOS cross toolchain
-        if: matrix.target == 'macos'
-        uses: actions/cache@v4
-        env:
-          # Bump any of these and the cache rebuilds from scratch instead of
-          # silently serving a stale toolchain. The `-v3` suffix is a manual
-          # escape hatch for invalidating without touching the upstream
-          # coordinates. OSXCROSS_COMMIT pins tpoechtrager/osxcross to a
-          # known-good revision so an upstream-master breakage doesn't propagate.
-          MACOS_SDK_VERSION: "26.1"
-          OSXCROSS_REPO: "tpoechtrager/osxcross"
-          OSXCROSS_COMMIT: "e6ab3fa7423f9235ce9ed6381d6d3af191b46b59"
-        with:
-          path: ~/.mozbuild/osxcross
-          key: osxcross-${{ env.OSXCROSS_REPO }}-${{ env.OSXCROSS_COMMIT }}-macosx${{ env.MACOS_SDK_VERSION }}-compiler-rt-v3
-
-      - name: Setup macos toolchain
-        if: matrix.target == 'macos'
-        env:
-          # Must match the OSXCROSS_COMMIT in the cache step above. Pinning to
-          # a specific SHA prevents an upstream-master regression from silently
-          # entering a cold-cache build.
-          OSXCROSS_COMMIT: "e6ab3fa7423f9235ce9ed6381d6d3af191b46b59"
-        run: |
-          set -eux
-          clone_osxcross() {
-            local attempt=1
-            local max_attempts=5
-            # Full clone (not --depth 1) because checking out an arbitrary SHA
-            # needs the full history. The repo is small (~few MB) and only
-            # cloned on cache miss.
-            until git clone https://github.com/tpoechtrager/osxcross.git "$OSXCROSS_DIR" \
-                  && git -C "$OSXCROSS_DIR" checkout --quiet "$OSXCROSS_COMMIT"; do
-              if [ "$attempt" -ge "$max_attempts" ]; then
-                return 1
-              fi
-              rm -rf "$OSXCROSS_DIR"
-              sleep $((attempt * 10))
-              attempt=$((attempt + 1))
-            done
-          }
-          build_osxcross() {
-            local attempt=1
-            local max_attempts=5
-            until env UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build.sh; do
-              if [ "$attempt" -ge "$max_attempts" ]; then
-                return 1
-              fi
-              rm -rf build/apple-libtapi
-              sleep $((attempt * 10))
-              attempt=$((attempt + 1))
-            done
-          }
-          build_osxcross_compiler_rt() {
-            # Pre-create the compiler-rt install directories to avoid permission errors.
-            # osxcross's build_compiler_rt.sh installs into the host LLVM tree,
-            # which is owned by root on GitHub Actions runners.
-            sudo mkdir -p /usr/lib/llvm-18/lib/clang/18/lib/darwin
-            sudo chmod -R 777 /usr/lib/llvm-18/lib/clang/18/lib/darwin
-            sudo mkdir -p /usr/lib/llvm-18/lib/clang/18/include
-            sudo chmod -R 777 /usr/lib/llvm-18/lib/clang/18/include
-            local attempt=1
-            local max_attempts=5
-            until env ENABLE_COMPILER_RT_INSTALL=1 UNATTENDED=1 OSX_VERSION_MIN=10.15 ./build_compiler_rt.sh; do
-              if [ "$attempt" -ge "$max_attempts" ]; then
-                return 1
-              fi
-              rm -rf build/compiler-rt
-              sleep $((attempt * 10))
-              attempt=$((attempt + 1))
-            done
-          }
-          OSXCROSS_DIR="$HOME/.mozbuild/osxcross"
-          SDK_URL="https://github.com/joseluisq/macosx-sdks/releases/download/26.1/MacOSX26.1.sdk.tar.xz"
-          if [ ! -x "$OSXCROSS_DIR/target/bin/o64-clang" ] || [ ! -x "$OSXCROSS_DIR/target/bin/oa64-clang" ]; then
-            rm -rf "$OSXCROSS_DIR"
-            clone_osxcross
-            mkdir -p "$OSXCROSS_DIR/tarballs"
-            curl -fsSL --retry 5 --retry-all-errors "$SDK_URL" -o "$OSXCROSS_DIR/tarballs/MacOSX26.1.sdk.tar.xz"
-            # Verify the SDK tarball against the SHA256 published in the
-            # joseluisq/macosx-sdks 26.1 release (the release also ships a
-            # sha256sum.txt asset carrying this value). Without this gate the
-            # SDK is an unauthenticated third-party fetch; a corrupted or
-            # swapped tarball would surface as confusing clang/link errors deep
-            # in the macOS cross build. Bump this hash when MACOS_SDK_VERSION changes.
-            echo "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c  $OSXCROSS_DIR/tarballs/MacOSX26.1.sdk.tar.xz" | sha256sum -c -
-            cd "$OSXCROSS_DIR"
-            build_osxcross
-          fi
-          cd "$OSXCROSS_DIR"
-          CLANG_RT_OSX="$("$OSXCROSS_DIR/target/bin/o64-clang" -print-file-name=libclang_rt.osx.a || true)"
-          if [ ! -f "$CLANG_RT_OSX" ]; then
-            build_osxcross_compiler_rt
-            CLANG_RT_OSX="$("$OSXCROSS_DIR/target/bin/o64-clang" -print-file-name=libclang_rt.osx.a || true)"
-          fi
-          test -f "$CLANG_RT_OSX"
-          echo "CLANG_RT_OSX=$CLANG_RT_OSX" >> "$GITHUB_ENV"
-          echo "OSXCROSS_ROOT=$OSXCROSS_DIR/target" >> "$GITHUB_ENV"
-          echo "MACOS_SDK_DIR=$OSXCROSS_DIR/target/SDK/MacOSX26.1.sdk" >> "$GITHUB_ENV"
-
       - name: Fetch source
         run: |
           make fetch
@@ -632,6 +533,22 @@ jobs:
         run: |
           make setup-minimal
           mkdir -p dist
+
+      - name: Bootstrap macOS cross toolchain (Mozilla clang + SDK)
+        # Mirror upstream camoufox: instead of building osxcross + a third-party
+        # macOS SDK (which mismatched host clang-18 against the macOS 26 SDK's
+        # `visionOS` availability tokens), use Mozilla's own toolchain. `mach
+        # bootstrap` provisions the host build environment; the subsequent
+        # `mach build` (with --enable-bootstrap from assets/base.mozconfig's
+        # macos branch) auto-fetches the macOS cross clang + matching SDK for
+        # the --target=*-apple-darwin triple. Runs on the freshly extracted,
+        # not-yet-patched tree — bootstrap is independent of the patch graph.
+        if: matrix.target == 'macos'
+        run: |
+          set -eux
+          src_dir="$(ls -d camoufox-*/ | head -n1)"
+          cd "$src_dir"
+          MOZBUILD_STATE_PATH="$HOME/.mozbuild" ./mach --no-interactive bootstrap --application-choice=browser
 
       - name: Patch Maybe.h for freestanding cross-compile
         # mfbt/Maybe.h does `#include <ostream>` unguarded and defines a

@@ -23,13 +23,24 @@ ac_add_options --with-branding=browser/branding/camoufox
 
 ac_add_options --with-unsigned-addon-scopes=app,system
 
-# Old Mozilla release toolchain artifacts expire from Taskcluster. CI installs
-# clang/lld locally, so avoid trying to fetch bootstrapped toolchains.
-ac_add_options --disable-bootstrap
-
-if [ -d "/usr/lib/llvm-18/lib" ]; then
-    ac_add_options --with-libclang-path=/usr/lib/llvm-18/lib
-    export LIBCLANG_PATH=/usr/lib/llvm-18/lib
+# Toolchain bootstrap policy is target-dependent (BUILD_TARGET is exported by
+# multibuild.py before `make set-target` / `make build`):
+#   * linux / windows: CI installs clang/lld locally via apt and pins libclang
+#     to the host llvm-18, so Mozilla's toolchain bootstrap stays disabled (its
+#     old release artifacts also expire from Taskcluster over time).
+#   * macos: cross-compiling from Linux needs Mozilla's matched clang + macOS
+#     SDK, which only --enable-bootstrap provides. The standalone osxcross route
+#     plus a newer third-party SDK hits clang-vs-SDK availability mismatches
+#     (the macOS 26 SDK's `visionOS` availability tokens that host clang-18
+#     cannot parse). This mirrors upstream camoufox, which enables bootstrap.
+if [ "${BUILD_TARGET%%,*}" = "macos" ]; then
+    ac_add_options --enable-bootstrap
+else
+    ac_add_options --disable-bootstrap
+    if [ -d "/usr/lib/llvm-18/lib" ]; then
+        ac_add_options --with-libclang-path=/usr/lib/llvm-18/lib
+        export LIBCLANG_PATH=/usr/lib/llvm-18/lib
+    fi
 fi
 
 export MOZ_REQUIRE_SIGNING=
