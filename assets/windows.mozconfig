@@ -17,8 +17,26 @@ else
     MINGW_TRIPLE=x86_64-w64-mingw32
 fi
 
-export CC="clang --target=$MINGW_TRIPLE"
-export CXX="clang++ --target=$MINGW_TRIPLE"
+# MinGW cross C/C++ compiler. We deliberately do NOT use a plain
+# `clang --target=$MINGW_TRIPLE` string here. mozbuild derives cargo's
+# per-target compiler env (CC_<rust_target>) from $(CC) and re-distributes a
+# compiler's inline flags via CFLAGS_<rust_target>, which it sources from each
+# directory's COMPUTED_CFLAGS. The toolkit/library/rust directory has empty
+# COMPUTED_CFLAGS, so the inline --target never reaches cc-rs: build scripts
+# like swgl would invoke bare /usr/bin/clang (defaulting to the host
+# x86_64-pc-linux-gnu target), which (a) rejects the Windows-only -mguard=cf
+# that cc-rs propagates from -Ccontrol-flow-guard=yes, and (b) would emit
+# host-arch objects for swgl's src/gl.cc -> later libxul link failure.
+# A wrapper binary that bakes --target into the compiler itself survives all of
+# mozbuild's flag splitting, because the target is part of the program, not a
+# flag that can be stripped or dropped.
+_camou_wrap="${MOZBUILD_STATE_PATH:-$HOME/.mozbuild}/camou-mingw"
+mkdir -p "$_camou_wrap"
+printf '#!/bin/sh\nexec clang --target=%s "$@"\n' "$MINGW_TRIPLE" > "$_camou_wrap/cc"
+printf '#!/bin/sh\nexec clang++ --target=%s "$@"\n' "$MINGW_TRIPLE" > "$_camou_wrap/cxx"
+chmod +x "$_camou_wrap/cc" "$_camou_wrap/cxx"
+export CC="$_camou_wrap/cc"
+export CXX="$_camou_wrap/cxx"
 export RC="$MINGW_TRIPLE-windres"
 export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
@@ -37,19 +55,6 @@ if command -v llvm-dlltool >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool
 elif command -v llvm-dlltool-18 >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool-18
-fi
-
-# cc-rs (used by Rust build scripts like swgl) reads CC_<target> and
-# CFLAGS_<target> when cross-compiling C code for the Rust target triple.
-# CC_x86_64_pc_windows_gnu is set to /usr/bin/clang (no --target), so clang
-# defaults to x86_64-pc-linux-gnu and rejects -mguard=cf (propagated from
-# -Ccontrol-flow-guard=yes in CARGO_ENCODED_RUSTFLAGS). Providing --target
-# via CFLAGS_ makes clang treat the invocation as a Windows cross-compile
-# and accept all Windows-specific codegen flags without changing the compiler.
-if [ "$BUILD_TARGET" = "windows,i686" ]; then
-    export CFLAGS_i686_pc_windows_gnu="--target=i686-w64-mingw32"
-else
-    export CFLAGS_x86_64_pc_windows_gnu="--target=x86_64-w64-mingw32"
 fi
 
 if command -v fxc2.exe >/dev/null 2>&1; then
