@@ -39,6 +39,19 @@ elif command -v llvm-dlltool-18 >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool-18
 fi
 
+# cc-rs (used by Rust build scripts like swgl) reads CC_<target> and
+# CFLAGS_<target> when cross-compiling C code for the Rust target triple.
+# CC_x86_64_pc_windows_gnu is set to /usr/bin/clang (no --target), so clang
+# defaults to x86_64-pc-linux-gnu and rejects -mguard=cf (propagated from
+# -Ccontrol-flow-guard=yes in CARGO_ENCODED_RUSTFLAGS). Providing --target
+# via CFLAGS_ makes clang treat the invocation as a Windows cross-compile
+# and accept all Windows-specific codegen flags without changing the compiler.
+if [ "$BUILD_TARGET" = "windows,i686" ]; then
+    export CFLAGS_i686_pc_windows_gnu="--target=i686-w64-mingw32"
+else
+    export CFLAGS_x86_64_pc_windows_gnu="--target=x86_64-w64-mingw32"
+fi
+
 if command -v fxc2.exe >/dev/null 2>&1; then
     export FXC="$(command -v fxc2.exe)"
 fi
