@@ -379,6 +379,34 @@ jobs:
             done
           fi
 
+          # (3) Force _GLIBCXX_HOSTED=1 in MinGW c++config.h. FF150's
+          # mozilla/Span.h unconditionally `#include <string>` (+ <algorithm>,
+          # <array>, <iterator>), and browser/app/winlauncher/freestanding
+          # reaches it transitively via NativeNt.h -> Range.h -> Span.h. The
+          # generated MinGW c++config.h hardcodes `#define _GLIBCXX_HOSTED
+          # __STDC_HOSTED__` (no #ifndef guard -- verified in GCC 13's
+          # libstdc++ include/Makefile.in), so under -ffreestanding it resolves
+          # to 0 and <bits/memoryfwd.h> then omits std::allocator, making
+          # <bits/stringfwd.h> fail with "no template named 'allocator'". A
+          # command-line -D cannot win against that unconditional #define, so
+          # rewrite the header itself. This only affects -ffreestanding objects
+          # (hosted compiles already have __STDC_HOSTED__==1 => _GLIBCXX_HOSTED
+          # ==1); __STDC_HOSTED__ stays 0 so the freestanding codegen
+          # guarantees (no implicit runtime-library calls) are preserved.
+          mapfile -t cxxcfg_files < <(find /usr -path '*mingw32*' -name 'c++config.h' 2>/dev/null)
+          if [ "${#cxxcfg_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW c++config.h found; skipping _GLIBCXX_HOSTED override."
+          else
+            for f in "${cxxcfg_files[@]}"; do
+              if grep -qE '^[[:space:]]*#[[:space:]]*define[[:space:]]+_GLIBCXX_HOSTED[[:space:]]+__STDC_HOSTED__' "$f"; then
+                sudo sed -i -E 's/^([[:space:]]*#[[:space:]]*define[[:space:]]+_GLIBCXX_HOSTED[[:space:]]+)__STDC_HOSTED__([[:space:]]*)$/\11\2/' "$f"
+                echo "forced _GLIBCXX_HOSTED=1 in: $f"
+              else
+                echo "NOTE: _GLIBCXX_HOSTED __STDC_HOSTED__ line not found in $f (layout changed?)"
+              fi
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
