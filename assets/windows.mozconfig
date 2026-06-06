@@ -37,6 +37,22 @@ printf '#!/bin/sh\nexec clang++ --target=%s "$@"\n' "$MINGW_TRIPLE" > "$_camou_w
 chmod +x "$_camou_wrap/cc" "$_camou_wrap/cxx"
 export CC="$_camou_wrap/cc"
 export CXX="$_camou_wrap/cxx"
+
+# Force libstdc++ into hosted mode for the -ffreestanding winlauncher
+# sublibrary. FF150's mozilla/Span.h unconditionally `#include <string>`
+# (and <algorithm>/<array>/<iterator>); browser/app/winlauncher/freestanding
+# reaches it transitively via NativeNt.h -> Range.h -> Span.h. Under
+# -ffreestanding the GCC 13 MinGW libstdc++ sets _GLIBCXX_HOSTED=0, which
+# leaves std::allocator / std::basic_string undeclared, so <bits/stringfwd.h>
+# fails with "no template named 'allocator'". (The CI requires_hosted.h stub
+# only suppresses the earlier #error; it does not bring allocator back.)
+# GCC 13's <bits/c++config.h> guards the macro with `#ifndef _GLIBCXX_HOSTED`,
+# so predefining it here wins. This is a no-op for every normal (hosted)
+# compile -- where __STDC_HOSTED__==1 already yields _GLIBCXX_HOSTED==1 -- so
+# it only changes the freestanding objects, and it leaves __STDC_HOSTED__
+# itself at 0 so Freestanding.h's "freestanding only" guard still holds.
+export CXXFLAGS="${CXXFLAGS:+$CXXFLAGS }-D_GLIBCXX_HOSTED=1"
+
 export RC="$MINGW_TRIPLE-windres"
 export WINDRES="$MINGW_TRIPLE-windres"
 export AR="$MINGW_TRIPLE-ar"
