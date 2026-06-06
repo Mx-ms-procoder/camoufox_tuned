@@ -3,4 +3,12 @@ if [ "$BUILD_TARGET" = "linux,i686" ]; then
     export PKG_CONFIG_PATH=
     export CFLAGS="$CFLAGS -msse2 -mfpmath=sse"
     export CXXFLAGS="$CXXFLAGS -msse2 -mfpmath=sse"
+    # The final ld.lld of libxul.so needs libatomic on i686. libstdc++'s
+    # std::atomic<double> (8-byte FP atomics: WaylandSurface scale handling,
+    # gfxFont::Baselines) lowers to the generic __atomic_load/store/exchange
+    # runtime calls, which live in libatomic -- not in compiler-rt/libgcc.
+    # x86_64/arm64 inline these intrinsics, so only the 32-bit leg failed at
+    # link time. libatomic (32-bit multilib) ships with gcc-multilib, which the
+    # i686 leg already installs.
+    export LDFLAGS="$LDFLAGS -latomic"
 fi
