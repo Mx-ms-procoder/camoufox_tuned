@@ -730,46 +730,51 @@ jobs:
           print(f"OK: guarded <ostream> include and operator<< in {maybe_h}")
           PY
 
-      - name: Wrap GCC STL wrappers in extern "C++" for MinGW windows.h
-        # Mozilla generates an STL wrapper for every libstdc++ header
-        # (obj/dist/stl_wrappers/<hdr>) from config/gcc-stl-wrapper.template.h.
-        # Each wrapper ends by including mozilla/throw_gcc.h, which pulls in
-        # <type_traits> (via mozilla/Attributes.h). MinGW's <windows.h> ->
-        # winnt.h opens an `extern "C" {` block (winnt.h:1656) and, in C++
-        # mode, includes <cstdlib> while it is still open; the cstdlib wrapper
-        # then drags <type_traits> into C linkage, so clang errors with
-        # "templates must have C++ linkage" / "no template named
-        # 'integral_constant'" (hit by ipc/mscom/COMWrappers.cpp and
-        # mozglue/baseprofiler). Mozilla's own builds use MSVC, whose windows.h
-        # does not do this, so upstream never trips it.
+      - name: Wrap STL wrappers in extern "C++" for MinGW windows.h
+        # Mozilla generates an STL wrapper for every wrapped header
+        # (obj/dist/stl_wrappers/<hdr>) from a template. config/moz.build picks
+        # the template by OS_TARGET: WINNT -> msvc-stl-wrapper.template.h (even
+        # under a clang/MinGW cross-build), else gcc-stl-wrapper.template.h. The
+        # MSVC template's body includes <type_traits> + mozilla/mozalloc.h; the
+        # GCC template's ends with mozilla/throw_gcc.h, which also pulls in
+        # <type_traits>. MinGW's <windows.h> -> winnt.h opens an `extern "C" {`
+        # block (winnt.h:1656) and, in C++ mode, includes <cstdlib> while it is
+        # still open; the cstdlib wrapper then drags <type_traits> into C
+        # linkage, so clang errors "templates must have C++ linkage" /
+        # "no template named 'integral_constant'" (hit by ipc/mscom/
+        # COMWrappers.cpp and mozglue/baseprofiler). Mozilla builds Windows with
+        # real MSVC, whose windows.h does not do this, so upstream never trips
+        # it -- consistent with upstream camoufox shipping no FF150 Windows build.
         #
-        # Fix: wrap the wrapper body (the real header + mozalloc + throw_gcc.h)
-        # in `extern "C++" { ... }`. That restores C++ linkage even when the
-        # wrapper is pulled inside an extern "C" block, and is a no-op for
-        # normal inclusion (C++ is already the default linkage). Patch the
-        # template before the wrappers are generated so every wrapper inherits
-        # it. Hard-fails if the anchor lines are missing (upstream refactor).
+        # Fix: wrap each template's include body in `extern "C++" { ... }`, which
+        # restores C++ linkage even when the generated wrapper is pulled inside
+        # an extern "C" block, and is a no-op for normal inclusion. Anchor on the
+        # `#include_next <...>` line (present in both templates) and the header-
+        # guard endif. Patch BOTH templates (the Windows build uses the msvc one,
+        # but patching both is harmless and future-proof). Hard-fails if neither
+        # template is found or an anchor is missing.
         if: matrix.target == 'windows'
         run: |
           set -eux
-          mapfile -t tmpl < <(find . -path '*camoufox-*/config/gcc-stl-wrapper.template.h' 2>/dev/null)
-          if [ "${#tmpl[@]}" -eq 0 ]; then
-            echo "ERROR: gcc-stl-wrapper.template.h not found after setup-minimal"; exit 1
+          mapfile -t tmpls < <(find . -path '*camoufox-*/config/*-stl-wrapper.template.h' 2>/dev/null)
+          if [ "${#tmpls[@]}" -eq 0 ]; then
+            echo "ERROR: no *-stl-wrapper.template.h found after setup-minimal"; exit 1
           fi
-          f="${tmpl[0]}"
-          grep -q '^#pragma GCC visibility push(default)' "$f" \
-            || { echo "ERROR: visibility-push anchor missing in $f"; exit 1; }
-          grep -q '^#endif  // if mozilla_' "$f" \
-            || { echo "ERROR: header-guard endif anchor missing in $f"; exit 1; }
-          if grep -q '^extern "C++" {' "$f"; then
-            echo "NOTE: $f already wrapped; skipping."
-          else
+          for f in "${tmpls[@]}"; do
+            if grep -q '^extern "C++" {' "$f"; then
+              echo "NOTE: $f already wrapped; skipping."
+              continue
+            fi
+            grep -q '^#include_next <' "$f" \
+              || { echo "ERROR: include_next anchor missing in $f"; exit 1; }
+            grep -q '^#endif  // if mozilla_' "$f" \
+              || { echo "ERROR: header-guard endif anchor missing in $f"; exit 1; }
             sed -i \
-              -e 's@^#pragma GCC visibility push(default)@extern "C++" {\n#pragma GCC visibility push(default)@' \
+              -e 's@^#include_next <@extern "C++" {\n#include_next <@' \
               -e 's@^#endif  // if mozilla_@}\n#endif  // if mozilla_@' \
               "$f"
-            echo "wrapped STL wrapper template body in extern \"C++\": $f"
-          fi
+            echo "wrapped STL wrapper body in extern \"C++\": $f"
+          done
 
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
