@@ -407,6 +407,33 @@ jobs:
             done
           fi
 
+          # (4) The MinGW WinRT header windows.ui.composition.h references the
+          # enums DirectXAlphaMode / DirectXPixelFormat (e.g. in get_AlphaMode /
+          # get_PixelFormat COM vtable slots) via an elaborated-type-specifier
+          # `enum DirectXAlphaMode *` BUT never includes the header that defines
+          # them (windows.graphics.directx.h). Under MSVC/clang-cl this slips
+          # through, but plain clang rejects the dangling reference with "ISO C++
+          # forbids forward references to 'enum' types". The enums are defined in
+          # C++ WITHOUT a fixed underlying type, so we cannot legally forward-
+          # declare them (`enum X : int;` would clash, `enum X;` is itself the
+          # forbidden form). The clean root-cause fix is to make the definitions
+          # visible first: prepend the missing include so the enums are complete
+          # types by the time windows.ui.composition.h uses them. (ANGLE's
+          # Renderer11 / CompositorNativeWindow11 are the only consumers.)
+          mapfile -t uicomp_files < <(find /usr -path '*mingw32*' -name 'windows.ui.composition.h' 2>/dev/null)
+          if [ "${#uicomp_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW windows.ui.composition.h found; skipping directx include."
+          else
+            for f in "${uicomp_files[@]}"; do
+              if grep -q '#include <windows.graphics.directx.h>' "$f"; then
+                echo "NOTE: directx include already in $f; skipping."
+              else
+                sudo sed -i '1i #include <windows.graphics.directx.h>' "$f"
+                echo "prepended <windows.graphics.directx.h> to: $f"
+              fi
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
@@ -968,6 +995,25 @@ jobs:
               || { echo "ERROR: ANGLE_IS_WIN anchor missing in $anglecommon"; exit 1; }
             sed -i "s@^    DEFINES\['ANGLE_IS_WIN'\] = True@    DEFINES['ANGLE_IS_WIN'] = True\n    if CONFIG['CC_TYPE'] == 'clang':\n        CXXFLAGS += ['-fms-extensions']@" "$anglecommon"
             echo "added -fms-extensions for clang to angle moz.build.common"
+          fi
+
+          # (11) security/sandbox chromium startup_information_helper.cc uses the
+          # process-creation attribute PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER
+          # (Win10 2004+ Code Integrity Guard). Ubuntu's MinGW processthreadsapi.h
+          # lacks this macro (it has the older ProcThreadAttributeValue helper and
+          # the base PROC_THREAD_ATTRIBUTE_* bits, but not the ComponentFilter
+          # value 26). Define it via the existing helper using the literal
+          # attribute number 26 (== ProcThreadAttributeComponentFilter), guarded
+          # so a newer SDK that already provides it wins.
+          sih="${src_dir}security/sandbox/chromium/sandbox/win/src/startup_information_helper.cc"
+          test -f "$sih" || { echo "ERROR: $sih not found"; exit 1; }
+          if grep -q 'camoufox: PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER fallback' "$sih"; then
+            echo "NOTE: COMPONENT_FILTER fallback already present; skipping."
+          else
+            grep -q '^#include <windows.h>' "$sih" \
+              || { echo "ERROR: <windows.h> anchor missing in $sih"; exit 1; }
+            sed -i 's@^#include <windows.h>@#include <windows.h>\n#ifndef PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER  // camoufox: PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER fallback\n#  define PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER ProcThreadAttributeValue(26, FALSE, TRUE, FALSE)\n#endif@' "$sih"
+            echo "added PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER fallback to startup_information_helper.cc"
           fi
 
       - name: Validate patch graph
