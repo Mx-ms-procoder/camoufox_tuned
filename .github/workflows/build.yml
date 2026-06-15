@@ -407,29 +407,39 @@ jobs:
             done
           fi
 
-          # (4) The MinGW WinRT header windows.ui.composition.h references the
-          # enums DirectXAlphaMode / DirectXPixelFormat (e.g. in get_AlphaMode /
-          # get_PixelFormat COM vtable slots) via an elaborated-type-specifier
-          # `enum DirectXAlphaMode *` BUT never includes the header that defines
-          # them (windows.graphics.directx.h). Under MSVC/clang-cl this slips
-          # through, but plain clang rejects the dangling reference with "ISO C++
-          # forbids forward references to 'enum' types". The enums are defined in
-          # C++ WITHOUT a fixed underlying type, so we cannot legally forward-
-          # declare them (`enum X : int;` would clash, `enum X;` is itself the
-          # forbidden form). The clean root-cause fix is to make the definitions
-          # visible first: prepend the missing include so the enums are complete
-          # types by the time windows.ui.composition.h uses them. (ANGLE's
-          # Renderer11 / CompositorNativeWindow11 are the only consumers.)
+          # (4) The MinGW WinRT header windows.ui.composition.h declares COM
+          # vtable slots (get_AlphaMode / get_PixelFormat) whose parameters use
+          # the enums DirectXAlphaMode / DirectXPixelFormat via an *unqualified*
+          # elaborated-type-specifier `enum DirectXAlphaMode *`. Those enums DO
+          # exist (the header already includes windows.graphics.directx.h, which
+          # defines them in namespace ABI::Windows::Graphics::DirectX) -- but the
+          # reference sits inside the sibling namespace ABI::Windows::UI::
+          # Composition, so unqualified name lookup never reaches them and plain
+          # clang treats `enum DirectXAlphaMode` as a brand-new forward-declared
+          # enum -> "ISO C++ forbids forward references to 'enum' types". (clang-cl
+          # / MSVC resolve it; -fms-extensions does NOT -- it only permits opaque
+          # enum *declarations*, not a dangling elaborated reference. Verified:
+          # run 27562945942 still failed with -fms-extensions present.) The enums
+          # are defined WITHOUT a fixed underlying type, so a forward declaration
+          # is illegal too. The surgical, compiler-mode-independent fix is to
+          # fully-qualify the two references so lookup finds the already-complete
+          # enums. (ANGLE's Renderer11 / CompositorNativeWindow11 are the only
+          # consumers.)
           mapfile -t uicomp_files < <(find /usr -path '*mingw32*' -name 'windows.ui.composition.h' 2>/dev/null)
           if [ "${#uicomp_files[@]}" -eq 0 ]; then
-            echo "NOTE: no MinGW windows.ui.composition.h found; skipping directx include."
+            echo "NOTE: no MinGW windows.ui.composition.h found; skipping enum qualification."
           else
             for f in "${uicomp_files[@]}"; do
-              if grep -q '#include <windows.graphics.directx.h>' "$f"; then
-                echo "NOTE: directx include already in $f; skipping."
+              if grep -q 'ABI::Windows::Graphics::DirectX::DirectXAlphaMode \*' "$f"; then
+                echo "NOTE: DirectX enum refs already qualified in $f; skipping."
+              elif grep -qE 'enum DirectX(AlphaMode|PixelFormat) \*' "$f"; then
+                sudo sed -i -E \
+                  -e 's@enum DirectXAlphaMode \*@enum ::ABI::Windows::Graphics::DirectX::DirectXAlphaMode *@g' \
+                  -e 's@enum DirectXPixelFormat \*@enum ::ABI::Windows::Graphics::DirectX::DirectXPixelFormat *@g' \
+                  "$f"
+                echo "qualified DirectX enum refs in: $f"
               else
-                sudo sed -i '1i #include <windows.graphics.directx.h>' "$f"
-                echo "prepended <windows.graphics.directx.h> to: $f"
+                echo "NOTE: no unqualified DirectX enum refs in $f (layout changed?); skipping."
               fi
             done
           fi
@@ -1014,6 +1024,30 @@ jobs:
               || { echo "ERROR: <windows.h> anchor missing in $sih"; exit 1; }
             sed -i 's@^#include <windows.h>@#include <windows.h>\n#ifndef PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER  // camoufox: PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER fallback\n#  define PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER ProcThreadAttributeValue(26, FALSE, TRUE, FALSE)\n#endif@' "$sih"
             echo "added PROC_THREAD_ATTRIBUTE_COMPONENT_FILTER fallback to startup_information_helper.cc"
+          fi
+
+          # (12) gfx/wr webrender texture_cache.rs declares
+          #   impl BudgetType { pub const COUNT: usize = 7;
+          #                     pub const VALUES: [BudgetType; BudgetType::COUNT] = [...]; }
+          # cbindgen emits this associated-const array but mistranslates the
+          # array-size expression `BudgetType::COUNT` into a bare, undeclared
+          # `COUNT` (it strips the `BudgetType::` qualifier without re-prefixing
+          # to `BudgetType_COUNT`), producing
+          #   constexpr static const BudgetType BudgetType_VALUES[COUNT] = {...};
+          # -> "use of undeclared identifier 'COUNT'" when the generated header is
+          # compiled (hit via browser/components/about/AboutRedirector.cpp). Fix
+          # at the source: use the literal length in the array *sizes* so cbindgen
+          # emits a valid `[7]`. Value-context uses (e.g. LRUCache::new(
+          # BudgetType::COUNT), which end in `)` not `]`) are deliberately left
+          # untouched. 7 == BudgetType::COUNT, so this is behaviourally identical.
+          texcache="${src_dir}gfx/wr/webrender/src/texture_cache.rs"
+          test -f "$texcache" || { echo "ERROR: $texcache not found"; exit 1; }
+          if grep -qE '\[[^]]*BudgetType::COUNT\]' "$texcache"; then
+            sed -i -E 's@(\[[^]]*); BudgetType::COUNT\]@\1; 7]@g' "$texcache"
+            echo "rewrote BudgetType::COUNT array sizes to literal 7 in texture_cache.rs"
+            grep -nE '\[[^]]*BudgetType::COUNT\]' "$texcache" && { echo "ERROR: array-size BudgetType::COUNT still present"; exit 1; } || true
+          else
+            echo "NOTE: no BudgetType::COUNT array sizes in texture_cache.rs; skipping."
           fi
 
       - name: Validate patch graph
