@@ -776,6 +776,57 @@ jobs:
             echo "wrapped STL wrapper body in extern \"C++\": $f"
           done
 
+      - name: Patch MinGW-specific Firefox source gaps
+        # Firefox's MinGW code paths are not exercised by Mozilla CI (which
+        # builds Windows with MSVC), so a few are subtly broken for the
+        # clang/MinGW cross-build:
+        #
+        #   1. mfbt/FStream.h: the `__MINGW32__ && __GLIBCXX__` branch uses
+        #      char16ptr_t (for its _wopen-based IFStream/OFStream) but only
+        #      includes mozilla/Char16.h in the non-MinGW #else branch, so
+        #      char16ptr_t is undeclared -> "unknown type name 'char16ptr_t'"
+        #      and a cascade of _wopen / IFStream errors (hit by
+        #      mozglue/misc/PreXULSkeletonUI.cpp).
+        #
+        #   2. mozglue/misc/PreXULSkeletonUI.cpp uses DWMWA_USE_IMMERSIVE_DARK_MODE
+        #      (DWMWINDOWATTRIBUTE value 20, Windows 10 20H1+). Ubuntu's MinGW
+        #      dwmapi.h ships DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 but not
+        #      the final constant -> "use of undeclared identifier".
+        #
+        # Both are minimal, self-contained source fixes. Hard-fail if an anchor
+        # is missing (defends against an upstream rename/refactor).
+        if: matrix.target == 'windows'
+        run: |
+          set -eux
+          src_dir="$(ls -d camoufox-*/ | head -n1)"
+
+          # (1) Add the missing Char16.h include to FStream.h's MinGW branch.
+          # The MinGW branch uses 2-space cpp indent (#  include); the existing
+          # Char16.h include in the #else branch uses 4-space (#    include), so
+          # the 2-space guard below distinguishes "already patched" from it.
+          fstream="${src_dir}mfbt/FStream.h"
+          test -f "$fstream" || { echo "ERROR: $fstream not found"; exit 1; }
+          if grep -q '^#  include "mozilla/Char16.h"' "$fstream"; then
+            echo "NOTE: Char16.h already in FStream.h MinGW branch; skipping."
+          else
+            grep -q '^#  include <ext/stdio_filebuf.h>' "$fstream" \
+              || { echo "ERROR: stdio_filebuf anchor missing in $fstream"; exit 1; }
+            sed -i 's@^#  include <ext/stdio_filebuf.h>@#  include "mozilla/Char16.h"\n#  include <ext/stdio_filebuf.h>@' "$fstream"
+            echo "added mozilla/Char16.h to FStream.h MinGW branch"
+          fi
+
+          # (2) Define DWMWA_USE_IMMERSIVE_DARK_MODE if the MinGW dwmapi.h lacks it.
+          prexul="${src_dir}mozglue/misc/PreXULSkeletonUI.cpp"
+          test -f "$prexul" || { echo "ERROR: $prexul not found"; exit 1; }
+          grep -q '^#include <dwmapi.h>' "$prexul" \
+            || { echo "ERROR: dwmapi.h include anchor missing in $prexul"; exit 1; }
+          if grep -q 'define DWMWA_USE_IMMERSIVE_DARK_MODE ' "$prexul"; then
+            echo "NOTE: DWMWA fallback already present; skipping."
+          else
+            sed -i 's@^#include <dwmapi.h>@#include <dwmapi.h>\n#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE\n#  define DWMWA_USE_IMMERSIVE_DARK_MODE 20\n#endif@' "$prexul"
+            echo "added DWMWA_USE_IMMERSIVE_DARK_MODE fallback to PreXULSkeletonUI.cpp"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
