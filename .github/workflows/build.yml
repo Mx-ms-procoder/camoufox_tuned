@@ -451,6 +451,32 @@ jobs:
               else
                 echo "NOTE: no unqualified DirectX enum refs in $f (already done / layout changed); skipping."
               fi
+
+              # Same root cause for the Windows.Foundation.Numerics value types:
+              # IVisual::get_Size / get_Offset are declared with `struct Vector2 *`
+              # / `struct Vector3 *`, where the unqualified `Vector2` -- resolved
+              # from inside namespace ABI::Windows::UI::Composition -- binds to a
+              # phantom incomplete `Composition::Vector2`, NOT the real
+              # ABI::Windows::Foundation::Numerics::Vector2 that ANGLE passes. The
+              # struct form is legal to forward-reference, so only the actual
+              # call sites error ("cannot initialize 'struct Vector2 *' with
+              # 'ABI::Windows::Foundation::Numerics::Vector2 *'"); ANGLE only calls
+              # get_Size (Vector2) and get_Offset (Vector3). Qualify both struct
+              # references to the real Numerics types so the COM slot signatures
+              # match what ANGLE passes. (Other numeric types in uncalled slots
+              # stay incomplete-but-fine.) Idempotent like the enum pass.
+              if grep -qE 'struct Vector[23]\b' "$f"; then
+                sudo sed -i -E \
+                  -e 's@struct Vector2\b@struct ::ABI::Windows::Foundation::Numerics::Vector2@g' \
+                  -e 's@struct Vector3\b@struct ::ABI::Windows::Foundation::Numerics::Vector3@g' \
+                  "$f"
+                echo "qualified Numerics Vector2/Vector3 refs in: $f"
+                if grep -qE 'struct Vector[23]\b' "$f"; then
+                  echo "ERROR: unqualified struct Vector2/Vector3 refs remain in $f"; exit 1
+                fi
+              else
+                echo "NOTE: no unqualified struct Vector2/Vector3 refs in $f (already done / layout changed); skipping."
+              fi
             done
           fi
 
