@@ -430,16 +430,26 @@ jobs:
             echo "NOTE: no MinGW windows.ui.composition.h found; skipping enum qualification."
           else
             for f in "${uicomp_files[@]}"; do
-              if grep -q 'ABI::Windows::Graphics::DirectX::DirectXAlphaMode \*' "$f"; then
-                echo "NOTE: DirectX enum refs already qualified in $f; skipping."
-              elif grep -qE 'enum DirectX(AlphaMode|PixelFormat) \*' "$f"; then
+              # Qualify EVERY elaborated reference to these two enums, whether the
+              # parameter is by-pointer (`enum DirectXPixelFormat *value`) or
+              # by-value (`enum DirectXPixelFormat format`). The earlier "* only"
+              # pattern missed the by-value slots (run 27567298821 then failed at
+              # the next interface, lines 5707/5708, on the same two enums). Anchor
+              # on a word boundary after the enum name so we catch both forms and
+              # never partial-match a longer identifier. Idempotent: once
+              # qualified, `enum ` is followed by `::ABI...` so the bare pattern no
+              # longer matches.
+              if grep -qE 'enum DirectX(AlphaMode|PixelFormat)\b' "$f"; then
                 sudo sed -i -E \
-                  -e 's@enum DirectXAlphaMode \*@enum ::ABI::Windows::Graphics::DirectX::DirectXAlphaMode *@g' \
-                  -e 's@enum DirectXPixelFormat \*@enum ::ABI::Windows::Graphics::DirectX::DirectXPixelFormat *@g' \
+                  -e 's@enum DirectXAlphaMode\b@enum ::ABI::Windows::Graphics::DirectX::DirectXAlphaMode@g' \
+                  -e 's@enum DirectXPixelFormat\b@enum ::ABI::Windows::Graphics::DirectX::DirectXPixelFormat@g' \
                   "$f"
                 echo "qualified DirectX enum refs in: $f"
+                if grep -qE 'enum DirectX(AlphaMode|PixelFormat)\b' "$f"; then
+                  echo "ERROR: unqualified DirectX enum refs remain in $f"; exit 1
+                fi
               else
-                echo "NOTE: no unqualified DirectX enum refs in $f (layout changed?); skipping."
+                echo "NOTE: no unqualified DirectX enum refs in $f (already done / layout changed); skipping."
               fi
             done
           fi
