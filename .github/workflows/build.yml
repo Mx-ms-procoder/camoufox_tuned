@@ -908,6 +908,68 @@ jobs:
             echo "added <cstring> to thread_local_storage.cc"
           fi
 
+          # (8) third_party/llama.cpp llama-arch.cpp calls strcmp() without
+          # <cstring>/<string.h> (same MSVC-transitive-include assumption as the
+          # thread_local_storage / memset case) -> "use of undeclared identifier
+          # 'strcmp'". Add <cstring> after its first system include.
+          larch="${src_dir}third_party/llama.cpp/src/llama-arch.cpp"
+          test -f "$larch" || { echo "ERROR: $larch not found"; exit 1; }
+          if grep -q '^#include <cstring>' "$larch"; then
+            echo "NOTE: <cstring> already in llama-arch.cpp; skipping."
+          else
+            grep -q '^#include <map>' "$larch" \
+              || { echo "ERROR: <map> anchor missing in $larch"; exit 1; }
+            sed -i 's@^#include <map>@#include <cstring>\n#include <map>@' "$larch"
+            echo "added <cstring> to llama-arch.cpp"
+          fi
+
+          # (9) security/sandbox chromium process_mitigations.cc, two MinGW gaps:
+          #   (a) It probes user-mode CET (Hardware-enforced Stack Protection)
+          #       via decltype(&IsUserCetAvailableInEnvironment) + the constant
+          #       USER_CET_ENVIRONMENT_WIN32_PROCESS. Both only exist in MinGW's
+          #       headers under a very recent Windows SDK level, so on Ubuntu's
+          #       MinGW they are undeclared. The function is GetProcAddress-loaded
+          #       at runtime (never linked), so a bare extern "C" prototype + the
+          #       constant is all the compiler needs. Guard on the constant: if a
+          #       newer SDK defines it, the whole CET API is present -> skip shim.
+          #   (b) MSVC-only integer suffix `ui64` (e.g. 0x...ui64) -> clang/MinGW
+          #       wants ULL. Rewrite <hexdigit>ui64 -> <hexdigit>ULL.
+          pmit="${src_dir}security/sandbox/chromium/sandbox/win/src/process_mitigations.cc"
+          test -f "$pmit" || { echo "ERROR: $pmit not found"; exit 1; }
+          if grep -q 'camoufox: CET shim' "$pmit"; then
+            echo "NOTE: CET shim already present; skipping."
+          else
+            grep -q '^bool IsUserCetWin32Available() {' "$pmit" \
+              || { echo "ERROR: IsUserCetWin32Available anchor missing in $pmit"; exit 1; }
+            sed -i 's@^bool IsUserCetWin32Available() {@#ifndef USER_CET_ENVIRONMENT_WIN32_PROCESS  // camoufox: CET shim\n#  define USER_CET_ENVIRONMENT_WIN32_PROCESS 0x00000000\nextern "C" BOOL WINAPI IsUserCetAvailableInEnvironment(DWORD UserCetEnvironment);\n#endif\nbool IsUserCetWin32Available() {@' "$pmit"
+            echo "injected CET shim into process_mitigations.cc"
+          fi
+          if grep -qE '[0-9a-fA-F]ui64' "$pmit"; then
+            sed -i -E 's@([0-9a-fA-F])ui64@\1ULL@g' "$pmit"
+            echo "rewrote ui64 integer suffix(es) to ULL in process_mitigations.cc"
+          else
+            echo "NOTE: no ui64 suffix left in process_mitigations.cc; skipping."
+          fi
+
+          # (10) gfx/angle: the MinGW WinRT headers (windows.ui.composition.h)
+          # forward-declare enums, which plain clang rejects ("ISO C++ forbids
+          # forward references to 'enum' types"). Mozilla builds ANGLE with
+          # clang-cl (Microsoft mode) where this is legal. Re-enable just the
+          # Microsoft *language extensions* (additive/permissive; does NOT define
+          # _MSC_VER or change ABI/mangling) for the ANGLE subtree on the clang
+          # MinGW cross-build, scoped via its shared moz.build.common so only
+          # ANGLE is affected, not the whole tree.
+          anglecommon="${src_dir}gfx/angle/moz.build.common"
+          test -f "$anglecommon" || { echo "ERROR: $anglecommon not found"; exit 1; }
+          if grep -q 'fms-extensions' "$anglecommon"; then
+            echo "NOTE: -fms-extensions already in angle moz.build.common; skipping."
+          else
+            grep -q "^    DEFINES\['ANGLE_IS_WIN'\] = True" "$anglecommon" \
+              || { echo "ERROR: ANGLE_IS_WIN anchor missing in $anglecommon"; exit 1; }
+            sed -i "s@^    DEFINES\['ANGLE_IS_WIN'\] = True@    DEFINES['ANGLE_IS_WIN'] = True\n    if CONFIG['CC_TYPE'] == 'clang':\n        CXXFLAGS += ['-fms-extensions']@" "$anglecommon"
+            echo "added -fms-extensions for clang to angle moz.build.common"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
