@@ -1086,6 +1086,92 @@ jobs:
             echo "NOTE: no BudgetType::COUNT array sizes in texture_cache.rs; skipping."
           fi
 
+          # (13) mfbt/ResultExtensions.h and dom/quota/ResultExtensions.h route
+          # MOZ_TO_RESULT_INVOKE_MEMBER_TYPED / QM_TO_RESULT_INVOKE_MEMBER_TYPED
+          # through ::std::mem_fn(&Iface::Method). On 32-bit Windows, XPCOM methods
+          # are virtual __stdcall (NS_IMETHOD), and libstdc++'s std::_Mem_fn_traits
+          # has NO calling-convention specializations (only cv/ref qualifiers) --
+          # unlike MSVC's STL -- so std::mem_fn fails with "implicit instantiation
+          # of undefined template 'std::_Mem_fn_traits<nsresult (Iface::*)(...)
+          # __stdcall>'" (hit via dom/quota/QuotaCommon.h on the i686 leg; x86_64 is
+          # unaffected because __stdcall is a no-op there). Mozilla already special-
+          # cased the non-mem_fn ToResultInvokeMember path for i686 (see the
+          # `#if defined(XP_WIN) && !defined(_WIN64)` __stdcall overloads in this
+          # file) but left the mem_fn TYPED path, since their own i686 Windows CI
+          # uses MSVC. std::invoke is calling-convention agnostic -- it deduces from
+          # the actual call expression and never instantiates _Mem_fn_traits -- so
+          # inject a small SFINAE-friendly std::invoke call wrapper
+          # (mozilla::detail::MemFnInvoker) and point both macros at it. It is a
+          # drop-in for std::mem_fn (std::mem_fn(p)(o,a...) == std::invoke(p,o,a...))
+          # and harmless on every other target, so apply on both Windows arches.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          helper = '\n'.join([
+              'namespace detail {',
+              '// camoufox: std::mem_fn has no calling-convention specializations in',
+              '// libstdc++ (std::_Mem_fn_traits covers only cv/ref qualifiers), so an',
+              '// XPCOM __stdcall member pointer (NS_IMETHOD on 32-bit Windows) makes it',
+              '// an undefined template. std::invoke is convention-agnostic, so wrap the',
+              '// pointer in a SFINAE-friendly std::invoke call wrapper instead.',
+              'template <typename MemPtr>',
+              'auto MemFnInvoker(MemPtr aMemPtr) {',
+              '  return [aMemPtr](auto&& aSelf, auto&&... aArgs)',
+              '             -> decltype(::std::invoke(',
+              '                 aMemPtr, std::forward<decltype(aSelf)>(aSelf),',
+              '                 std::forward<decltype(aArgs)>(aArgs)...)) {',
+              '    return ::std::invoke(aMemPtr, std::forward<decltype(aSelf)>(aSelf),',
+              '                         std::forward<decltype(aArgs)>(aArgs)...);',
+              '  };',
+              '}',
+              '}  // namespace detail',
+              '',
+              '',
+          ])
+          anchor = '// Macro version of ToResultInvokeMember for member functions. The macro has'
+          mfbt = os.path.join(src_dir, 'mfbt', 'ResultExtensions.h')
+          with open(mfbt, encoding='utf-8') as f:
+              s = f.read()
+          if 'MemFnInvoker' not in s:
+              if anchor not in s:
+                  sys.exit('ERROR: macro-comment anchor missing in ' + mfbt)
+              s = s.replace(anchor, helper + anchor, 1)
+          n1 = s.count('::std::mem_fn(')
+          s = s.replace('::std::mem_fn(', '::mozilla::detail::MemFnInvoker(')
+          with open(mfbt, 'w', encoding='utf-8') as f:
+              f.write(s)
+          final = open(mfbt, encoding='utf-8').read()
+          if 'MemFnInvoker' not in final or '::std::mem_fn(' in final:
+              sys.exit('ERROR: MemFnInvoker swap failed in ' + mfbt)
+          qm = os.path.join(src_dir, 'dom', 'quota', 'ResultExtensions.h')
+          with open(qm, encoding='utf-8') as f:
+              s = f.read()
+          n2 = s.count('::std::mem_fn(')
+          s = s.replace('::std::mem_fn(', '::mozilla::detail::MemFnInvoker(')
+          with open(qm, 'w', encoding='utf-8') as f:
+              f.write(s)
+          if '::std::mem_fn(' in open(qm, encoding='utf-8').read():
+              sys.exit('ERROR: MemFnInvoker swap failed in ' + qm)
+          print('MemFnInvoker: injected helper, swapped %d (mfbt) + %d (quota) mem_fn call(s)' % (n1, n2))
+          PYEOF
+
+          # (14) dom/media/gmp/rlz/lib/machine_id.h uses std::vector<uint8_t> but
+          # includes only <string>/<vector>; MSVC's <vector> transitively drags in
+          # <cstdint> while libstdc++'s MinGW <vector> does not, so uint8_t is
+          # undeclared ("unknown type name 'uint8_t'; did you mean 'wint_t'?",
+          # cascading into GetRawMachineId signature errors in machine_id.cc -- hit
+          # on the x86_64 leg, arch-independent). Add the explicit <cstdint>.
+          machineid="${src_dir}dom/media/gmp/rlz/lib/machine_id.h"
+          test -f "$machineid" || { echo "ERROR: $machineid not found"; exit 1; }
+          if grep -q '^#include <cstdint>' "$machineid"; then
+            echo "NOTE: <cstdint> already in machine_id.h; skipping."
+          else
+            grep -q '^#include <vector>' "$machineid" \
+              || { echo "ERROR: <vector> anchor missing in $machineid"; exit 1; }
+            sed -i 's@^#include <vector>@#include <vector>\n#include <cstdint>@' "$machineid"
+            echo "added <cstdint> to machine_id.h"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
