@@ -827,6 +827,46 @@ jobs:
             echo "added DWMWA_USE_IMMERSIVE_DARK_MODE fallback to PreXULSkeletonUI.cpp"
           fi
 
+          # (3) CacheNtDllThunk.cpp defines CacheNtDllThunk()/GetCachedNtDllThunk()
+          # as `static`, but its own header declares them MFBT_API (non-static,
+          # dllexport when building mozglue). clang rejects "static declaration
+          # follows non-static declaration". They are consumed externally (the
+          # header exists for that), so the `static` is the anomaly -- drop it to
+          # match the header. (The sCachedNtDllThunk static *variable* is left
+          # untouched: the anchors below match only the two function defs.)
+          cache="${src_dir}toolkit/xre/dllservices/mozglue/CacheNtDllThunk.cpp"
+          test -f "$cache" || { echo "ERROR: $cache not found"; exit 1; }
+          grep -q '^static void CacheNtDllThunk()' "$cache" \
+            || { echo "ERROR: CacheNtDllThunk def anchor missing in $cache"; exit 1; }
+          sed -i \
+            -e 's@^static void CacheNtDllThunk()@void CacheNtDllThunk()@' \
+            -e 's@^static Buffer<IMAGE_THUNK_DATA>\* GetCachedNtDllThunk()@Buffer<IMAGE_THUNK_DATA>* GetCachedNtDllThunk()@' \
+            "$cache"
+          echo "removed static from CacheNtDllThunk.cpp exported defs"
+
+          # (4) WindowsStackWalkInitialization.cpp uses the MSVC-only integer
+          # suffix `9i64`; clang/MinGW only accepts LL. Rewrite <digit>i64 -> LL.
+          wsw="${src_dir}toolkit/xre/dllservices/mozglue/WindowsStackWalkInitialization.cpp"
+          test -f "$wsw" || { echo "ERROR: $wsw not found"; exit 1; }
+          grep -q '[0-9]i64' "$wsw" \
+            || { echo "ERROR: i64 suffix anchor missing in $wsw"; exit 1; }
+          sed -i 's@\([0-9]\)i64@\1LL@g' "$wsw"
+          echo "rewrote i64 integer suffix(es) to LL in WindowsStackWalkInitialization.cpp"
+
+          # (5) security/sandbox chromium-shim win_util.h uses uint32_t/int32_t
+          # without including <cstdint> (it relies on a transitive include that
+          # the MSVC header set provides but MinGW's does not). Add the include.
+          winutil="${src_dir}security/sandbox/chromium-shim/base/win/win_util.h"
+          test -f "$winutil" || { echo "ERROR: $winutil not found"; exit 1; }
+          if grep -q '^#include <cstdint>' "$winutil"; then
+            echo "NOTE: <cstdint> already in win_util.h; skipping."
+          else
+            grep -q '^#include <minwindef.h>' "$winutil" \
+              || { echo "ERROR: minwindef.h anchor missing in $winutil"; exit 1; }
+            sed -i 's@^#include <minwindef.h>@#include <cstdint>\n#include <minwindef.h>@' "$winutil"
+            echo "added <cstdint> to win_util.h"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
