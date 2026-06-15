@@ -867,6 +867,47 @@ jobs:
             echo "added <cstdint> to win_util.h"
           fi
 
+          # (6) third_party/llama.cpp ggml-cpu-c.c gates a Win11 thread-power-
+          # throttling hint behind `#if _WIN32_WINNT >= 0x0602`, but the
+          # THREAD_POWER_THROTTLING_STATE struct + its CURRENT_VERSION /
+          # EXECUTION_SPEED constants only exist in MinGW's processthreadsapi.h
+          # under _WIN32_WINNT >= 0x0A00, so the block fails to compile with
+          # "use of undeclared identifier 'THREAD_POWER_THROTTLING_STATE'".
+          # The block is a pure perf hint (tells Win11 not to park the inference
+          # threads); skipping it has no functional effect for camoufox, so we
+          # neuter just that one guard to `#if 0`. There is exactly one such
+          # guard in the file (asserted below), so this cannot over-match.
+          ggml="${src_dir}third_party/llama.cpp/ggml/src/ggml-cpu/ggml-cpu-c.c"
+          test -f "$ggml" || { echo "ERROR: $ggml not found"; exit 1; }
+          n_guard="$(grep -cE '^[[:space:]]*#if _WIN32_WINNT >= 0x0602' "$ggml")"
+          if [ "$n_guard" = "0" ]; then
+            if grep -q 'camoufox: MinGW lacks THREAD_POWER_THROTTLING' "$ggml"; then
+              echo "NOTE: throttling guard already neutered; skipping."
+            else
+              echo "ERROR: _WIN32_WINNT>=0x0602 anchor missing in $ggml"; exit 1
+            fi
+          elif [ "$n_guard" = "1" ]; then
+            sed -i 's@^\([[:space:]]*\)#if _WIN32_WINNT >= 0x0602@\1#if 0  // camoufox: MinGW lacks THREAD_POWER_THROTTLING_STATE@' "$ggml"
+            echo "neutered Win11 thread-power-throttling block in ggml-cpu-c.c"
+          else
+            echo "ERROR: expected exactly 1 _WIN32_WINNT>=0x0602 guard in $ggml, found $n_guard"; exit 1
+          fi
+
+          # (7) security/sandbox chromium thread_local_storage.cc calls memset()
+          # but includes neither <cstring> nor <string.h> -- it relies on the
+          # MSVC header set pulling string.h transitively. clang/MinGW does not,
+          # so memset is undeclared ("did you mean 'wmemset'?"). Add <cstring>.
+          tls="${src_dir}security/sandbox/chromium/base/threading/thread_local_storage.cc"
+          test -f "$tls" || { echo "ERROR: $tls not found"; exit 1; }
+          if grep -q '^#include <cstring>' "$tls"; then
+            echo "NOTE: <cstring> already in thread_local_storage.cc; skipping."
+          else
+            grep -q '^#include <algorithm>' "$tls" \
+              || { echo "ERROR: <algorithm> anchor missing in $tls"; exit 1; }
+            sed -i 's@^#include <algorithm>@#include <algorithm>\n#include <cstring>@' "$tls"
+            echo "added <cstring> to thread_local_storage.cc"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
