@@ -1384,6 +1384,124 @@ jobs:
               print('cast supported_formats enum-OR to DWRITE_GLYPH_IMAGE_FORMATS')
           PYEOF
 
+          # (24) gfx/skia SkScalerContext_win_dw.cpp calls the 4-arg per-glyph
+          # IDWriteFontFace4::GetGlyphImageFormats(glyphId, ppemFirst, ppemLast,
+          # &formats). mingw-w64's dwrite_3.h cannot have two same-named methods
+          # in its C-compatible interface, so it renames the overloaded 4-arg
+          # variant to GetGlyphImageFormats_ (trailing underscore) and keeps the
+          # plain name for the 0-arg whole-font variant -> the 4-arg call resolves
+          # to the 0-arg decl: "too many arguments to function call, expected 0,
+          # have 4". Route the call to GetGlyphImageFormats_ on MinGW (identical
+          # signature, full functionality -- SVG-in-OpenType glyph rendering).
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'gfx', 'skia', 'skia', 'src', 'ports',
+                           'SkScalerContext_win_dw.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = (
+              '    HRBM(fontFace4->GetGlyphImageFormats(glyph.getGlyphID(), 0, UINT32_MAX, &imageFormats),\n'
+              '         "Cannot get glyph image formats.");')
+          new = (
+              '#ifdef __MINGW32__  // camoufox: mingw-w64 renames the overloaded 4-arg per-glyph GetGlyphImageFormats to GetGlyphImageFormats_ (C-compat headers cannot overload); the 0-arg whole-font variant keeps the plain name\n'
+              '    HRBM(fontFace4->GetGlyphImageFormats_(glyph.getGlyphID(), 0, UINT32_MAX, &imageFormats),\n'
+              '         "Cannot get glyph image formats.");\n'
+              '#else\n'
+              '    HRBM(fontFace4->GetGlyphImageFormats(glyph.getGlyphID(), 0, UINT32_MAX, &imageFormats),\n'
+              '         "Cannot get glyph image formats.");\n'
+              '#endif')
+          # Two identical call sites: drawSVGImage (live) and generatePngMetrics
+          # (under #ifdef USE_PNG, currently dead) -- patch BOTH (replace-all) so
+          # the fix is robust if USE_PNG is ever enabled.
+          if 'GetGlyphImageFormats_(' in s:
+              print('NOTE: SkScalerContext already uses GetGlyphImageFormats_; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: GetGlyphImageFormats 4-arg call anchor missing in ' + f)
+          else:
+              n = s.count(old)
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new))
+              print('mingw: routed %d SkScalerContext GetGlyphImageFormats(4-arg) call(s) to GetGlyphImageFormats_' % n)
+          PYEOF
+
+          # (25) gfx/thebes DeviceManagerDx.cpp probes IDCompositionDevice4 (a
+          # Windows-11-era interface, CheckCompositionTextureSupport) to decide
+          # mSupportsDCompositionTexture. Ubuntu 24.04's mingw-w64 (11.0.1, 2023)
+          # does not declare IDCompositionDevice4 -> "use of undeclared identifier
+          # 'IDCompositionDevice4'". It only gates a WebRender DComposition-texture
+          # overlay optimization (gfxVars::UseWebRenderDCompositionTextureOverlayWin),
+          # so disable the probe on MinGW (return false) -- no rendering/correctness
+          # impact. (Newer mingw-w64 has the interface; revisit if the toolchain bumps.)
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'gfx', 'thebes', 'DeviceManagerDx.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = (
+              '  const bool supported = [device, compositionDevice] {\n'
+              '    HRESULT hr;\n'
+              '    RefPtr<IDCompositionDevice4> dcomp4;\n'
+              '    hr = compositionDevice->QueryInterface(\n'
+              '        (IDCompositionDevice4**)getter_AddRefs(dcomp4));\n'
+              '    if (FAILED(hr)) {\n'
+              '      return false;\n'
+              '    }\n'
+              '\n'
+              '    BOOL supportCompositionTexture = FALSE;\n'
+              '    hr = dcomp4->CheckCompositionTextureSupport(device,\n'
+              '                                                &supportCompositionTexture);\n'
+              '    if (FAILED(hr)) {\n'
+              '      return false;\n'
+              '    }\n'
+              '\n'
+              '    if (supportCompositionTexture == FALSE) {\n'
+              '      return false;\n'
+              '    }\n'
+              '\n'
+              '    return true;\n'
+              '  }();')
+          new = (
+              '  const bool supported = [device, compositionDevice] {\n'
+              '#ifdef __MINGW32__\n'
+              '    // camoufox: Ubuntu mingw-w64 (11.0.1) lacks IDCompositionDevice4, a\n'
+              '    // Win11-era interface (CheckCompositionTextureSupport). Disable the\n'
+              '    // WebRender DComposition-texture overlay probe -- a pure perf\n'
+              '    // optimization (UseWebRenderDCompositionTextureOverlayWin), no\n'
+              '    // rendering/correctness impact.\n'
+              '    (void)device;\n'
+              '    (void)compositionDevice;\n'
+              '    return false;\n'
+              '#else\n'
+              '    HRESULT hr;\n'
+              '    RefPtr<IDCompositionDevice4> dcomp4;\n'
+              '    hr = compositionDevice->QueryInterface(\n'
+              '        (IDCompositionDevice4**)getter_AddRefs(dcomp4));\n'
+              '    if (FAILED(hr)) {\n'
+              '      return false;\n'
+              '    }\n'
+              '\n'
+              '    BOOL supportCompositionTexture = FALSE;\n'
+              '    hr = dcomp4->CheckCompositionTextureSupport(device,\n'
+              '                                                &supportCompositionTexture);\n'
+              '    if (FAILED(hr)) {\n'
+              '      return false;\n'
+              '    }\n'
+              '\n'
+              '    if (supportCompositionTexture == FALSE) {\n'
+              '      return false;\n'
+              '    }\n'
+              '\n'
+              '    return true;\n'
+              '#endif\n'
+              '  }();')
+          if 'lacks IDCompositionDevice4' in s:
+              print('NOTE: DeviceManagerDx IDCompositionDevice4 probe already gated; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: IDCompositionDevice4 lambda anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('mingw: disabled IDCompositionDevice4 DComposition-texture probe')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
