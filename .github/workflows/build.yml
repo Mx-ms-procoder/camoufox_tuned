@@ -1303,6 +1303,26 @@ jobs:
             echo "added #undef interface to addrs-win32.cpp"
           fi
 
+          # (21) nrappkit r_log.cpp guards its POSIX includes with `#ifndef
+          # _MSC_VER`, but MinGW does not define _MSC_VER, so it takes the POSIX
+          # branch and pulls in <syslog.h>, which MinGW-w64 lacks -> "fatal
+          # error: 'syslog.h' file not found". MinGW *does* ship <strings.h>
+          # (strcasecmp), so only <syslog.h> is the problem. On the WINNT target
+          # common.build defines WIN32 and adds the win32 csi_platform.h port,
+          # which already supplies LOG_EMERG/LOG_DEBUG; the lone vsyslog() call
+          # is itself `#ifndef WIN32`-guarded. So wrap only the <syslog.h>
+          # include in `#ifndef WIN32` (same idiom this file uses elsewhere).
+          rlog="${src_dir}dom/media/webrtc/transport/third_party/nrappkit/src/log/r_log.cpp"
+          test -f "$rlog" || { echo "ERROR: $rlog not found"; exit 1; }
+          if grep -q 'camoufox: MinGW lacks <syslog.h>' "$rlog"; then
+            echo "NOTE: r_log.cpp syslog.h already WIN32-guarded; skipping."
+          else
+            grep -q '^#include <syslog.h>' "$rlog" \
+              || { echo "ERROR: <syslog.h> anchor missing in $rlog"; exit 1; }
+            sed -i 's@^#include <syslog.h>@#ifndef WIN32  // camoufox: MinGW lacks <syslog.h>; csi_platform.h supplies LOG_* and vsyslog() is WIN32-guarded\n#include <syslog.h>\n#endif@' "$rlog"
+            echo "WIN32-guarded <syslog.h> include in r_log.cpp"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
