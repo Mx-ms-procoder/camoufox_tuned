@@ -1323,6 +1323,28 @@ jobs:
             echo "WIN32-guarded <syslog.h> include in r_log.cpp"
           fi
 
+          # (22) nrappkit registry.cpp is the ONE remaining file (alongside
+          # r_log.cpp, fixed in 21) that guards its POSIX includes with the wrong
+          # `#ifndef _MSC_VER` -- MinGW is not _MSC_VER so it takes the POSIX
+          # branch and pulls <netinet/in.h>, which MinGW-w64 lacks -> "fatal
+          # error: 'netinet/in.h' file not found". Its sibling registry_local.cpp
+          # (identical include block) already uses the correct `#ifndef WIN32`.
+          # On Windows csi_platform.h pulls <winsock2.h> (in_addr/htons/...) and
+          # maps strcasecmp->_stricmp, so none of strings.h/sys/param.h/
+          # netinet/in.h are needed. Flip the lone guard to match the sibling.
+          # (Safe everywhere: on Linux/macOS neither _MSC_VER nor WIN32 is
+          # defined, so the POSIX branch is taken either way.)
+          reg="${src_dir}dom/media/webrtc/transport/third_party/nrappkit/src/registry/registry.cpp"
+          test -f "$reg" || { echo "ERROR: $reg not found"; exit 1; }
+          if grep -q '^#ifndef WIN32' "$reg"; then
+            echo "NOTE: registry.cpp already WIN32-guarded; skipping."
+          else
+            grep -q '^#ifndef _MSC_VER' "$reg" \
+              || { echo "ERROR: _MSC_VER guard anchor missing in $reg"; exit 1; }
+            sed -i 's@^#ifndef _MSC_VER@#ifndef WIN32  /* camoufox: MinGW lacks netinet/in.h; csi_platform.h pulls winsock2.h. Match sibling registry_local.cpp */@' "$reg"
+            echo "flipped registry.cpp POSIX-include guard _MSC_VER -> WIN32"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
