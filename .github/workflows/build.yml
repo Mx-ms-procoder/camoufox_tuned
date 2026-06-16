@@ -1172,6 +1172,42 @@ jobs:
             echo "added <cstdint> to machine_id.h"
           fi
 
+          # (15) dom/media/platforms/wmf/WMFDataEncoderUtils.cpp defines
+          # ParseH264Parameters() and GetProfile() as `static`, but its header
+          # WMFDataEncoderUtils.h declares them non-static (namespace-scope, external
+          # linkage) -- and WMFMediaDataEncoder.cpp also calls them, so external is
+          # required. clang rejects "static declaration follows non-static
+          # declaration" (and then "call to 'GetProfile' is ambiguous"); MSVC merely
+          # warns. Same class as (3) CacheNtDllThunk: the `static` is the anomaly,
+          # drop it to match the header. Hits both arches.
+          wmfenc="${src_dir}dom/media/platforms/wmf/WMFDataEncoderUtils.cpp"
+          test -f "$wmfenc" || { echo "ERROR: $wmfenc not found"; exit 1; }
+          grep -q '^static already_AddRefed<MediaByteBuffer> ParseH264Parameters(' "$wmfenc" \
+            || { echo "ERROR: ParseH264Parameters static-def anchor missing in $wmfenc"; exit 1; }
+          sed -i \
+            -e 's@^static already_AddRefed<MediaByteBuffer> ParseH264Parameters(@already_AddRefed<MediaByteBuffer> ParseH264Parameters(@' \
+            -e 's@^static uint32_t GetProfile(H264_PROFILE aProfileLevel)@uint32_t GetProfile(H264_PROFILE aProfileLevel)@' \
+            "$wmfenc"
+          echo "removed static from WMFDataEncoderUtils.cpp ParseH264Parameters/GetProfile defs"
+
+          # (16) dom/media/webrtc/libwebrtc_overrides/.../desktop_capture_types.h
+          # does `#ifdef XP_WIN \n typedef int pid_t;` to inject pid_t into the
+          # global namespace for Windows -- correct for MSVC, which has no pid_t. But
+          # MinGW's <sys/types.h> already defines pid_t (as _pid_t == long long on
+          # x86_64), so the int typedef is a "typedef redefinition with different
+          # types ('int' vs '_pid_t')" error. MinGW provides pid_t itself, so skip
+          # our typedef on MinGW (both arches; __MINGW32__ is defined on win64 too).
+          dctypes="${src_dir}dom/media/webrtc/libwebrtc_overrides/modules/desktop_capture/desktop_capture_types.h"
+          test -f "$dctypes" || { echo "ERROR: $dctypes not found"; exit 1; }
+          if grep -q '__MINGW32__' "$dctypes"; then
+            echo "NOTE: desktop_capture_types.h pid_t already guarded for MinGW; skipping."
+          else
+            grep -q '^#ifdef XP_WIN       // Moving this into the global namespace' "$dctypes" \
+              || { echo "ERROR: XP_WIN pid_t anchor missing in $dctypes"; exit 1; }
+            sed -i 's@^#ifdef XP_WIN       // Moving this into the global namespace@#if defined(XP_WIN) \&\& !defined(__MINGW32__)  // camoufox: MinGW already provides pid_t@' "$dctypes"
+            echo "guarded desktop_capture_types.h pid_t typedef against MinGW"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
