@@ -1256,6 +1256,53 @@ jobs:
               print('rewrote VideoConduit.cpp ntohs include to XP_WIN/<winsock2.h> idiom')
           PYEOF
 
+          # (19) third_party/sipcc/cpr_win_types.h provides MSVC-style `typedef int
+          # ssize_t` (guarded by _SSIZE_T_, which is the WRONG macro for mingw-w64 --
+          # it uses _SSIZE_T_DEFINED) and an unguarded `typedef int pid_t`. On MinGW
+          # both clash with the native long-long types -> "typedef redefinition with
+          # different types ('int' vs 'long long')" / "('int' vs '_pid_t')" (hit via
+          # dom/media/webrtc/sdp). The clash itself proves the native types are present
+          # in this TU, but to be robust we pull <sys/types.h> on MinGW (defines both
+          # ssize_t and pid_t) and skip the int typedefs; MSVC keeps them.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'third_party', 'sipcc', 'cpr_win_types.h')
+          s = open(f, encoding='utf-8').read()
+          old = ('#ifndef _SSIZE_T_\n#define _SSIZE_T_\ntypedef int ssize_t;\n#endif\n\n'
+                 '/*\n * Define pid_t.\n */\ntypedef int pid_t;')
+          new = ('#ifdef __MINGW32__  /* camoufox: MinGW <sys/types.h> already defines\n'
+                 '   ssize_t and pid_t with native (long long) widths; the int typedefs\n'
+                 '   below would be a "redefinition with different types". */\n'
+                 '#  include <sys/types.h>\n#else\n'
+                 '#ifndef _SSIZE_T_\n#define _SSIZE_T_\ntypedef int ssize_t;\n#endif\n\n'
+                 '/*\n * Define pid_t.\n */\ntypedef int pid_t;\n#endif')
+          if '__MINGW32__' in s:
+              print('NOTE: cpr_win_types.h already MinGW-aware; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: ssize_t/pid_t typedef block anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('made cpr_win_types.h ssize_t/pid_t MinGW-aware')
+          PYEOF
+
+          # (20) nICEr addrs-win32.cpp accesses `addrs[n].interface.{type,
+          # estimated_speed}` -- `interface` is a struct field (nr_local_addr in
+          # net/local_addr.h). But this file #includes <iphlpapi.h> -> windows.h ->
+          # objbase.h, which does `#define interface struct`, so `.interface` expands
+          # to `.struct` -> "expected unqualified-id". The file never uses the COM
+          # `interface` keyword, so #undef the macro after the Windows includes.
+          aw32="${src_dir}dom/media/webrtc/transport/third_party/nICEr/src/stun/addrs-win32.cpp"
+          test -f "$aw32" || { echo "ERROR: $aw32 not found"; exit 1; }
+          if grep -q '^#undef interface' "$aw32"; then
+            echo "NOTE: addrs-win32.cpp already #undef interface; skipping."
+          else
+            grep -q '^#include <iphlpapi.h>' "$aw32" \
+              || { echo "ERROR: iphlpapi.h anchor missing in $aw32"; exit 1; }
+            sed -i 's@^#include <iphlpapi.h>@#include <iphlpapi.h>\n#undef interface  // camoufox: objbase.h #defines interface->struct; nICEr uses it as a field@' "$aw32"
+            echo "added #undef interface to addrs-win32.cpp"
+          fi
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
