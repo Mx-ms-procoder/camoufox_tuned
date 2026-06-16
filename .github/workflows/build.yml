@@ -1192,20 +1192,26 @@ jobs:
 
           # (16) dom/media/webrtc/libwebrtc_overrides/.../desktop_capture_types.h
           # does `#ifdef XP_WIN \n typedef int pid_t;` to inject pid_t into the
-          # global namespace for Windows -- correct for MSVC, which has no pid_t. But
-          # MinGW's <sys/types.h> already defines pid_t (as _pid_t == long long on
-          # x86_64), so the int typedef is a "typedef redefinition with different
-          # types ('int' vs '_pid_t')" error. MinGW provides pid_t itself, so skip
-          # our typedef on MinGW (both arches; __MINGW32__ is defined on win64 too).
+          # global namespace for Windows -- correct for MSVC (no pid_t). On MinGW
+          # two things go wrong: (a) where <sys/types.h> was already pulled in,
+          # MinGW's own pid_t (== _pid_t, __int64 on win64) clashes with `int`
+          # ("typedef redefinition with different types"); (b) but the typedef is
+          # ALSO the sole provider of pid_t for TUs that did NOT pull <sys/types.h>
+          # (e.g. tab_capturer.o -> desktop_capturer.h:82 `pid_t pid`). So we cannot
+          # just drop it on MinGW (an earlier attempt did, and (b) broke). Instead,
+          # on MinGW include <sys/types.h> and define pid_t as MinGW's own _pid_t:
+          # a redef to the *identical* type is legal (no clash with (a)), it is
+          # always provided (covers (b) and NO_OLDNAMES builds), and it has MinGW's
+          # native width. MSVC keeps `typedef int pid_t`.
           dctypes="${src_dir}dom/media/webrtc/libwebrtc_overrides/modules/desktop_capture/desktop_capture_types.h"
           test -f "$dctypes" || { echo "ERROR: $dctypes not found"; exit 1; }
           if grep -q '__MINGW32__' "$dctypes"; then
-            echo "NOTE: desktop_capture_types.h pid_t already guarded for MinGW; skipping."
+            echo "NOTE: desktop_capture_types.h pid_t already MinGW-aware; skipping."
           else
-            grep -q '^#ifdef XP_WIN       // Moving this into the global namespace' "$dctypes" \
-              || { echo "ERROR: XP_WIN pid_t anchor missing in $dctypes"; exit 1; }
-            sed -i 's@^#ifdef XP_WIN       // Moving this into the global namespace@#if defined(XP_WIN) \&\& !defined(__MINGW32__)  // camoufox: MinGW already provides pid_t@' "$dctypes"
-            echo "guarded desktop_capture_types.h pid_t typedef against MinGW"
+            grep -q '^typedef int pid_t;  // matching what used to be in' "$dctypes" \
+              || { echo "ERROR: pid_t typedef anchor missing in $dctypes"; exit 1; }
+            sed -i 's@^typedef int pid_t;  // matching what used to be in@#  ifdef __MINGW32__  // camoufox: MinGW pid_t (int on win32 / __int64 on win64)\n#    include <sys/types.h>\ntypedef _pid_t pid_t;  // identical-type redef is legal; also covers NO_OLDNAMES\n#  else\ntypedef int pid_t;  // matching what used to be in\n#  endif@' "$dctypes"
+            echo "made desktop_capture_types.h pid_t typedef MinGW-aware"
           fi
 
       - name: Validate patch graph
