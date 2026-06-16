@@ -1345,6 +1345,45 @@ jobs:
             echo "flipped registry.cpp POSIX-include guard _MSC_VER -> WIN32"
           fi
 
+          # (23) gfx/cairo cairo-dwrite-font.cpp initializes a
+          # DWRITE_GLYPH_IMAGE_FORMATS variable from `FLAG_A | FLAG_B | ...`. On
+          # MSVC the DWrite SDK applies DEFINE_ENUM_FLAG_OPERATORS to this enum so
+          # `enum | enum` yields the enum type; mingw-w64's dwrite headers do NOT,
+          # so the OR decays to `int` -> "cannot initialize a variable of type
+          # 'DWRITE_GLYPH_IMAGE_FORMATS' with an rvalue of type 'int'". Wrap the
+          # OR expression in a C-style cast back to the enum (no-op on MSVC).
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'gfx', 'cairo', 'cairo', 'src', 'win32',
+                           'cairo-dwrite-font.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = (
+              '    DWRITE_GLYPH_IMAGE_FORMATS supported_formats =\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_COLR |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_SVG |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_PNG |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_JPEG |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_TIFF |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8;')
+          new = (
+              '    DWRITE_GLYPH_IMAGE_FORMATS supported_formats =\n'
+              '        (DWRITE_GLYPH_IMAGE_FORMATS)(  /* camoufox: mingw-w64 dwrite lacks DEFINE_ENUM_FLAG_OPERATORS here; enum|enum decays to int, cast back */\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_COLR |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_SVG |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_PNG |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_JPEG |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_TIFF |\n'
+              '        DWRITE_GLYPH_IMAGE_FORMATS_PREMULTIPLIED_B8G8R8A8);')
+          if '(DWRITE_GLYPH_IMAGE_FORMATS)(' in s:
+              print('NOTE: cairo-dwrite-font.cpp supported_formats already cast; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: supported_formats enum-OR anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('cast supported_formats enum-OR to DWRITE_GLYPH_IMAGE_FORMATS')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
