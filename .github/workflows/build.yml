@@ -1214,6 +1214,48 @@ jobs:
             echo "made desktop_capture_types.h pid_t typedef MinGW-aware"
           fi
 
+          # (17) dom/media/systemservices/video_engine/desktop_device_info.cc defines
+          # DesktopSource::setPid(const int) but its header declares setPid(pid_t)
+          # (and mPid/getPid are pid_t). On MSVC and i686 pid_t==int so it matched;
+          # with (16) giving MinGW its native pid_t (__int64 on win64) the int def no
+          # longer matches the pid_t decl -> "out-of-line definition of 'setPid' does
+          # not match any declaration in 'webrtc::DesktopSource'". The header is
+          # canonical (everything else uses pid_t), so align the def. Same class as (15).
+          ddinfo="${src_dir}dom/media/systemservices/video_engine/desktop_device_info.cc"
+          test -f "$ddinfo" || { echo "ERROR: $ddinfo not found"; exit 1; }
+          if grep -q 'setPid(const pid_t aPid)' "$ddinfo"; then
+            echo "NOTE: desktop_device_info.cc setPid already pid_t; skipping."
+          else
+            grep -q 'void DesktopSource::setPid(const int aPid)' "$ddinfo" \
+              || { echo "ERROR: setPid(const int) anchor missing in $ddinfo"; exit 1; }
+            sed -i 's@void DesktopSource::setPid(const int aPid)@void DesktopSource::setPid(const pid_t aPid)@' "$ddinfo"
+            echo "aligned desktop_device_info.cc setPid def to pid_t"
+          fi
+
+          # (18) dom/media/webrtc/libwebrtcglue/VideoConduit.cpp guards its ntohs
+          # include with `#ifdef _MSC_VER ... #else #include <netinet/in.h>`. On MinGW
+          # _MSC_VER is undefined, so it takes the Unix branch and fails with
+          # "'netinet/in.h' file not found". Its sibling AudioConduit.cpp (same dir)
+          # uses the correct idiom -- HAVE_NETINET_IN_H (unset on Windows) else
+          # `defined XP_WIN` -> <winsock2.h>. Adopt that idiom verbatim (lowercase
+          # <winsock2.h>: the CI filesystem is case-sensitive and MinGW ships it
+          # lowercase). Fixed-block replace, hard-fail if the anchor block is gone.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'dom', 'media', 'webrtc', 'libwebrtcglue', 'VideoConduit.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = '#ifdef _MSC_VER\n#  include "Winsock2.h"\n#else\n#  include <netinet/in.h>\n#endif'
+          new = '#ifdef HAVE_NETINET_IN_H\n#  include <netinet/in.h>\n#elif defined XP_WIN\n#  include <winsock2.h>\n#endif'
+          if new in s:
+              print('NOTE: VideoConduit ntohs include already fixed; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: ntohs _MSC_VER include block anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('rewrote VideoConduit.cpp ntohs include to XP_WIN/<winsock2.h> idiom')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
