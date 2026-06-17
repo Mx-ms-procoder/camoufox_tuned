@@ -1654,6 +1654,56 @@ jobs:
               print('mingw: gated WinRT GlobalizationPreferences locale path in OSPreferences_win.cpp')
           PYEOF
 
+          # (29) ipc/mscom/AgileReference.cpp calls ::RoGetAgileReference with the
+          # AGILEREFERENCE_DEFAULT option (a Win10 1703 COM-marshaling API exported
+          # by combase.dll). Ubuntu mingw-w64 11.0.1 declares neither the function
+          # nor the AgileReferenceOptions enum -> "no member named
+          # 'RoGetAgileReference'" + "use of undeclared identifier
+          # 'AGILEREFERENCE_DEFAULT'". The IAgileReference interface itself IS present
+          # (objidl.h), and this is core COM agile-marshaling with no fallback, so
+          # (unlike #28) keep the functionality: resolve RoGetAgileReference from
+          # combase.dll via GetProcAddress (link-safe), supply the default option
+          # value, and route the call site with a macro. Sole user (grep). Same
+          # technique as #27. Harmless on newer mingw / the SDK.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'ipc', 'mscom', 'AgileReference.cpp')
+          s = open(f, encoding='utf-8').read()
+          anchor = '#include "mozilla/mscom/Utils.h"\n'
+          shim = (
+              '\n'
+              '#ifdef __MINGW32__\n'
+              '// camoufox: Ubuntu mingw-w64 11.0.1 lacks RoGetAgileReference + the\n'
+              '// AgileReferenceOptions enum (Win10 1703 API, exported by combase.dll).\n'
+              '// IAgileReference itself is present (objidl.h). Resolve the function\n'
+              '// dynamically so this TU compiles AND links on the old toolchain.\n'
+              '#  include <windows.h>\n'
+              '#  ifndef AGILEREFERENCE_DEFAULT\n'
+              '#    define AGILEREFERENCE_DEFAULT 0\n'
+              '#  endif\n'
+              'static HRESULT CamouRoGetAgileReference(int aOptions, REFIID aRiid,\n'
+              '                                        IUnknown* aUnk,\n'
+              '                                        IAgileReference** aOut) {\n'
+              '  using Fn = HRESULT(WINAPI*)(int, REFIID, IUnknown*, IAgileReference**);\n'
+              '  static Fn sFn = reinterpret_cast<Fn>(::GetProcAddress(\n'
+              '      ::GetModuleHandleW(L"combase.dll"), "RoGetAgileReference"));\n'
+              '  if (!sFn) {\n'
+              '    return E_NOTIMPL;\n'
+              '  }\n'
+              '  return sFn(aOptions, aRiid, aUnk, aOut);\n'
+              '}\n'
+              '#  define RoGetAgileReference CamouRoGetAgileReference\n'
+              '#endif  // __MINGW32__\n')
+          if 'CamouRoGetAgileReference' in s:
+              print('NOTE: AgileReference RoGetAgileReference shim already present; skipping.')
+          elif s.count(anchor) != 1:
+              sys.exit('ERROR: Utils.h include anchor count %d (need 1) in %s' % (s.count(anchor), f))
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, anchor + shim, 1))
+              print('mingw: shimmed RoGetAgileReference via GetProcAddress (combase.dll)')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
