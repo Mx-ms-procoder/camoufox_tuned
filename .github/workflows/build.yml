@@ -480,6 +480,43 @@ jobs:
             done
           fi
 
+          # (5) Backfill the Windows 11-era DirectComposition interfaces that
+          # Ubuntu 24.04's mingw-w64 11.0.1 dcomp.h is missing entirely. FF150's
+          # gfx/webrender_bindings (DCLayerTree.cpp, RenderD3D11TextureHost.cpp)
+          # uses IDCompositionDevice4 (CreateCompositionTexture /
+          # CheckCompositionTextureSupport), IDCompositionTexture, and the
+          # IDCompositionColorMatrixEffect / IDCompositionTableTransferEffect
+          # color-management effects -- all added to mingw-w64 only AFTER 11.0.1
+          # (verified: mingw-w64 v11.0.1 dcomp.h has none of them, and stubs
+          # IDCompositionDevice3::CreateColorMatrixEffect/CreateTableTransferEffect
+          # as `void **` TODOs). MSVC's SDK has them, so Mozilla never hits this.
+          #
+          # Patch the system header itself (the clean fix: it makes ALL consumers
+          # compile at once and keeps every feature enabled) instead of #ifdef-ing
+          # out the DComposition-texture + color-management paths in Firefox
+          # source. Three edits, mirroring a newer mingw-w64 dcomp.h verbatim:
+          #   a) retype Device3's two `void **` effect-factory stubs so Firefox's
+          #      typed getter_AddRefs(RefPtr<...Effect>) actually binds,
+          #   b) forward-declare the 4 missing interfaces before Device3 (its
+          #      retyped methods reference them by pointer),
+          #   c) append the 4 full interface definitions (with __CRT_UUID_DECL so
+          #      __uuidof / RefPtr QueryInterface<T> resolve) before the include
+          #      guard's closing #endif.
+          # Idempotent + tolerant: skips any dcomp.h that already declares
+          # IDCompositionDevice4 (newer toolchain, or a re-run).
+          mapfile -t dcomp_files < <(find /usr -path '*mingw32*' -name dcomp.h 2>/dev/null)
+          if [ "${#dcomp_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW dcomp.h found; skipping DirectComposition backfill."
+          else
+            for f in "${dcomp_files[@]}"; do
+              if grep -q 'IDCompositionDevice4' "$f"; then
+                echo "NOTE: $f already declares IDCompositionDevice4; skipping."
+                continue
+              fi
+              sudo python3 "${GITHUB_WORKSPACE}/scripts/ci_fix_mingw_dcomp.py" "$f"
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
