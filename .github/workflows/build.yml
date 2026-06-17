@@ -1539,6 +1539,56 @@ jobs:
               print('mingw: disabled IDCompositionDevice4 DComposition-texture probe')
           PYEOF
 
+          # (27) hal/windows/WindowsHeterogeneousCpuInfo.cpp calls the Win10 API
+          # GetSystemCpuSetInformation directly. Ubuntu 24.04's mingw-w64 11.0.1
+          # predates it: v11.0.1 processthreadsapi.h does NOT declare it at all
+          # (added to mingw-w64 after 11.0.1, guarded _WIN32_WINNT>=WIN10), and
+          # its import lib almost certainly lacks the symbol too -> a plain decl
+          # would only move the failure to link time. The struct
+          # SYSTEM_CPU_SET_INFORMATION *is* present (winnt.h), so only the
+          # function is missing -> "use of undeclared identifier
+          # 'GetSystemCpuSetInformation'". MSVC's SDK has it, so Mozilla (whose
+          # only consumer is this one file) never trips. Resolve it from kernel32
+          # via GetProcAddress (always linkable) and route the two call sites to
+          # the shim with a macro -- works on the old toolchain AND newer
+          # mingw/the SDK (the real decl appears via <windows.h> before this).
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'hal', 'windows', 'WindowsHeterogeneousCpuInfo.cpp')
+          s = open(f, encoding='utf-8').read()
+          anchor = '#include <windows.h>\n'
+          shim = (
+              '\n'
+              '#ifdef __MINGW32__\n'
+              '// camoufox: Ubuntu mingw-w64 11.0.1 predates the Win10 API\n'
+              '// GetSystemCpuSetInformation (added to mingw-w64 after 11.0.1). The struct\n'
+              '// SYSTEM_CPU_SET_INFORMATION is present in winnt.h; only the function decl +\n'
+              '// import are missing. Resolve it from kernel32 at runtime so this TU compiles\n'
+              '// AND links on the old toolchain, then route the call sites via a macro.\n'
+              'static BOOL CamouGetSystemCpuSetInformation(SYSTEM_CPU_SET_INFORMATION* aInfo,\n'
+              '                                            ULONG aLen, PULONG aRet,\n'
+              '                                            HANDLE aProc, ULONG aFlags) {\n'
+              '  using Fn = BOOL(WINAPI*)(SYSTEM_CPU_SET_INFORMATION*, ULONG, PULONG, HANDLE, ULONG);\n'
+              '  static Fn sFn = reinterpret_cast<Fn>(::GetProcAddress(\n'
+              '      ::GetModuleHandleW(L"kernel32.dll"), "GetSystemCpuSetInformation"));\n'
+              '  if (!sFn) {\n'
+              '    if (aRet) *aRet = 0;\n'
+              '    return FALSE;\n'
+              '  }\n'
+              '  return sFn(aInfo, aLen, aRet, aProc, aFlags);\n'
+              '}\n'
+              '#define GetSystemCpuSetInformation CamouGetSystemCpuSetInformation\n'
+              '#endif  // __MINGW32__\n')
+          if 'CamouGetSystemCpuSetInformation' in s:
+              print('NOTE: WindowsHeterogeneousCpuInfo GetSystemCpuSetInformation shim already present; skipping.')
+          elif anchor not in s:
+              sys.exit('ERROR: <windows.h> include anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, anchor + shim, 1))
+              print('mingw: shimmed GetSystemCpuSetInformation via GetProcAddress')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
