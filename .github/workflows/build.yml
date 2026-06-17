@@ -1589,6 +1589,71 @@ jobs:
               print('mingw: shimmed GetSystemCpuSetInformation via GetProcAddress')
           PYEOF
 
+          # (28) intl/locale/windows/OSPreferences_win.cpp reads system locales via
+          # the WinRT GlobalizationPreferences API (ComPtr / HString /
+          # IVectorView<HSTRING> / windows.system.userprofile.h). Two mingw-w64
+          # 11.0.1 gaps hit this single TU: (i) its WRL corewrappers.h does NOT
+          # define class HString at all (only forward-declares it + defines
+          # HStringReference -> "unknown type name 'HString'"; newer mingw has it),
+          # and (ii) windows.system.userprofile.h:160 has the same unqualified
+          # elaborated-enum reference clang rejects as the windows.ui.composition.h
+          # bug ("forward references to 'enum' types"). The function ALREADY has a
+          # full non-WinRT fallback right below (GetUserPreferredUILanguages, a Vista+
+          # Win32 API), and Camoufox drives locale via its own config anyway, so the
+          # cleanest fix is to gate the WinRT path (its includes, its using-
+          # directives, and its block in ReadSystemLocales) behind #ifndef __MINGW32__
+          # and let the fallback run. Avoids backfilling two system headers (HString
+          # class + enum qualification) for one optional code path. No other code in
+          # the file touches WinRT (verified: ReadRegionalPrefsLocales etc. are pure
+          # Win32). Hard-fails if any anchor drifts or is non-unique.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'intl', 'locale', 'windows', 'OSPreferences_win.cpp')
+          s = open(f, encoding='utf-8').read()
+          MARK = 'skip WinRT locale path on mingw'
+          reps = [
+              ('#include <roapi.h>\n'
+               '#include <wrl.h>\n'
+               '#include <windows.system.userprofile.h>\n',
+               '#ifndef __MINGW32__  // camoufox: ' + MARK + ' (11.0.1 lacks WRL HString + a userprofile.h unqualified-enum bug)\n'
+               '#include <roapi.h>\n'
+               '#include <wrl.h>\n'
+               '#include <windows.system.userprofile.h>\n'
+               '#endif  // !__MINGW32__\n'),
+              ('using namespace Microsoft::WRL;\n'
+               'using namespace Microsoft::WRL::Wrappers;\n'
+               'using namespace ABI::Windows::Foundation::Collections;\n'
+               'using namespace ABI::Windows::System::UserProfile;\n',
+               '#ifndef __MINGW32__\n'
+               'using namespace Microsoft::WRL;\n'
+               'using namespace Microsoft::WRL::Wrappers;\n'
+               'using namespace ABI::Windows::Foundation::Collections;\n'
+               'using namespace ABI::Windows::System::UserProfile;\n'
+               '#endif  // !__MINGW32__\n'),
+              ('  // Try to get language list from GlobalizationPreferences; if this fails,\n',
+               '#ifndef __MINGW32__  // camoufox: ' + MARK + '\n'
+               '  // Try to get language list from GlobalizationPreferences; if this fails,\n'),
+              ('  }\n'
+               '\n'
+               '  // Per MSDN, GetUserPreferredUILanguages is available from Vista onwards,\n',
+               '  }\n'
+               '#endif  // !__MINGW32__ (camoufox: WinRT GlobalizationPreferences path)\n'
+               '\n'
+               '  // Per MSDN, GetUserPreferredUILanguages is available from Vista onwards,\n'),
+          ]
+          if MARK in s:
+              print('NOTE: OSPreferences_win WinRT path already gated; skipping.')
+          else:
+              for old, new in reps:
+                  n = s.count(old)
+                  if n != 1:
+                      sys.exit('ERROR: OSPreferences_win anchor count %d (need 1): %r' % (n, old[:60]))
+                  s = s.replace(old, new, 1)
+              open(f, 'w', encoding='utf-8').write(s)
+              print('mingw: gated WinRT GlobalizationPreferences locale path in OSPreferences_win.cpp')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
