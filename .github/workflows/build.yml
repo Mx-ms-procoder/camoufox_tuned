@@ -1704,6 +1704,36 @@ jobs:
               print('mingw: shimmed RoGetAgileReference via GetProcAddress (combase.dll)')
           PYEOF
 
+          # (30) js/src/util/CompleteFile.cpp picks the fastest getc:
+          #   #if   defined(HAVE_GETC_UNLOCKED) -> getc_unlocked
+          #   #elif defined(HAVE__GETC_NOLOCK)  -> _getc_nolock
+          #   #else                              -> getc
+          # js/moz.configure sets HAVE__GETC_NOLOCK via check_symbol("_getc_nolock"),
+          # a LINK-only probe: the symbol is exported by the mingw CRT import lib, so
+          # the probe passes -- but mingw's <stdio.h> hides the _getc_nolock
+          # declaration in strict C++ mode, so the actual compile fails with "use of
+          # undeclared identifier '_getc_nolock'". (MSVC, where Mozilla builds, both
+          # links and declares it.) Rather than fight the header guard, fall through
+          # to plain getc on mingw -- correct, always declared, only a negligible
+          # per-char locking cost while slurping a file. Sole consumer (grep js/).
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'js', 'src', 'util', 'CompleteFile.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = '#elif defined(HAVE__GETC_NOLOCK)\n'
+          new = ('#elif defined(HAVE__GETC_NOLOCK) && !defined(__MINGW32__)  '
+                 '// camoufox: mingw <stdio.h> hides the _getc_nolock decl in strict '
+                 'C++ even though configure\'s link-only check_symbol finds it; use plain getc\n')
+          if 'HAVE__GETC_NOLOCK) && !defined(__MINGW32__)' in s:
+              print('NOTE: CompleteFile _getc_nolock already mingw-guarded; skipping.')
+          elif s.count(old) != 1:
+              sys.exit('ERROR: HAVE__GETC_NOLOCK #elif anchor count %d (need 1) in %s' % (s.count(old), f))
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('mingw: routed CompleteFile fast_getc to plain getc (avoid hidden _getc_nolock decl)')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
