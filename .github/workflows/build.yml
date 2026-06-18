@@ -759,7 +759,13 @@ jobs:
             arm64)  arch_suffix=arm64 ;;
             *) echo "unknown arch ${{ matrix.arch }}"; exit 1 ;;
           esac
-          curl -fsSL --retry 5 --retry-all-errors "$REDIST_URL" -o /tmp/winappsdk.zip
+          # Ensure CA trust store is current — older runner images can miss the
+          # Microsoft/DigiCert intermediate cert used by aka.ms, which causes
+          # curl (60) SSL failures. update-ca-certificates is idempotent and
+          # fast; we also spread the 5 retries over 50 s for transient blips.
+          sudo apt-get install -y --no-install-recommends ca-certificates -qq
+          sudo update-ca-certificates
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 10 "$REDIST_URL" -o /tmp/winappsdk.zip
           echo "${REDIST_SHA256}  /tmp/winappsdk.zip" | sha256sum -c -
           work=/tmp/winappsdk && rm -rf "$work" && mkdir -p "$work"
           unzip -q /tmp/winappsdk.zip "MSIX/win10-${arch_suffix}/*" -d "$work"

@@ -7,7 +7,15 @@
 #include <memory>
 #include <set>
 #ifdef XP_WIN
+#  ifdef __MINGW32__
+// camoufox: mingw-w64 <sys/types.h> defines _pid_t (long long on win64,
+// int on win32); pulling it in avoids a "typedef redefinition" clash when
+// the Mozilla Mutex/Assertions headers later include the same header.
+#    include <sys/types.h>
+typedef _pid_t pid_t;
+#  else
 typedef int pid_t;  // libwebrtc headers reference pid_t which is POSIX-only
+#  endif
 #endif
 #include "api/video/video_frame.h"
 #include "api/video/video_sink_interface.h"
