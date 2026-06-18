@@ -1740,6 +1740,82 @@ jobs:
               print('mingw: routed CompleteFile fast_getc to plain getc (avoid hidden _getc_nolock decl)')
           PYEOF
 
+          # (31) netwerk/sctp/src/user_environment.h defines the SCTP library's
+          # min()/max() macros, but its guard `#if !defined(_MSC_VER) &&
+          # !defined(__MINGW32__)` deliberately skips MinGW -- upstream assumes
+          # <windows.h> supplies them on Windows. It normally would (minwindef.h
+          # defines min/max for C, `#ifndef __cplusplus`), but Mozilla force-defines
+          # NOMINMAX tree-wide (461x in this build), which suppresses them. The
+          # netinet/*.c sources compile as C with -Werror=implicit-function-
+          # declaration, so the first use (sctp_cc_functions.c:85 `min(...)`)
+          # hard-errors "call to undeclared function 'min'/'max'". Provide the macros
+          # for MinGW too, #ifndef-guarded so we never clash if a TU did get them
+          # from windows.h. (x86_64 frontier; i686 had not reached this layer yet.)
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'netwerk', 'sctp', 'src', 'user_environment.h')
+          s = open(f, encoding='utf-8').read()
+          old = ('#if !defined(_MSC_VER) && !defined(__MINGW32__)\n'
+                 '#define min(a,b) (((a)>(b))?(b):(a))\n'
+                 '#define max(a,b) (((a)>(b))?(a):(b))\n'
+                 '#endif')
+          add = ('\n#if defined(__MINGW32__)  /* camoufox: SCTP min/max for MinGW. The guard\n'
+                 '   above skips MinGW assuming <windows.h> supplies min/max, but Mozilla\n'
+                 '   force-defines NOMINMAX tree-wide so minwindef.h does not. These C\n'
+                 '   sources build with -Werror=implicit-function-declaration. #ifndef-\n'
+                 '   guarded so we never clash if a TU did get them from windows.h. */\n'
+                 '#ifndef min\n'
+                 '#define min(a,b) (((a)>(b))?(b):(a))\n'
+                 '#endif\n'
+                 '#ifndef max\n'
+                 '#define max(a,b) (((a)>(b))?(a):(b))\n'
+                 '#endif\n'
+                 '#endif')
+          if 'camoufox: SCTP min/max for MinGW' in s:
+              print('NOTE: user_environment.h SCTP min/max already MinGW-aware; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: SCTP min/max guard block anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, old + add, 1))
+              print('added MinGW SCTP min/max macros to user_environment.h')
+          PYEOF
+
+          # (32) modules/fdlibm/src/math_private.h emulates FreeBSD's internal
+          # double types: `typedef double __double_t; typedef __double_t double_t;
+          # typedef float __float_t;`. On mingw-w64, <math.h> already typedefs
+          # double_t (and float_t) with the FLT_EVAL_METHOD-correct width: `double`
+          # on x86_64 (SSE2) but `long double` on i686 (x87 FPU). So our
+          # `double_t == double` typedef is an identical-type redef on x86_64 (legal,
+          # silent) but a CONFLICTING redef on i686 -> "typedef redefinition with
+          # different types ('__double_t' (aka 'double') vs 'long double')".
+          # __double_t/__float_t are fdlibm-internal names mingw does NOT provide, so
+          # keep those; only skip our own double_t typedef on MinGW and let <math.h>
+          # own it (pull it in to guarantee it is present). i686 frontier.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'modules', 'fdlibm', 'src', 'math_private.h')
+          s = open(f, encoding='utf-8').read()
+          old = 'typedef __double_t  double_t;'
+          new = ('#if defined(__MINGW32__)  /* camoufox: mingw-w64 <math.h> already typedefs\n'
+                 '   double_t with the FLT_EVAL_METHOD-correct width (double on x64, long\n'
+                 '   double on i686 x87); redefining it as plain double here conflicts on\n'
+                 '   i686. Keep __double_t/__float_t (fdlibm-internal, absent in mingw) and\n'
+                 '   defer double_t to <math.h>. */\n'
+                 '#include <math.h>\n'
+                 '#else\n'
+                 'typedef __double_t  double_t;\n'
+                 '#endif')
+          if 'camoufox: mingw-w64 <math.h> already typedefs' in s:
+              print('NOTE: math_private.h double_t already MinGW-aware; skipping.')
+          elif s.count(old) != 1:
+              sys.exit('ERROR: double_t typedef anchor count %d (need 1) in %s' % (s.count(old), f))
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('made math_private.h double_t typedef MinGW-aware (defer to <math.h>)')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
