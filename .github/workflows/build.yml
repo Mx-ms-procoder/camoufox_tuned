@@ -517,31 +517,36 @@ jobs:
             done
           fi
 
-          # (6) third_party/libwebrtc desktop_capture window_capture_utils.h does
-          # `#include <shlobj_core.h>` (the Windows-SDK split-out of the shell
-          # APIs). Ubuntu 24.04's mingw-w64 11.0.1 predates that split: it ships
-          # only the monolithic <shlobj.h> (a superset of shlobj_core.h) and no
-          # <shlobj_core.h> at all -> "fatal error: 'shlobj_core.h' file not found"
-          # (hit by modules/desktop_capture/win/window_capture_utils.h on x86_64;
-          # i686 reaches it once its earlier blocker clears). Backfill a one-line
-          # shim next to shlobj.h that just includes it -- covers every consumer at
-          # once, zero feature loss. mingw <shlobj.h> does NOT include
-          # shlobj_core.h, so no recursion. Idempotent (skips if it already exists).
-          mapfile -t shlobj_files < <(find /usr -path '*mingw32*' -name shlobj.h 2>/dev/null)
-          if [ "${#shlobj_files[@]}" -eq 0 ]; then
-            echo "NOTE: no MinGW shlobj.h found; skipping shlobj_core.h shim."
-          else
-            for f in "${shlobj_files[@]}"; do
-              core="$(dirname "$f")/shlobj_core.h"
-              if [ -e "$core" ]; then
-                echo "NOTE: $core already exists; skipping."
+          # (6) Backfill MinGW header shims for headers Firefox/libwebrtc include
+          # under a name Ubuntu 24.04's mingw-w64 11.0.1 does not provide at that
+          # exact path/case. Each shim sits next to the real header and just
+          # includes it -- covers every consumer at once, zero feature loss, and is
+          # idempotent (the real header never includes the shim name, so no
+          # recursion). Pairs are "<real header>:<shim to create>":
+          #   shlobj.h:shlobj_core.h         -- the Win-SDK shell-API split; mingw
+          #     ships only the monolithic <shlobj.h> superset, no <shlobj_core.h>
+          #     (libwebrtc desktop_capture/win/window_capture_utils.h, x86_64).
+          #   dispatcherqueue.h:DispatcherQueue.h -- mingw ships it lower-case; the
+          #     Linux CI filesystem is case-sensitive so the CamelCase include fails
+          #     (libwebrtc desktop_capture/win/wgc_capturer_win.h WGC path, x86_64).
+          for pair in "shlobj.h:shlobj_core.h" "dispatcherqueue.h:DispatcherQueue.h"; do
+            real="${pair%%:*}"; shim="${pair##*:}"
+            mapfile -t real_files < <(find /usr -path '*mingw32*' -name "$real" 2>/dev/null)
+            if [ "${#real_files[@]}" -eq 0 ]; then
+              echo "NOTE: no MinGW $real found; skipping $shim shim."
+              continue
+            fi
+            for f in "${real_files[@]}"; do
+              dst="$(dirname "$f")/$shim"
+              if [ -e "$dst" ]; then
+                echo "NOTE: $dst already exists; skipping."
               else
-                printf '/* camoufox: mingw-w64 11.0.1 lacks the Win SDK shlobj_core.h split; redirect to the monolithic shlobj.h superset */\n#include <shlobj.h>\n' \
-                  | sudo tee "$core" > /dev/null
-                echo "created shim: $core"
+                printf '/* camoufox: shim for MinGW 11.0.1 missing/mis-cased %s -> redirect to %s */\n#include <%s>\n' "$shim" "$real" "$real" \
+                  | sudo tee "$dst" > /dev/null
+                echo "created shim: $dst -> $real"
               fi
             done
-          fi
+          done
 
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
@@ -1882,6 +1887,41 @@ jobs:
           else:
               open(f, 'w', encoding='utf-8').write(s.replace(old, new))
               print('mingw: invoke-wrapped 2 std::mem_fn(mMethod) sites in runnable_utils.h')
+          PYEOF
+
+          # (34) third_party/libwebrtc common_audio/fir_filter_factory_gn builds
+          # fir_filter_sse.cc (SSE intrinsics: _mm_*_ps) as part of its
+          # UNIFIED_SOURCES. The GN->moz.build translation adds `-msse2` for the
+          # Android-x86 and Linux-x86 cases but has NO WINNT-x86 block, so on the
+          # i686 windows-gnu cross-build the unit compiles with no SSE support ->
+          # "always_inline function '_mm_setzero_ps' requires target feature 'sse'".
+          # MSVC defaults 32-bit to /arch:SSE2 (and Firefox's i686 baseline IS
+          # SSE2), so Mozilla never trips. x86_64 is unaffected (SSE2 is ABI
+          # baseline there). Add the missing WINNT-x86 -msse2 block, mirroring the
+          # existing Linux-x86 one. Anchored on the trailing Library() call so it is
+          # robust to the auto-generated body drifting between FF point releases.
+          # NOTE: if more libwebrtc *_sse*.cc targets surface the same gap, escalate
+          # to a global i686 -msse2 baseline (mozconfig) instead of per-moz.build.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'third_party', 'libwebrtc', 'common_audio',
+                           'fir_filter_factory_gn', 'moz.build')
+          s = open(f, encoding='utf-8').read()
+          anchor = 'Library("fir_filter_factory_gn")'
+          block = ('if CONFIG["OS_TARGET"] == "WINNT" and CONFIG["TARGET_CPU"] == "x86":\n'
+                   '\n'
+                   '    CXXFLAGS += [  # camoufox: GN->moz.build omits the WINNT-x86 SSE flag; fir_filter_sse.cc needs SSE (MSVC defaults x86 to /arch:SSE2)\n'
+                   '        "-msse2"\n'
+                   '    ]\n'
+                   '\n\n')
+          if 'camoufox: GN->moz.build omits the WINNT-x86 SSE flag' in s:
+              print('NOTE: fir_filter_factory_gn already has WINNT-x86 -msse2; skipping.')
+          elif s.count(anchor) != 1:
+              sys.exit('ERROR: Library() anchor count %d (need 1) in %s' % (s.count(anchor), f))
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, block + anchor, 1))
+              print('added WINNT-x86 -msse2 block to fir_filter_factory_gn/moz.build')
           PYEOF
 
       - name: Validate patch graph
