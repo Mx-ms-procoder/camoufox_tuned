@@ -517,6 +517,32 @@ jobs:
             done
           fi
 
+          # (6) third_party/libwebrtc desktop_capture window_capture_utils.h does
+          # `#include <shlobj_core.h>` (the Windows-SDK split-out of the shell
+          # APIs). Ubuntu 24.04's mingw-w64 11.0.1 predates that split: it ships
+          # only the monolithic <shlobj.h> (a superset of shlobj_core.h) and no
+          # <shlobj_core.h> at all -> "fatal error: 'shlobj_core.h' file not found"
+          # (hit by modules/desktop_capture/win/window_capture_utils.h on x86_64;
+          # i686 reaches it once its earlier blocker clears). Backfill a one-line
+          # shim next to shlobj.h that just includes it -- covers every consumer at
+          # once, zero feature loss. mingw <shlobj.h> does NOT include
+          # shlobj_core.h, so no recursion. Idempotent (skips if it already exists).
+          mapfile -t shlobj_files < <(find /usr -path '*mingw32*' -name shlobj.h 2>/dev/null)
+          if [ "${#shlobj_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW shlobj.h found; skipping shlobj_core.h shim."
+          else
+            for f in "${shlobj_files[@]}"; do
+              core="$(dirname "$f")/shlobj_core.h"
+              if [ -e "$core" ]; then
+                echo "NOTE: $core already exists; skipping."
+              else
+                printf '/* camoufox: mingw-w64 11.0.1 lacks the Win SDK shlobj_core.h split; redirect to the monolithic shlobj.h superset */\n#include <shlobj.h>\n' \
+                  | sudo tee "$core" > /dev/null
+                echo "created shim: $core"
+              fi
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
@@ -1814,6 +1840,48 @@ jobs:
           else:
               open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
               print('made math_private.h double_t typedef MinGW-aware (defer to <math.h>)')
+          PYEOF
+
+          # (33) dom/media/webrtc/transport/runnable_utils.h WrapRunnable path:
+          # runnable_args_memfn{,_ret}::RunInternal do `std::apply(std::mem_fn(
+          # mMethod), std::tuple_cat(std::tie(mObj), ...))`. On 32-bit Windows XPCOM
+          # methods are virtual __stdcall (NS_IMETHOD), and libstdc++'s
+          # std::_Mem_fn_traits has NO calling-convention specializations -> "implicit
+          # instantiation of undefined template 'std::_Mem_fn_traits<nsresult
+          # (nsIThread::*)() __stdcall>'" (hit via netwerk/sctp/datachannel/
+          # DataChannel.cpp -> WrapRunnable(thread, &nsIThread::...)). Exactly the
+          # same root cause as fix (14)'s ResultExtensions MemFnInvoker, but a
+          # different mem_fn call site that (14) did not cover. std::invoke is
+          # calling-convention agnostic (deduces from the call expression, never
+          # instantiates _Mem_fn_traits), so replace each std::mem_fn(mMethod) with an
+          # equivalent std::invoke call wrapper lambda -- a unique closure type per
+          # site (no ODR clash with (14)'s mozilla::detail::MemFnInvoker), needs no
+          # new include (<functional>/<utility> already included), and is behaviorally
+          # identical (std::apply(std::mem_fn(p), t) == std::apply([](a...){return
+          # std::invoke(p,a...);}, t)). x86_64 is unaffected (__stdcall is a no-op) but
+          # the rewrite is harmless there; applied on both Windows arches.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'dom', 'media', 'webrtc', 'transport',
+                           'runnable_utils.h')
+          s = open(f, encoding='utf-8').read()
+          old = 'std::mem_fn(mMethod)'
+          new = ('[this](auto&&... aArgs) -> decltype(auto) {  '
+                 '// camoufox: std::invoke is calling-convention agnostic; std::mem_fn '
+                 'has no __stdcall _Mem_fn_traits specialization in libstdc++ (32-bit '
+                 'XPCOM methods)\n'
+                 '                 return ::std::invoke(mMethod, '
+                 'std::forward<decltype(aArgs)>(aArgs)...);\n'
+                 '               }')
+          if 'camoufox: std::invoke is calling-convention agnostic' in s:
+              print('NOTE: runnable_utils.h mem_fn already invoke-wrapped; skipping.')
+          elif s.count(old) != 2:
+              sys.exit('ERROR: std::mem_fn(mMethod) anchor count %d (need 2) in %s'
+                       % (s.count(old), f))
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new))
+              print('mingw: invoke-wrapped 2 std::mem_fn(mMethod) sites in runnable_utils.h')
           PYEOF
 
       - name: Validate patch graph
