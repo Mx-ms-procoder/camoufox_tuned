@@ -1957,19 +1957,34 @@ jobs:
           else:
               open(mb, 'w', encoding='utf-8').write(''.join(kept))
               print('removed %d wgc_*.cc sources from desktop_capture_gn/moz.build' % removed)
-          # (b) gate the 3 WGC blocks in desktop_capturer.cc on !__MINGW32__
-          cc = os.path.join(src_dir, 'third_party', 'libwebrtc', 'modules',
-                            'desktop_capture', 'desktop_capturer.cc')
-          t = open(cc, encoding='utf-8').read()
+          # (b) gate the WGC blocks (wgc include + factory/fallback uses) in the
+          # desktop_capture consumers on !__MINGW32__. desktop_capturer.cc (3 blocks)
+          # and window_capturer_win.cc (2 blocks) are the ONLY TUs that reference
+          # WgcCapturerWin/IsWgcSupported (verified across the module). Gating their
+          # `#if defined(RTC_ENABLE_WIN_WGC)` makes them fall through to the GDI/DXGI
+          # capturers and removes every use of the (header-neutered) WGC classes.
+          # The macro stays defined (no ODR change to DesktopCaptureOptions).
+          # window_capturer_win.cc was the hidden gn2 consumer that 35c's neutering
+          # exposed as "use of undeclared identifier 'WgcCapturerWin'" (run
+          # 27845741583, i686) -- it is patched here so its uses are gated, not just
+          # its include.
           old = '#if defined(RTC_ENABLE_WIN_WGC)'
           new = '#if defined(RTC_ENABLE_WIN_WGC) && !defined(__MINGW32__)  // camoufox: WGC unbuildable on mingw (missing WinRT headers); fall through to GDI/DXGI'
-          if '!defined(__MINGW32__)  // camoufox: WGC unbuildable' in t:
-              print('NOTE: desktop_capturer.cc WGC blocks already mingw-gated; skipping.')
-          elif t.count(old) != 3:
-              sys.exit('ERROR: expected 3 RTC_ENABLE_WIN_WGC blocks, found %d in %s' % (t.count(old), cc))
-          else:
+          for rel in ['desktop_capturer.cc', 'window_capturer_win.cc']:
+              cc = os.path.join(src_dir, 'third_party', 'libwebrtc', 'modules',
+                                'desktop_capture', rel)
+              if not os.path.exists(cc):
+                  print('NOTE: %s not found; skipping.' % rel)
+                  continue
+              t = open(cc, encoding='utf-8').read()
+              if '!defined(__MINGW32__)  // camoufox: WGC unbuildable' in t:
+                  print('NOTE: %s WGC blocks already mingw-gated; skipping.' % rel)
+                  continue
+              n = t.count(old)
+              if n == 0:
+                  sys.exit('ERROR: no RTC_ENABLE_WIN_WGC blocks found in %s' % cc)
               open(cc, 'w', encoding='utf-8').write(t.replace(old, new))
-              print('mingw-gated 3 WGC blocks in desktop_capturer.cc')
+              print('mingw-gated %d WGC blocks in %s' % (n, rel))
           # (c) Belt-and-suspenders: neuter the 4 wgc_*.h headers on mingw by
           # wrapping each whole file in `#ifndef __MINGW32__`. Run 27838322506
           # showed a wgc header was STILL compiled (in Unified_cpp_desktop_capture_
