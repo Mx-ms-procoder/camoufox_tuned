@@ -13,6 +13,17 @@ ac_add_options --disable-lto
 
 if [ "$BUILD_TARGET" = "windows,i686" ]; then
     MINGW_TRIPLE=i686-w64-mingw32
+    # SSE2 baseline for 32-bit, mirroring linux.mozconfig. Firefox's i686 target
+    # has required SSE2 since Fx49, and MSVC defaults 32-bit to /arch:SSE2 -- but
+    # clang for i686-*-windows-gnu does NOT enable SSE by default, so files that
+    # use SSE intrinsics with no per-file flag (e.g. libwebrtc common_audio
+    # fir_filter_sse.cc, whose GN->moz.build has no WINNT-x86 -msse2 block) fail
+    # with "always_inline function '_mm_*' requires target feature 'sse'". A
+    # per-moz.build -msse2 alone did NOT resolve it (run 27829617115); the proven
+    # Linux recipe additionally sets -mfpmath=sse, so adopt it wholesale as the
+    # global i686 baseline (covers every SSE-assuming TU at once).
+    export CFLAGS="$CFLAGS -msse2 -mfpmath=sse"
+    export CXXFLAGS="$CXXFLAGS -msse2 -mfpmath=sse"
 else
     MINGW_TRIPLE=x86_64-w64-mingw32
 fi

@@ -1924,6 +1924,54 @@ jobs:
               print('added WINNT-x86 -msse2 block to fir_filter_factory_gn/moz.build')
           PYEOF
 
+          # (35) Disable the libwebrtc WGC (Windows.Graphics.Capture) desktop
+          # capturer on MinGW. modules/desktop_capture/win/wgc_*.cc pull in WinRT
+          # projection headers that Ubuntu's mingw-w64 11.0.1 lacks -- and at least
+          # one, <windows.graphics.directx.direct3d11.interop.h>, does not exist in
+          # ANY mingw-w64 version (absent even in master/v12), so it cannot be
+          # backfilled. WGC is the modern Win10+ screen-capture path; Camoufox uses
+          # headless/juggler capture and the GDI/DXGI capturers remain, so dropping
+          # WGC is functionally safe. We deliberately do NOT undefine
+          # RTC_ENABLE_WIN_WGC: desktop_capture_options.h gates four member vars on
+          # it, and that struct is included tree-wide, so flipping the macro in only
+          # some TUs would be an ODR/ABI mismatch. Instead, keep the macro (layout
+          # unchanged everywhere) and (a) drop the 4 wgc_*.cc from the build, (b)
+          # gate desktop_capturer.cc's 3 WGC blocks (the wgc include + the two
+          # factory branches) with `&& !defined(__MINGW32__)` so they fall through
+          # to the existing CreateRaw{Window,Screen}Capturer (GDI/DXGI) paths. No
+          # other TU references the WgcCapturerWin/IsWgcSupported symbols.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          # (a) remove the 4 wgc_*.cc entries from desktop_capture_gn UNIFIED_SOURCES
+          mb = os.path.join(src_dir, 'third_party', 'libwebrtc', 'modules',
+                            'desktop_capture', 'desktop_capture_gn', 'moz.build')
+          s = open(mb, encoding='utf-8').read()
+          lines = s.splitlines(keepends=True)
+          kept = [ln for ln in lines if 'desktop_capture/win/wgc_' not in ln]
+          removed = len(lines) - len(kept)
+          if 'desktop_capture/win/wgc_' not in s:
+              print('NOTE: desktop_capture_gn already has no wgc_ sources; skipping.')
+          elif removed != 4:
+              sys.exit('ERROR: expected to remove 4 wgc_ source lines, removed %d in %s' % (removed, mb))
+          else:
+              open(mb, 'w', encoding='utf-8').write(''.join(kept))
+              print('removed %d wgc_*.cc sources from desktop_capture_gn/moz.build' % removed)
+          # (b) gate the 3 WGC blocks in desktop_capturer.cc on !__MINGW32__
+          cc = os.path.join(src_dir, 'third_party', 'libwebrtc', 'modules',
+                            'desktop_capture', 'desktop_capturer.cc')
+          t = open(cc, encoding='utf-8').read()
+          old = '#if defined(RTC_ENABLE_WIN_WGC)'
+          new = '#if defined(RTC_ENABLE_WIN_WGC) && !defined(__MINGW32__)  // camoufox: WGC unbuildable on mingw (missing WinRT headers); fall through to GDI/DXGI'
+          if '!defined(__MINGW32__)  // camoufox: WGC unbuildable' in t:
+              print('NOTE: desktop_capturer.cc WGC blocks already mingw-gated; skipping.')
+          elif t.count(old) != 3:
+              sys.exit('ERROR: expected 3 RTC_ENABLE_WIN_WGC blocks, found %d in %s' % (t.count(old), cc))
+          else:
+              open(cc, 'w', encoding='utf-8').write(t.replace(old, new))
+              print('mingw-gated 3 WGC blocks in desktop_capturer.cc')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
