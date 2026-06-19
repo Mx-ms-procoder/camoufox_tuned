@@ -1970,6 +1970,31 @@ jobs:
           else:
               open(cc, 'w', encoding='utf-8').write(t.replace(old, new))
               print('mingw-gated 3 WGC blocks in desktop_capturer.cc')
+          # (c) Belt-and-suspenders: neuter the 4 wgc_*.h headers on mingw by
+          # wrapping each whole file in `#ifndef __MINGW32__`. Run 27838322506
+          # showed a wgc header was STILL compiled (in Unified_cpp_desktop_capture_
+          # gn2) after (a)+(b) -- some TU pulls in wgc_capture_session.h whose
+          # unconditional `#include <windows.graphics.h>` (+ *.interop.h, absent in
+          # ALL mingw) fails. Making the headers empty on mingw kills the missing-
+          # WinRT-header error for ANY includer, known or not; the wgc classes have
+          # no remaining consumer ((a) removed the .cc, (b) gated the factory). If a
+          # real use ever surfaces it becomes a clear "unknown type" we can gate.
+          for hdr in ['wgc_capture_session.h', 'wgc_capture_source.h',
+                      'wgc_capturer_win.h', 'wgc_desktop_frame.h']:
+              p = os.path.join(src_dir, 'third_party', 'libwebrtc', 'modules',
+                               'desktop_capture', 'win', hdr)
+              if not os.path.exists(p):
+                  print('NOTE: %s not found; skipping neuter.' % hdr)
+                  continue
+              h = open(p, encoding='utf-8').read()
+              if 'camoufox: WGC header neutered' in h:
+                  print('NOTE: %s already neutered; skipping.' % hdr)
+                  continue
+              open(p, 'w', encoding='utf-8').write(
+                  '#ifndef __MINGW32__  // camoufox: WGC header neutered on mingw '
+                  '(WinRT headers <windows.graphics.h>/*.interop.h absent from mingw-w64)\n'
+                  + h.rstrip('\n') + '\n#endif  // !__MINGW32__\n')
+              print('neutered %s on mingw' % hdr)
           PYEOF
 
       - name: Validate patch graph
