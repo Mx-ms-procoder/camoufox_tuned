@@ -533,8 +533,12 @@ jobs:
           #     Kernel-Streaming headers, also shipped lower-case by mingw (libwebrtc
           #     video_capture/windows/device_info_ds.h includes <Ks.h>; Ksmedia /
           #     Dvdmedia pre-empted as the same KS family used by DirectShow capture).
+          #   windows.h:Windows.h -- the most common CamelCase form; mingw ships only
+          #     lower-case <windows.h> (libwebrtc rtc_base/system/file_wrapper.cc and
+          #     others include <Windows.h>; one shim covers them all, both arches).
           for pair in "shlobj.h:shlobj_core.h" "dispatcherqueue.h:DispatcherQueue.h" \
-                      "ks.h:Ks.h" "ksmedia.h:Ksmedia.h" "dvdmedia.h:Dvdmedia.h"; do
+                      "ks.h:Ks.h" "ksmedia.h:Ksmedia.h" "dvdmedia.h:Dvdmedia.h" \
+                      "windows.h:Windows.h"; do
             real="${pair%%:*}"; shim="${pair##*:}"
             mapfile -t real_files < <(find /usr -path '*mingw32*' -name "$real" 2>/dev/null)
             if [ "${#real_files[@]}" -eq 0 ]; then
@@ -552,6 +556,31 @@ jobs:
               fi
             done
           done
+
+          # (7) Backfill the TCP keep-alive socket-option constants into MinGW's
+          # ws2ipdef.h. Ubuntu mingw-w64 11.0.1 omits TCP_KEEPCNT / TCP_KEEPIDLE /
+          # TCP_KEEPINTVL (added to mingw after 11.0.1; the Windows SDK has had them
+          # since the Win10 1709 SDK), so libwebrtc rtc_base/physical_socket_server.cc
+          # fails with "use of undeclared identifier 'TCP_KEEPCNT'" etc. Append the
+          # standard Windows values (TCP_KEEPCNT=16, TCP_KEEPIDLE=TCP_KEEPALIVE=3,
+          # TCP_KEEPINTVL=17 -- verbatim from newer mingw), each #ifndef-guarded so a
+          # newer toolchain that already has them wins. Appending past the include
+          # guard is fine: the #ifndefs short-circuit on every re-include. Idempotent
+          # via the camoufox marker.
+          mapfile -t ws2_files < <(find /usr -path '*mingw32*' -name ws2ipdef.h 2>/dev/null)
+          if [ "${#ws2_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW ws2ipdef.h found; skipping TCP_KEEP* backfill."
+          else
+            for f in "${ws2_files[@]}"; do
+              if grep -q 'camoufox: TCP keep-alive' "$f"; then
+                echo "NOTE: $f already has TCP_KEEP* backfill; skipping."
+              else
+                printf '\n/* camoufox: TCP keep-alive options absent in mingw-w64 11.0.1; Windows values from newer mingw */\n#ifndef TCP_KEEPCNT\n#define TCP_KEEPCNT 16\n#endif\n#ifndef TCP_KEEPIDLE\n#define TCP_KEEPIDLE 3\n#endif\n#ifndef TCP_KEEPINTVL\n#define TCP_KEEPINTVL 17\n#endif\n' \
+                  | sudo tee -a "$f" > /dev/null
+                echo "backfilled TCP_KEEP* into $f"
+              fi
+            done
+          fi
 
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
