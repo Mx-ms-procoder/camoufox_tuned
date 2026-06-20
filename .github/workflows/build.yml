@@ -2076,6 +2076,39 @@ jobs:
               print('mingw-gated the legacy SEH thread-naming block in platform_thread_types.cc')
           PYEOF
 
+          # (37) rtc_base/win/create_direct3d_device.{h,cc} is a Direct3D11 device
+          # factory for the WGC/Direct3D capture path. It #includes
+          # <windows.graphics.directX.direct3d11.interop.h> -- a WinRT interop header
+          # absent from EVERY mingw-w64 version (404 in v11.0.1/master/v12; same one
+          # that made WGC unbuildable in (35)) -- and calls
+          # CreateDirect3D11DeviceFromDXGIDevice (no mingw import lib, so it would
+          # also fail at link). Its ONLY consumer was wgc_capture_session.cc, already
+          # dropped by (35a), so on mingw this whole create_direct3d_device_gn target
+          # is dead. Neuter both files with a whole-file `#ifndef __MINGW32__` so they
+          # are empty on mingw (the gn target then compiles an empty TU); nothing
+          # references CreateDirect3DDevice on mingw. (Also gates away the CamelCase
+          # `directX` include on line 14, so no case-shim is needed for it.)
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          for rel in ['create_direct3d_device.h', 'create_direct3d_device.cc']:
+              p = os.path.join(src_dir, 'third_party', 'libwebrtc', 'rtc_base',
+                               'win', rel)
+              if not os.path.exists(p):
+                  print('NOTE: %s not found; skipping.' % rel)
+                  continue
+              h = open(p, encoding='utf-8').read()
+              if 'camoufox: create_direct3d_device neutered' in h:
+                  print('NOTE: %s already neutered; skipping.' % rel)
+                  continue
+              open(p, 'w', encoding='utf-8').write(
+                  '#ifndef __MINGW32__  // camoufox: create_direct3d_device neutered on '
+                  'mingw (needs WinRT <windows.graphics.directX.direct3d11.interop.h>, '
+                  'absent from all mingw; sole consumer was WGC, removed by (35))\n'
+                  + h.rstrip('\n') + '\n#endif  // !__MINGW32__\n')
+              print('neutered %s on mingw' % rel)
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
