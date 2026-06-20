@@ -2017,6 +2017,36 @@ jobs:
               print('neutered %s on mingw' % hdr)
           PYEOF
 
+          # (36) third_party/libwebrtc/rtc_base/platform_thread_types.cc names the
+          # current thread two ways on Windows: the modern SetThreadDescription API
+          # (Win10 1607+, GetProcAddress'd) AND a legacy fallback that raises the
+          # magic debugger exception 0x406D1388 inside an MSVC SEH `__try`/`__except`
+          # block. clang for *-windows-gnu (mingw) does not implement MSVC SEH, so
+          # `__except` is "use of undeclared identifier '__except'" + a parse error.
+          # The modern path already names threads on every target Camoufox runs
+          # (Win10+), so gate the legacy SEH block (the threadname_info struct + the
+          # __try/__except) out on mingw; naming still works via SetThreadDescription.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'third_party', 'libwebrtc', 'rtc_base',
+                           'platform_thread_types.cc')
+          s = open(f, encoding='utf-8').read()
+          a = '#pragma pack(push, 8)'
+          b = '#pragma warning(pop)'
+          if 'camoufox: MSVC SEH' in s:
+              print('NOTE: platform_thread_types.cc SEH block already gated; skipping.')
+          elif s.count(a) != 1 or s.count(b) != 1 or '__except' not in s:
+              sys.exit('ERROR: SEH anchors not unique/present in ' + f)
+          else:
+              s = s.replace(a, '#ifndef __MINGW32__  // camoufox: MSVC SEH (__try/__except) '
+                            'unsupported by clang/mingw; SetThreadDescription above already '
+                            'names threads on Win10+\n' + a, 1)
+              s = s.replace(b, b + '\n#endif  // !__MINGW32__', 1)
+              open(f, 'w', encoding='utf-8').write(s)
+              print('mingw-gated the legacy SEH thread-naming block in platform_thread_types.cc')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
