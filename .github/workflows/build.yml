@@ -2109,6 +2109,39 @@ jobs:
               print('neutered %s on mingw' % rel)
           PYEOF
 
+          # (38) third_party/sipcc/cpr_win_types.h defines the SIP/SDP parser's
+          # MIN/MAX as `#define MIN min` / `#define MAX max` (its own comment: "defined
+          # in windef.h as lowercase"), i.e. it relies on <windef.h>'s lowercase
+          # min/max. Mozilla builds with NOMINMAX so windows.h does NOT provide them,
+          # and the sipcc .c files compile as C with -Werror=implicit-function-
+          # declaration -> sdp_token.c "call to undeclared function 'min'" (same
+          # NOMINMAX class as the SCTP (31) min/max fix). On mingw, define MIN/MAX as
+          # direct ternary macros instead of aliasing the absent lowercase min/max;
+          # MSVC keeps the original. (Independent of (19), which patches the
+          # ssize_t/pid_t block of the same header.)
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'third_party', 'sipcc', 'cpr_win_types.h')
+          s = open(f, encoding='utf-8').read()
+          old = ('#ifndef MIN\n#define MIN min\n#endif\n\n'
+                 '#ifndef MAX\n#define MAX max\n#endif')
+          new = ('#if defined(__MINGW32__)  /* camoufox: windef.h lowercase min/max are\n'
+                 '   suppressed by Mozilla NOMINMAX; define MIN/MAX directly. */\n'
+                 '#ifndef MIN\n#define MIN(a,b) (((a) < (b)) ? (a) : (b))\n#endif\n'
+                 '#ifndef MAX\n#define MAX(a,b) (((a) > (b)) ? (a) : (b))\n#endif\n'
+                 '#else\n'
+                 '#ifndef MIN\n#define MIN min\n#endif\n\n'
+                 '#ifndef MAX\n#define MAX max\n#endif\n#endif')
+          if 'camoufox: windef.h lowercase min/max' in s:
+              print('NOTE: cpr_win_types.h MIN/MAX already mingw-aware; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: MIN/MAX block anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('made cpr_win_types.h MIN/MAX MinGW-aware (direct ternary)')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
