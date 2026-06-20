@@ -529,7 +529,12 @@ jobs:
           #   dispatcherqueue.h:DispatcherQueue.h -- mingw ships it lower-case; the
           #     Linux CI filesystem is case-sensitive so the CamelCase include fails
           #     (libwebrtc desktop_capture/win/wgc_capturer_win.h WGC path, x86_64).
-          for pair in "shlobj.h:shlobj_core.h" "dispatcherqueue.h:DispatcherQueue.h"; do
+          #   ks.h:Ks.h, ksmedia.h:Ksmedia.h, dvdmedia.h:Dvdmedia.h -- DirectShow /
+          #     Kernel-Streaming headers, also shipped lower-case by mingw (libwebrtc
+          #     video_capture/windows/device_info_ds.h includes <Ks.h>; Ksmedia /
+          #     Dvdmedia pre-empted as the same KS family used by DirectShow capture).
+          for pair in "shlobj.h:shlobj_core.h" "dispatcherqueue.h:DispatcherQueue.h" \
+                      "ks.h:Ks.h" "ksmedia.h:Ksmedia.h" "dvdmedia.h:Dvdmedia.h"; do
             real="${pair%%:*}"; shim="${pair##*:}"
             mapfile -t real_files < <(find /usr -path '*mingw32*' -name "$real" 2>/dev/null)
             if [ "${#real_files[@]}" -eq 0 ]; then
