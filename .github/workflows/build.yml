@@ -2142,6 +2142,36 @@ jobs:
               print('made cpr_win_types.h MIN/MAX MinGW-aware (direct ternary)')
           PYEOF
 
+          # (39) toolkit/xre/nsAppRunner.cpp declares SetupLauncherProcessPref with a
+          # non-static forward declaration ("void SetupLauncherProcessPref();") at the
+          # top of the `#if defined(XP_WIN) && defined(MOZ_LAUNCHER_PROCESS)` region,
+          # but defines it `static` further down. MSVC tolerates a static definition
+          # following a non-static (external-linkage) forward declaration; clang treats
+          # it as a hard error ("static declaration of 'X' follows non-static
+          # declaration") per [dcl.stc]. This only surfaces on the clang windows-gnu
+          # cross-build: on Linux/macOS MOZ_LAUNCHER_PROCESS is undefined so neither the
+          # forward decl nor the definition exist. The function is referenced only
+          # within this TU (GetLauncherProcessState + XRE main), so internal linkage is
+          # correct -> make the forward declaration static to match the definition.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'toolkit', 'xre', 'nsAppRunner.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = '// Forward declaration\nvoid SetupLauncherProcessPref();'
+          new = ('// Forward declaration\n'
+                 'static void SetupLauncherProcessPref();  '
+                 '// camoufox: static to match definition; clang rejects '
+                 'non-static-then-static (MSVC tolerates)')
+          if 'camoufox: static to match definition' in s:
+              print('NOTE: SetupLauncherProcessPref forward decl already static; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: SetupLauncherProcessPref forward-decl anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('made SetupLauncherProcessPref forward declaration static')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
