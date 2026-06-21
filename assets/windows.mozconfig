@@ -61,7 +61,17 @@ export RANLIB="$MINGW_TRIPLE-ranlib"
 # MSVC redist path, which does not exist on the CI runner (CI uses MinGW gcc,
 # not MSVC, and `make bootstrap` is intentionally not invoked). Static linking
 # is the cleaner fix: one self-contained ZIP, no host-runtime hunt at startup.
-export LDFLAGS="${LDFLAGS:+$LDFLAGS }-static-libgcc -static-libstdc++ -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic"
+#
+# --allow-multiple-definition works around a clang+mingw-gcc-libstdc++ COMDAT
+# mismatch: libstdc++'s [[gnu::cold]] out-of-line helper
+# std::__cxx11::basic_string::_M_replace_cold is emitted by clang into a
+# ".text$unlikely$<mangled>" COMDAT, but the GCC-built libstdc++.a ships the same
+# symbol in a plain ".text$<mangled>" section in string-inst.o. The differing
+# section names defeat COMDAT dedup, so any final binary that links libstdc++.a
+# statically AND pulls the symbol from a user TU (e.g. dom/media fake-cdm's
+# fake.dll, nmhproxy) fails with "multiple definition of ... _M_replace_cold".
+# Both definitions are the identical function, so take-first is safe.
+export LDFLAGS="${LDFLAGS:+$LDFLAGS }-static-libgcc -static-libstdc++ -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition"
 
 if command -v llvm-dlltool >/dev/null 2>&1; then
     export LLVM_DLLTOOL=llvm-dlltool
