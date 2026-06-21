@@ -630,6 +630,30 @@ jobs:
             done
           fi
 
+          # (10) Backfill the Win10/11 DWM dark-mode + Mica-backdrop + rounded-corner
+          # window attributes/enums into MinGW's dwmapi.h. Ubuntu mingw-w64 11.0.1 omits
+          # them all (they arrived in 12.0.0), so widget/windows/nsWindow.cpp fails with
+          # "undeclared identifier 'DWMWA_USE_IMMERSIVE_DARK_MODE'", "unknown type name
+          # 'DWM_SYSTEMBACKDROP_TYPE'", DWMSBT_*/DWMWCP_* etc. The DWMWA_* are passed as
+          # DWORD attribute args to DwmSetWindowAttribute, so macros suffice; the two
+          # backdrop/corner enums must be real types. Values verbatim from mingw 12.0.0.
+          # Guarded by __MINGW64_VERSION_MAJOR < 12 so a future toolchain bump (which has
+          # them) auto-disables the backfill and avoids a redefinition clash.
+          mapfile -t dwm_files < <(find /usr -path '*mingw32*' -name dwmapi.h 2>/dev/null)
+          if [ "${#dwm_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW dwmapi.h found; skipping DWM attr backfill."
+          else
+            for f in "${dwm_files[@]}"; do
+              if grep -q 'camoufox: DWM Win10/11' "$f"; then
+                echo "NOTE: $f already has DWM attr backfill; skipping."
+              else
+                printf '\n/* camoufox: DWM Win10/11 dark-mode/backdrop/corner attrs absent in mingw-w64 11.0.1 (present from 12.0.0); auto-disabled once toolchain >= 12.0.0 */\n#if !defined(__MINGW64_VERSION_MAJOR) || __MINGW64_VERSION_MAJOR < 12\n#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE\n#define DWMWA_USE_IMMERSIVE_DARK_MODE 20\n#endif\n#ifndef DWMWA_WINDOW_CORNER_PREFERENCE\n#define DWMWA_WINDOW_CORNER_PREFERENCE 33\n#endif\n#ifndef DWMWA_SYSTEMBACKDROP_TYPE\n#define DWMWA_SYSTEMBACKDROP_TYPE 38\n#endif\ntypedef enum { DWMWCP_DEFAULT = 0, DWMWCP_DONOTROUND = 1, DWMWCP_ROUND = 2, DWMWCP_ROUNDSMALL = 3 } DWM_WINDOW_CORNER_PREFERENCE;\ntypedef enum { DWMSBT_AUTO = 0, DWMSBT_NONE = 1, DWMSBT_MAINWINDOW = 2, DWMSBT_TRANSIENTWINDOW = 3, DWMSBT_TABBEDWINDOW = 4 } DWM_SYSTEMBACKDROP_TYPE;\n#endif\n' \
+                  | sudo tee -a "$f" > /dev/null
+                echo "backfilled DWM Win10/11 attrs into $f"
+              fi
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
@@ -2347,6 +2371,136 @@ jobs:
           else:
               open(f, 'w', encoding='utf-8').write(s.replace(anchor, add, 1))
               print('defined PKEY_Link_Arguments in JumpListBuilder.cpp on mingw')
+          PYEOF
+
+          # (45) widget/windows/nsWindowDbg.cpp forward-declares HitTestResults()
+          # non-static (line ~282) but defines it static (~1048). Same clang-stricter-
+          # than-MSVC linkage error as (39) SetupLauncherProcessPref. The function is
+          # TU-internal -> make the forward declaration static to match the definition.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'widget', 'windows', 'nsWindowDbg.cpp')
+          s = open(f, encoding='utf-8').read()
+          old = '\nstd::unordered_map<uint64_t, const char*> const& HitTestResults();'
+          new = '\nstatic std::unordered_map<uint64_t, const char*> const& HitTestResults();  // camoufox: static to match definition (clang strict linkage)'
+          if 'camoufox: static to match definition (clang strict linkage)' in s:
+              print('NOTE: HitTestResults forward decl already static; skipping.')
+          elif old not in s:
+              sys.exit('ERROR: HitTestResults forward-decl anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(old, new, 1))
+              print('made HitTestResults forward declaration static')
+          PYEOF
+
+          # (46) widget/windows/nsLookAndFeel.cpp calls std::ceilf but includes neither
+          # <cmath> nor <math.h>; libstdc++ only declares std::ceilf via <cmath>. As with
+          # ResultExtensions.h (40a) the symbol arrives transitively on Linux/macOS but
+          # not on the mingw libstdc++ chain -> "no member named 'ceilf' in namespace
+          # 'std'". Add <cmath> at the source (header-self-sufficiency).
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'widget', 'windows', 'nsLookAndFeel.cpp')
+          s = open(f, encoding='utf-8').read()
+          anchor = '#include <stdint.h>\n'
+          add = '#include <stdint.h>\n#include <cmath>  // camoufox: std::ceilf needs explicit <cmath> on mingw libstdc++\n'
+          if 'camoufox: std::ceilf needs explicit <cmath>' in s:
+              print('NOTE: nsLookAndFeel.cpp already includes <cmath>; skipping.')
+          elif anchor not in s:
+              sys.exit('ERROR: <stdint.h> include anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, add, 1))
+              print('added <cmath> include to nsLookAndFeel.cpp')
+          PYEOF
+
+          # (47) xpcom/reflect/xptcall/md/win32/xptcstubs.cpp implements the i686 Windows
+          # vtable thunk with MSVC Intel __asm{} blocks (SharedStub + STUB_ENTRY). clang in
+          # mingw/gnu mode cannot parse __asm{} (the md/win32/moz.build x86 clang/gcc path
+          # selects this file because CC_TYPE="clang" also covers clang-cl, which DOES
+          # support __asm{}; there is no upstream xptcstubs_x86_gnu.cpp). Port the thunk to
+          # GNU/AT&T inline asm, modeled on the proven xptcinvoke_x86_gnu.cpp in this dir.
+          # Three guarded edits on __MINGW32__: (a) make PrepareAndDispatch cdecl so the
+          # call uses the undecorated _PrepareAndDispatch + an explicit 16-byte caller
+          # cleanup (avoids guessing the __stdcall @16 decoration); (b) SharedStub as an
+          # extern "C" naked fn (symbol _SharedStub) with the AT&T translation of the exact
+          # same stack math; (c) STUB_ENTRY emits `movl $n,%ecx; jmp _SharedStub`. x64 and
+          # MSVC/clang-cl keep the original via #else.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'xpcom', 'reflect', 'xptcall', 'md', 'win32', 'xptcstubs.cpp')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: GNU/AT&T i686 Windows xptcall thunk' in s:
+              print('NOTE: xptcstubs.cpp already GNU-ported; skipping.')
+              sys.exit(0)
+          # (a) PrepareAndDispatch: drop __stdcall on mingw (cdecl -> undecorated symbol)
+          a_old = 'static\nnsresult __stdcall\nPrepareAndDispatch('
+          a_new = ('static\nnsresult\n'
+                   '#if !defined(__MINGW32__)\n__stdcall\n#endif\n'
+                   'PrepareAndDispatch(')
+          if a_old not in s:
+              sys.exit('ERROR: PrepareAndDispatch decl anchor missing')
+          s = s.replace(a_old, a_new, 1)
+          # (b) SharedStub: open the guard + GNU version before the MSVC header
+          b_old = 'static MOZ_NAKED void SharedStub(void)\n{\n'
+          b_new = (
+              '#if defined(__MINGW32__)\n'
+              '// camoufox: GNU/AT&T i686 Windows xptcall thunk (clang gnu cannot parse\n'
+              '// MSVC __asm{}); modeled on xptcinvoke_x86_gnu.cpp. Same stack math as the\n'
+              '// MSVC version below, plus an explicit 16-byte cdecl cleanup after the call.\n'
+              'extern "C" MOZ_NAKED void SharedStub(void)\n'
+              '{\n'
+              '    __asm__ __volatile__(\n'
+              '        "pushl %ebp\\n\\t"\n'
+              '        "movl  %esp, %ebp\\n\\t"\n'
+              '        "pushl %ecx\\n\\t"\n'
+              '        "leal  -4(%ebp), %eax\\n\\t"\n'
+              '        "pushl %eax\\n\\t"\n'
+              '        "leal  12(%ebp), %eax\\n\\t"\n'
+              '        "pushl %eax\\n\\t"\n'
+              '        "pushl %ecx\\n\\t"\n'
+              '        "movl  8(%ebp), %eax\\n\\t"\n'
+              '        "pushl %eax\\n\\t"\n'
+              '        "call  _PrepareAndDispatch\\n\\t"\n'
+              '        "addl  $16, %esp\\n\\t"\n'
+              '        "movl  4(%ebp), %edx\\n\\t"\n'
+              '        "movl  -4(%ebp), %ecx\\n\\t"\n'
+              '        "addl  $8, %ecx\\n\\t"\n'
+              '        "movl  %ebp, %esp\\n\\t"\n'
+              '        "popl  %ebp\\n\\t"\n'
+              '        "addl  %ecx, %esp\\n\\t"\n'
+              '        "jmp   *%edx\\n\\t");\n'
+              '}\n'
+              '#else\n'
+              'static MOZ_NAKED void SharedStub(void)\n'
+              '{\n')
+          if b_old not in s:
+              sys.exit('ERROR: SharedStub header anchor missing')
+          s = s.replace(b_old, b_new, 1)
+          # (b-end)+(c): close the guard after the MSVC body, then guard STUB_ENTRY
+          c_old = ('    }\n}\n\n'
+                   '// these macros get expanded (many times) in the file #included below\n'
+                   '#define STUB_ENTRY(n) \\\n'
+                   'MOZ_NAKED nsresult __stdcall nsXPTCStubBase::Stub##n() \\\n'
+                   '{ __asm mov ecx, n __asm jmp SharedStub }')
+          c_new = ('    }\n}\n'
+                   '#endif  // !__MINGW32__ (MSVC/clang-cl SharedStub)\n\n'
+                   '// these macros get expanded (many times) in the file #included below\n'
+                   '#if defined(__MINGW32__)\n'
+                   '#define STUB_ENTRY(n) \\\n'
+                   'MOZ_NAKED nsresult __stdcall nsXPTCStubBase::Stub##n() \\\n'
+                   '{ __asm__ __volatile__("movl $" #n ", %ecx\\n\\tjmp _SharedStub"); }\n'
+                   '#else\n'
+                   '#define STUB_ENTRY(n) \\\n'
+                   'MOZ_NAKED nsresult __stdcall nsXPTCStubBase::Stub##n() \\\n'
+                   '{ __asm mov ecx, n __asm jmp SharedStub }\n'
+                   '#endif')
+          if c_old not in s:
+              sys.exit('ERROR: STUB_ENTRY/SharedStub-tail anchor missing')
+          s = s.replace(c_old, c_new, 1)
+          open(f, 'w', encoding='utf-8').write(s)
+          print('GNU-ported xptcstubs.cpp for i686 mingw')
           PYEOF
 
       - name: Validate patch graph
