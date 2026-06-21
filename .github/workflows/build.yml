@@ -607,6 +607,29 @@ jobs:
             done
           fi
 
+          # (9) Backfill the TSF error HRESULT TF_E_INVALIDPOS into MinGW's msctf.h.
+          # Ubuntu mingw-w64 11.0.1 omits it (present from 12.0.0 on); widget/windows/
+          # TSFEmptyTextStore.cpp returns it from SetSelection range checks, so it fails
+          # with "use of undeclared identifier 'TF_E_INVALIDPOS'". Append the verbatim
+          # newer-mingw value: MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x0200)
+          # (0x80040207). MAKE_HRESULT / SEVERITY_ERROR / FACILITY_ITF all come in via
+          # the windows.h that msctf.h already pulls, so the end-of-file append resolves;
+          # #ifndef-guarded and idempotent via the same marker.
+          mapfile -t msctf_files < <(find /usr -path '*mingw32*' -name msctf.h 2>/dev/null)
+          if [ "${#msctf_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW msctf.h found; skipping TF_E_INVALIDPOS backfill."
+          else
+            for f in "${msctf_files[@]}"; do
+              if grep -q 'camoufox: TF_E_INVALIDPOS' "$f"; then
+                echo "NOTE: $f already has TF_E_INVALIDPOS backfill; skipping."
+              else
+                printf '\n/* camoufox: TF_E_INVALIDPOS absent in mingw-w64 11.0.1; value from newer mingw */\n#ifndef TF_E_INVALIDPOS\n#define TF_E_INVALIDPOS MAKE_HRESULT(SEVERITY_ERROR, FACILITY_ITF, 0x0200)\n#endif\n' \
+                  | sudo tee -a "$f" > /dev/null
+                echo "backfilled TF_E_INVALIDPOS into $f"
+              fi
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
@@ -2294,6 +2317,36 @@ jobs:
           else:
               open(f, 'w', encoding='utf-8').write(s.replace(anchor, block + anchor, 1))
               print('backfilled HEAP_OPTIMIZE_RESOURCES_* in AvailableMemoryTracker.cpp')
+          PYEOF
+
+          # (42) widget/windows/JumpListBuilder.cpp sets the command-line property of a
+          # jump-list shortcut via PKEY_Link_Arguments, a Shell PROPERTYKEY that is absent
+          # from mingw's propkey.h in EVERY version (11.0.1, 12.0.0, master) -> "use of
+          # undeclared identifier 'PKEY_Link_Arguments'". Not fixable by a mingw bump.
+          # Define it at the use site on mingw with the canonical SDK GUID
+          # {436f2667-14e2-4feb-b30a-146c53b5b674},100 (verified against Wine's propkey.h).
+          # DEFINE_PROPERTYKEY emits a DECLSPEC_SELECTANY (COMDAT) const, so it is ODR-safe
+          # even in unified builds. The macro + PROPERTYKEY type arrive via <propkey.h>,
+          # which the file already includes just above the anchor.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'widget', 'windows', 'JumpListBuilder.cpp')
+          s = open(f, encoding='utf-8').read()
+          anchor = '#include <propkey.h>\n'
+          add = (anchor +
+                 '#if defined(__MINGW32__)  // camoufox: PKEY_Link_Arguments absent in mingw '
+                 'propkey.h (all versions); canonical SDK GUID, ODR-safe via DECLSPEC_SELECTANY\n'
+                 'DEFINE_PROPERTYKEY(PKEY_Link_Arguments, 0x436f2667, 0x14e2, 0x4feb, 0xb3, '
+                 '0x0a, 0x14, 0x6c, 0x53, 0xb5, 0xb6, 0x74, 100);\n'
+                 '#endif\n')
+          if 'camoufox: PKEY_Link_Arguments absent' in s:
+              print('NOTE: JumpListBuilder PKEY_Link_Arguments present; skipping.')
+          elif anchor not in s:
+              sys.exit('ERROR: propkey.h include anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, add, 1))
+              print('defined PKEY_Link_Arguments in JumpListBuilder.cpp on mingw')
           PYEOF
 
       - name: Validate patch graph
