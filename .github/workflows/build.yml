@@ -582,6 +582,31 @@ jobs:
             done
           fi
 
+          # (8) Backfill the E_NOT_SET HRESULT into MinGW's winerror.h. Ubuntu
+          # mingw-w64 11.0.1 omits it (added to mingw only after 11.0.1; the Windows
+          # SDK has had it for years), so widget/windows/TSFUtils.{h,cpp} -- the Text
+          # Services Framework helper that initializes `HRESULT mHR = E_NOT_SET;` --
+          # fails with "use of undeclared identifier 'E_NOT_SET'". Append the newer-mingw
+          # definition verbatim: E_NOT_SET = HRESULT_FROM_WIN32(ERROR_NOT_FOUND)
+          # (0x80070490). Both HRESULT_FROM_WIN32 and ERROR_NOT_FOUND are already defined
+          # earlier in 11.0.1's winerror.h, so appending past the include guard resolves
+          # correctly; #ifndef-guarded so a newer toolchain that already has it wins.
+          # Idempotent via the camoufox marker.
+          mapfile -t winerr_files < <(find /usr -path '*mingw32*' -name winerror.h 2>/dev/null)
+          if [ "${#winerr_files[@]}" -eq 0 ]; then
+            echo "NOTE: no MinGW winerror.h found; skipping E_NOT_SET backfill."
+          else
+            for f in "${winerr_files[@]}"; do
+              if grep -q 'camoufox: E_NOT_SET' "$f"; then
+                echo "NOTE: $f already has E_NOT_SET backfill; skipping."
+              else
+                printf '\n/* camoufox: E_NOT_SET absent in mingw-w64 11.0.1; value from newer mingw */\n#ifndef E_NOT_SET\n#define E_NOT_SET HRESULT_FROM_WIN32(ERROR_NOT_FOUND)\n#endif\n' \
+                  | sudo tee -a "$f" > /dev/null
+                echo "backfilled E_NOT_SET into $f"
+              fi
+            done
+          fi
+
       - name: Install Rust toolchain (Firefox 150 baseline)
         # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
         # Sources verified:
