@@ -2172,6 +2172,105 @@ jobs:
               print('made SetupLauncherProcessPref forward declaration static')
           PYEOF
 
+          # (40a) mfbt/ResultExtensions.h's ToResultInvokeMember uses `::std::invoke`
+          # (e.g. "-> decltype(::std::invoke(" / "return ::std::invoke(aMemPtr, ...)")
+          # but does not #include <functional>, where libstdc++ declares the public
+          # std::invoke (bits/invoke.h only provides the internal std::__invoke). On
+          # Linux/macOS the symbol arrives transitively via some other header in the
+          # include chain; on the mingw libstdc++ chain it does not, so any TU that
+          # includes ResultExtensions.h (xpcom StaticComponents.cpp, AvailableMemory
+          # Tracker.cpp, ...) fails with "no member named 'invoke' in namespace 'std';
+          # did you mean '__invoke'?". Add the missing include at the header source so
+          # the exported dist/include copy carries it. Harmless on all platforms.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'mfbt', 'ResultExtensions.h')
+          s = open(f, encoding='utf-8').read()
+          anchor = '#include "mozilla/Assertions.h"\n'
+          add = ('#include "mozilla/Assertions.h"\n'
+                 '#include <functional>  // camoufox: ToResultInvokeMember uses '
+                 'std::invoke; mingw libstdc++ needs explicit <functional>\n')
+          if 'camoufox: ToResultInvokeMember uses std::invoke' in s:
+              print('NOTE: ResultExtensions.h already includes <functional>; skipping.')
+          elif anchor not in s:
+              sys.exit('ERROR: Assertions.h include anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, add, 1))
+              print('added <functional> include to ResultExtensions.h')
+          PYEOF
+
+          # (40b) widget/windows/OSKInputPaneManager.cpp drives the touch on-screen
+          # keyboard entirely through the InputPane WinRT API: it includes
+          # <inputpaneinterop.h> (absent in mingw 11.0.1) and <windows.ui.viewmanagement.h>
+          # and uses HStringReference / RoGetActivationFactory / IInputPane2 -- the same
+          # WinRT surface (HString et al.) that mingw lacks and that drove the WGC (35)
+          # and GlobalizationPreferences (28) neuters. Backfilling the interop header is
+          # not enough (viewmanagement + HStringReference are also missing). The class
+          # exposes only two static no-op-safe methods (Show/DismissOnScreenKeyboard), so
+          # stub them on mingw and preprocess out the entire WinRT body.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'widget', 'windows', 'OSKInputPaneManager.cpp')
+          s = open(f, encoding='utf-8').read()
+          anchor = '#include "OSKInputPaneManager.h"\n'
+          stub = (anchor +
+                  '#ifdef __MINGW32__  // camoufox: InputPane WinRT (inputpaneinterop.h,\n'
+                  '// windows.ui.viewmanagement.h, HStringReference) absent in mingw -> stub.\n'
+                  'namespace mozilla {\nnamespace widget {\n'
+                  'void OSKInputPaneManager::ShowOnScreenKeyboard(HWND) {}\n'
+                  'void OSKInputPaneManager::DismissOnScreenKeyboard(HWND) {}\n'
+                  '}  // namespace widget\n}  // namespace mozilla\n'
+                  '#else\n')
+          if 'camoufox: InputPane WinRT' in s:
+              print('NOTE: OSKInputPaneManager already stubbed on mingw; skipping.')
+          elif anchor not in s:
+              sys.exit('ERROR: OSKInputPaneManager.h include anchor missing in ' + f)
+          else:
+              s = s.replace(anchor, stub, 1)
+              s = s.rstrip('\n') + '\n#endif  // !__MINGW32__\n'
+              open(f, 'w', encoding='utf-8').write(s)
+              print('stubbed OSKInputPaneManager on mingw')
+          PYEOF
+
+          # (40c) xpcom/base/AvailableMemoryTracker.cpp's OptimizeSystemHeap() calls
+          # HeapSetInformation(nullptr, HeapOptimizeResources, &HEAP_OPTIMIZE_RESOURCES_
+          # INFORMATION{...}, ...) -- the Win8.1+ heap-optimize API. mingw winnt.h (even
+          # 12.0.0) only declares HEAP_INFORMATION_CLASS = {HeapCompatibilityInformation,
+          # HeapEnableTerminationOnCorruption}; the struct, the CURRENT_VERSION constant
+          # and the HeapOptimizeResources class value (SDK = 3) are all missing and NOT
+          # obtainable by bumping mingw. Backfill them at the use site on mingw. The class
+          # value is provided as a cast macro (C++ has no implicit int->enum) so the
+          # existing `HeapOptimizeResources` argument keeps the HEAP_INFORMATION_CLASS type.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'xpcom', 'base', 'AvailableMemoryTracker.cpp')
+          s = open(f, encoding='utf-8').read()
+          anchor = 'void nsJemallocFreeDirtyPagesRunnable::OptimizeSystemHeap() {\n'
+          block = (
+              '#if defined(__MINGW32__)  /* camoufox: Win8.1+ heap-optimize API absent in\n'
+              '   mingw winnt.h (<=12.0.0 lacks HeapOptimizeResources + struct/version). */\n'
+              '#ifndef HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION\n'
+              '#define HEAP_OPTIMIZE_RESOURCES_CURRENT_VERSION 1\n'
+              'typedef struct _HEAP_OPTIMIZE_RESOURCES_INFORMATION {\n'
+              '  DWORD Version;\n  DWORD Flags;\n'
+              '} HEAP_OPTIMIZE_RESOURCES_INFORMATION, *PHEAP_OPTIMIZE_RESOURCES_INFORMATION;\n'
+              '#endif\n'
+              '#ifndef HeapOptimizeResources\n'
+              '#define HeapOptimizeResources ((HEAP_INFORMATION_CLASS)3)\n'
+              '#endif\n'
+              '#endif  /* __MINGW32__ */\n')
+          if 'camoufox: Win8.1+ heap-optimize API absent' in s:
+              print('NOTE: AvailableMemoryTracker heap backfill present; skipping.')
+          elif anchor not in s:
+              sys.exit('ERROR: OptimizeSystemHeap anchor missing in ' + f)
+          else:
+              open(f, 'w', encoding='utf-8').write(s.replace(anchor, block + anchor, 1))
+              print('backfilled HEAP_OPTIMIZE_RESOURCES_* in AvailableMemoryTracker.cpp')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
