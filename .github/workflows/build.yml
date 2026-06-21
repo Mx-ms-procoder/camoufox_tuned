@@ -2393,25 +2393,34 @@ jobs:
               print('made HitTestResults forward declaration static')
           PYEOF
 
-          # (46) widget/windows/nsLookAndFeel.cpp calls std::ceilf but includes neither
-          # <cmath> nor <math.h>; libstdc++ only declares std::ceilf via <cmath>. As with
-          # ResultExtensions.h (40a) the symbol arrives transitively on Linux/macOS but
-          # not on the mingw libstdc++ chain -> "no member named 'ceilf' in namespace
-          # 'std'". Add <cmath> at the source (header-self-sufficiency).
+          # (46) widget/windows/nsLookAndFeel.cpp calls std::ceilf, but mingw's libstdc++
+          # <cmath> does NOT pull the C99 f-suffixed names (ceilf/floorf/...) into namespace
+          # std (they are gated behind _GLIBCXX_USE_C99_MATH_TR1, undefined on mingw), so
+          # "no member named 'ceilf' in namespace 'std'" -- and merely adding <cmath> does
+          # not help (the symbol simply isn't in std there). The same file already uses
+          # std::ceil(float(...)) successfully on line ~496, and std::ceil has a float
+          # overload equivalent to ceilf, so rewrite std::ceilf(...) -> std::ceil(...).
+          # Also add <cmath> for explicit std::ceil availability. Windows-only (this step is
+          # matrix.target==windows), so Linux/macOS keep std::ceilf which works there.
           python3 - "$src_dir" <<'PYEOF'
           import sys, os
           src_dir = sys.argv[1]
           f = os.path.join(src_dir, 'widget', 'windows', 'nsLookAndFeel.cpp')
           s = open(f, encoding='utf-8').read()
-          anchor = '#include <stdint.h>\n'
-          add = '#include <stdint.h>\n#include <cmath>  // camoufox: std::ceilf needs explicit <cmath> on mingw libstdc++\n'
-          if 'camoufox: std::ceilf needs explicit <cmath>' in s:
-              print('NOTE: nsLookAndFeel.cpp already includes <cmath>; skipping.')
-          elif anchor not in s:
-              sys.exit('ERROR: <stdint.h> include anchor missing in ' + f)
+          if 'camoufox: mingw libstdc++ lacks std::ceilf' in s:
+              print('NOTE: nsLookAndFeel.cpp ceilf already handled; skipping.')
           else:
-              open(f, 'w', encoding='utf-8').write(s.replace(anchor, add, 1))
-              print('added <cmath> include to nsLookAndFeel.cpp')
+              anchor = '#include <stdint.h>\n'
+              if anchor not in s:
+                  sys.exit('ERROR: <stdint.h> include anchor missing in ' + f)
+              if 'std::ceilf(' not in s:
+                  sys.exit('ERROR: std::ceilf( use not found in ' + f)
+              s = s.replace(anchor,
+                  '#include <stdint.h>\n#include <cmath>  '
+                  '// camoufox: mingw libstdc++ lacks std::ceilf (use std::ceil below)\n', 1)
+              s = s.replace('std::ceilf(', 'std::ceil(')
+              open(f, 'w', encoding='utf-8').write(s)
+              print('rewrote std::ceilf -> std::ceil in nsLookAndFeel.cpp')
           PYEOF
 
           # (47) xpcom/reflect/xptcall/md/win32/xptcstubs.cpp implements the i686 Windows
