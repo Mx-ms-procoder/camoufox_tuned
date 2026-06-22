@@ -2565,6 +2565,104 @@ jobs:
               print('removed nmhproxy from package-manifest.in')
           PYEOF
 
+          # (NN) Make config/create_res.py pre-preprocess .rc files for the
+          # GNU-binutils `windres` path instead of letting windres preprocess
+          # them itself. Firefox app/helper resource scripts (browser/app
+          # splash.rc, browser/app/pbproxy pbproxy.rc) do
+          #   #include <windows.h>
+          #   IDI_APPICON ICON FIREFOX_ICO        // or PBMODE_ICO
+          # where the *_ICO icon path is a -D define (a quoted absolute path,
+          # e.g. -DPBMODE_ICO="/.../branding/camoufox/pbmode.ico", set in
+          # browser/app/moz.build / pbproxy/moz.build). When the mingw
+          # `x86_64-w64-mingw32-windres` preprocesses such a .rc itself, the
+          # icon-path define is lost, so the ICON statement expands to
+          # `1 ICON ` (no filename) and windres dies with
+          #   private_browsing.exe.rc:24: syntax error
+          # (reproduced exactly with an empty define). The minimal-content .rc
+          # files that have no `#include <windows.h>` + path-define icon (the
+          # GMP fake plugins, InstallationDirLayout) compile fine, which is why
+          # this only bites pbproxy and the main app program.
+          #
+          # create_res.py already has a fully-supported "preprocess the .rc
+          # ourselves with $CXXCPP, then run the resource compiler on the
+          # result" path -- it's just gated to the non-windres (llvm-rc) case.
+          # We make that preprocessing unconditional: $CXXCPP resolves every
+          # -D/-I via argv (no windres-internal cpp), so the icon path survives
+          # as a literal string in the temp .rc, and windres then only has to
+          # assemble an already-fully-expanded file (-O coff, no -D/-I). This
+          # mirrors how Mozilla drives llvm-rc and is arch-agnostic
+          # (_AMD64_ / _X86_ both covered). Validated end-to-end against the
+          # reconstructed generated .rc for x86_64 and i686.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'config', 'create_res.py')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: always preprocess' in s:
+              print('NOTE: create_res.py already patched; skipping.')
+              sys.exit(0)
+          # (1) CPPFlag must keep clang/cpp-form flags (do not rewrite -I to
+          #     --include-dir or drop -U), since we now always run $CXXCPP.
+          e1_old = ('    def __call__(self, parser, namespace, values, option_string=None):\n'
+                    '        if "windres" in buildconfig.substs["RC"].lower():\n'
+                    '            if option_string == "-U":\n'
+                    '                return\n'
+                    '            if option_string == "-I":\n'
+                    '                option_string = "--include-dir"\n'
+                    '\n'
+                    '        self.all_flags.extend((option_string, values))')
+          e1_new = ('    def __call__(self, parser, namespace, values, option_string=None):\n'
+                    '        # camoufox: keep clang/cpp-form flags; we always preprocess below.\n'
+                    '        self.all_flags.extend((option_string, values))')
+          if e1_old not in s:
+              sys.exit('ERROR: create_res.py CPPFlag anchor missing')
+          s = s.replace(e1_old, e1_new, 1)
+          # (2a) Always preprocess (drop the `if not is_windres:` guard).
+          e2_old = ('    try:\n'
+                    '        if not is_windres:\n'
+                    '            fd, path = tempfile.mkstemp(suffix=".rc")')
+          e2_new = ('    try:\n'
+                    '        if True:  # camoufox: always preprocess so windres never self-preprocesses\n'
+                    '            fd, path = tempfile.mkstemp(suffix=".rc")')
+          if e2_old not in s:
+              sys.exit('ERROR: create_res.py preprocess-guard anchor missing')
+          s = s.replace(e2_old, e2_new, 1)
+          # (2b) Remove the `else: path = args.input` branch.
+          e2b_old = ('                    return retcode\n'
+                     '        else:\n'
+                     '            path = args.input\n'
+                     '\n'
+                     '        command = [buildconfig.substs["RC"]]')
+          e2b_new = ('                    return retcode\n'
+                     '\n'
+                     '        command = [buildconfig.substs["RC"]]')
+          if e2b_old not in s:
+              sys.exit('ERROR: create_res.py path=args.input anchor missing')
+          s = s.replace(e2b_old, e2b_new, 1)
+          # (3) windres gets the already-preprocessed file: do not re-pass -D/-I
+          #     (only llvm-rc still needs the -I flags).
+          e3_old = ('        if is_windres:\n'
+                    '            command.extend(("-O", "coff"))\n'
+                    '\n'
+                    '        # Even though llvm-rc doesn\'t preprocess, we still need to pass at least\n'
+                    '        # the -I flags.\n'
+                    '        command.extend(CPPFlag.all_flags)')
+          e3_new = ('        if is_windres:\n'
+                    '            command.extend(("-O", "coff"))\n'
+                    '        else:\n'
+                    '            # camoufox: llvm-rc does not preprocess and still needs -I; windres\n'
+                    '            # now receives an already-preprocessed file, so re-passing -D/-I and\n'
+                    '            # letting it self-preprocess (which drops quoted icon-path defines\n'
+                    '            # and breaks the ICON statement) is both unnecessary and harmful.\n'
+                    '            command.extend(CPPFlag.all_flags)')
+          if e3_old not in s:
+              sys.exit('ERROR: create_res.py windres-command anchor missing')
+          s = s.replace(e3_old, e3_new, 1)
+          open(f, 'w', encoding='utf-8').write(s)
+          compile(s, f, 'exec')
+          print('patched config/create_res.py to pre-preprocess .rc for windres')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
