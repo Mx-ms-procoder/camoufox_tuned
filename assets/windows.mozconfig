@@ -2,6 +2,18 @@ ac_add_options --disable-maintenance-service
 ac_add_options --disable-update-agent
 ac_add_options --disable-accessibility
 
+# Disable CodeView/PDB debug-symbol generation on the windows-gnu cross-build.
+# Mozilla's Windows build adds `-g -gcodeview` and passes `-Wl,-pdb,<name>.pdb`
+# so lld writes a PDB per binary. Combined with `--allow-multiple-definition`
+# (needed for the clang+mingw-gcc-libstdc++ _M_replace_cold COMDAT mismatch),
+# lld keeps two copies of that cold helper and its PDB writer then crashes
+# (SIGABRT on x86_64, SIGSEGV on i686: "linker command failed due to signal")
+# while linking the small GMP fake plugins (dom/media fake-cdm fake.dll,
+# gmp-plugin-openh264 fakeopenh264.dll). A release artifact needs no PDBs, and
+# dropping debug info also cuts the memory/time of the still-pending libxul link
+# (lowering OOM risk). Linux/macOS keep their debug symbols (base.mozconfig).
+ac_add_options --disable-debug-symbols
+
 # Disable LTO on the windows-gnu cross-build. base.mozconfig sets
 # --enable-release which adds `-Clto` to cargo_rustc_flags, and the final
 # Rust archive-pack step (after the "Finished release profile" line in
