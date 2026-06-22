@@ -2512,6 +2512,59 @@ jobs:
           print('GNU-ported xptcstubs.cpp for i686 mingw')
           PYEOF
 
+          # (NN) Disable the nmhproxy Rust *program* on the MinGW cross-build.
+          # browser/app/nmhproxy is the Firefox Bridge "native messaging host
+          # proxy": a standalone Rust .exe (RUST_PROGRAMS += ["nmhproxy"], built
+          # unconditionally for WINNT/OSX). It is the first *target* Rust program
+          # to actually invoke the linker (all the other Rust crates archive to
+          # .rlib/staticlib), and on clang/x86_64|i686-pc-windows-gnu it fails at
+          # link with NO diagnostic on BOTH arches -- clang reports only "linker
+          # command failed with exit code 1", the underlying lld prints nothing,
+          # and the build dies here (min ~110) BEFORE the libxul link tier. It is
+          # pure Rust (links -lgcc_eh/-lmsvcrt/-lmingwex, no -lstdc++), so this is
+          # not the _M_replace_cold COMDAT issue; the C++ shared-lib links (the
+          # GMP fake plugins) on the same toolchain + LDFLAGS linked fine just
+          # before it. nmhproxy is irrelevant to Camoufox's Playwright/Juggler
+          # automation, so rather than chase a silent linker failure across
+          # multi-hour CI rounds we simply don't build it. This step is
+          # windows-only (`if: matrix.target == 'windows'` below), so the macOS
+          # leg -- which builds nmhproxy successfully -- is unaffected. We must
+          # drop it from BOTH the build graph (browser/app/moz.build) and the
+          # package manifest (browser/installer/package-manifest.in), or
+          # packaging later fails on the missing binary.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          # (a) Remove it from the build graph.
+          mb = os.path.join(src_dir, 'browser', 'app', 'moz.build')
+          s = open(mb, encoding='utf-8').read()
+          if 'camoufox: nmhproxy disabled' in s:
+              print('NOTE: nmhproxy already disabled in moz.build; skipping.')
+          else:
+              old = '    DIRS += ["nmhproxy"]'
+              if old not in s:
+                  sys.exit('ERROR: nmhproxy DIRS anchor missing in ' + mb)
+              s = s.replace(
+                  old,
+                  '    pass  # camoufox: nmhproxy disabled (mingw cross-build link'
+                  ' fails silently; unused for automation)',
+                  1)
+              open(mb, 'w', encoding='utf-8').write(s)
+              print('disabled nmhproxy in browser/app/moz.build')
+          # (b) Remove it from the package manifest so packaging doesn't expect it.
+          pm = os.path.join(src_dir, 'browser', 'installer', 'package-manifest.in')
+          s = open(pm, encoding='utf-8').read()
+          if 'camoufox: nmhproxy' in s:
+              print('NOTE: nmhproxy already removed from package-manifest; skipping.')
+          else:
+              old = '@BINPATH@/nmhproxy@BIN_SUFFIX@'
+              if old not in s:
+                  sys.exit('ERROR: nmhproxy binpath anchor missing in ' + pm)
+              s = s.replace(old, '; camoufox: nmhproxy disabled on mingw cross-build', 1)
+              open(pm, 'w', encoding='utf-8').write(s)
+              print('removed nmhproxy from package-manifest.in')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
