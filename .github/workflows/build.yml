@@ -2565,80 +2565,113 @@ jobs:
               print('removed nmhproxy from package-manifest.in')
           PYEOF
 
-          # (NN) Drop the surrounding quotes from the *_ICO icon-path -D
-          # defines so the mingw GNU `windres` doesn't choke on them. Firefox
-          # app/helper resource scripts (browser/app splash.rc, browser/app/
-          # pbproxy pbproxy.rc) do:
-          #   #include <windows.h>
-          #   IDI_APPICON ICON FIREFOX_ICO        # or PBMODE_ICO
-          # where each *_ICO is a -D define holding a *quoted* absolute path
-          # (browser/app/moz.build sets DEFINES["FOO_ICO"]='"<path>.ico"', and
-          # pbproxy/moz.build sets PBMODE_ICO the same way). The mingw
-          # x86_64-w64-mingw32-windres drops such a quoted-string -D value while
-          # self-preprocessing the .rc, so the ICON line expands to `1 ICON `
-          # (no filename) and windres dies with
+          # (NN) Make config/create_res.py resolve the .rc's -D/-I via an
+          # explicit `<triple>-gcc -E` (argv) and hand mingw `windres` the
+          # already-preprocessed file, instead of letting windres self-
+          # preprocess. Firefox app/helper resources (browser/app splash.rc,
+          # browser/app/pbproxy pbproxy.rc) do `#include <windows.h>` + an
+          # `IDI_APPICON ICON FOO_ICO` where FOO_ICO is a -D icon-path define.
+          # When mingw x86_64-w64-mingw32-windres self-preprocesses, that -D
+          # value is dropped (windres builds its cpp command as a shell string,
+          # which mangles it), so the ICON line expands to `1 ICON ` (no
+          # filename) and windres dies with
           #   private_browsing.exe.rc:24: syntax error
-          # (reproduced exactly with an empty define; plain unquoted defines like
-          # NDEBUG=1 survive, and the other .rc files without windows.h + a path
-          # icon compile fine -- which is why only pbproxy + the main program
-          # were hit). CI build paths never contain spaces (/home/runner/work/),
-          # so an unquoted ICON filename token parses cleanly. windows-only step.
-          python3 - "$src_dir" <<'PYEOF'
-          import sys, os
-          src_dir = sys.argv[1]
-          edits = [
-              (os.path.join(src_dir, 'browser', 'app', 'moz.build'),
-               'DEFINES[icon.upper() + "_ICO"] = \'"%s/%s/%s.ico"\' % (',
-               'DEFINES[icon.upper() + "_ICO"] = \'%s/%s/%s.ico\' % (  # camoufox: unquoted for mingw windres'),
-              (os.path.join(src_dir, 'browser', 'app', 'pbproxy', 'moz.build'),
-               'DEFINES["PBMODE_ICO"] = \'"{}/{}/pbmode.ico"\'.format(',
-               'DEFINES["PBMODE_ICO"] = \'{}/{}/pbmode.ico\'.format(  # camoufox: unquoted for mingw windres'),
-          ]
-          for f, old, new in edits:
-              s = open(f, encoding='utf-8').read()
-              if 'camoufox: unquoted for mingw windres' in s:
-                  print('NOTE: already unquoted in ' + f + '; skipping.')
-                  continue
-              if old not in s:
-                  sys.exit('ERROR: icon-define anchor missing in ' + f)
-              s = s.replace(old, new, 1)
-              compile(s, f, 'exec')
-              open(f, 'w', encoding='utf-8').write(s)
-              print('unquoted icon define in ' + f)
-          PYEOF
-
-          # (NN-diag) If windres still fails, dump the offending generated .rc so
-          # the next CI round shows the real line-24 content. Pure diagnostic:
-          # fires only on a non-zero windres exit, no behaviour change otherwise.
+          # (confirmed via a camoufox-diag .rc dump: the generated line 24 is
+          # exactly `IDI_APPICON ICON PBMODE_ICO`; quoting/unquoting the define
+          # in moz.build made no difference -- the loss is inside windres). The
+          # other .rc files (GMP fake plugins, InstallationDirLayout) have no
+          # windows.h + path-icon, so they were unaffected.
+          #
+          # create_res.py already preprocesses with $CXXCPP for the llvm-rc
+          # path; we extend that to windres but use the *mingw gcc* (the very cpp
+          # windres calls internally) via argv so the icon path survives, then
+          # run `windres -O coff` on the resolved temp. NB: must be gcc, not the
+          # clang++ $CXXCPP -- a prior attempt with clang++(-std=gnu++20) output
+          # made windres's own re-preprocess fail silently and broke fake.dll.
+          # Validated end-to-end locally (gcc -E -> windres -> valid .res) for
+          # both the pbproxy/splash.rc shape and the minimal fake-plugin shape.
           python3 - "$src_dir" <<'PYEOF'
           import sys, os
           src_dir = sys.argv[1]
           f = os.path.join(src_dir, 'config', 'create_res.py')
           s = open(f, encoding='utf-8').read()
-          if 'camoufox-diag' in s:
-              print('NOTE: create_res.py diagnostic already present; skipping.')
+          if 'camoufox: keep -I/-U form' in s:
+              print('NOTE: create_res.py already patched; skipping.')
               sys.exit(0)
-          anchor = ('        retcode = subprocess.run(command, check=False).returncode\n'
-                    '        if retcode:\n'
-                    '            # Rely on the subprocess printing out any relevant error\n'
-                    '            return retcode')
-          repl = ('        retcode = subprocess.run(command, check=False).returncode\n'
-                  '        if retcode:\n'
-                  '            if is_windres:\n'
-                  '                print("camoufox-diag: windres failed", retcode, "on", path, file=sys.stderr)\n'
-                  '                try:\n'
-                  '                    for i, ln in enumerate(open(path, encoding="latin1"), 1):\n'
-                  '                        print("camoufox-diag:%4d|" % i, ln.rstrip(), file=sys.stderr)\n'
-                  '                except Exception as e:\n'
-                  '                    print("camoufox-diag: could not read", path, e, file=sys.stderr)\n'
-                  '            # Rely on the subprocess printing out any relevant error\n'
-                  '            return retcode')
-          if anchor not in s:
-              sys.exit('ERROR: create_res.py retcode anchor missing')
-          s = s.replace(anchor, repl, 1)
+          e1o = ('    def __call__(self, parser, namespace, values, option_string=None):\n'
+                 '        if "windres" in buildconfig.substs["RC"].lower():\n'
+                 '            if option_string == "-U":\n'
+                 '                return\n'
+                 '            if option_string == "-I":\n'
+                 '                option_string = "--include-dir"\n'
+                 '\n'
+                 '        self.all_flags.extend((option_string, values))')
+          e1n = ('    def __call__(self, parser, namespace, values, option_string=None):\n'
+                 '        # camoufox: keep -I/-U form; we always preprocess via cpp below.\n'
+                 '        self.all_flags.extend((option_string, values))')
+          if e1o not in s: sys.exit('ERROR: create_res.py CPPFlag anchor missing')
+          s = s.replace(e1o, e1n, 1)
+          e2o = ('    try:\n'
+                 '        if not is_windres:\n'
+                 '            fd, path = tempfile.mkstemp(suffix=".rc")\n'
+                 '            command = buildconfig.substs["CXXCPP"] + CPPFlag.all_flags')
+          e2n = ('    try:\n'
+                 '        if True:  # camoufox: always preprocess so the RC tool never self-preprocesses\n'
+                 '            fd, path = tempfile.mkstemp(suffix=".rc")\n'
+                 '            if is_windres:\n'
+                 '                # the mingw gcc windres would call internally, but via argv so\n'
+                 '                # -D/-I (esp. quoted icon paths) survive intact.\n'
+                 '                cpp = [buildconfig.substs["RC"].replace("windres", "gcc"), "-E", "-xc"]\n'
+                 '            else:\n'
+                 '                cpp = buildconfig.substs["CXXCPP"]\n'
+                 '            command = cpp + CPPFlag.all_flags')
+          if e2o not in s: sys.exit('ERROR: create_res.py preprocess anchor missing')
+          s = s.replace(e2o, e2n, 1)
+          e2bo = ('                    return retcode\n'
+                  '        else:\n'
+                  '            path = args.input\n'
+                  '\n'
+                  '        command = [buildconfig.substs["RC"]]')
+          e2bn = ('                    return retcode\n'
+                  '\n'
+                  '        command = [buildconfig.substs["RC"]]')
+          if e2bo not in s: sys.exit('ERROR: create_res.py path=args.input anchor missing')
+          s = s.replace(e2bo, e2bn, 1)
+          e3o = ('        if is_windres:\n'
+                 '            command.extend(("-O", "coff"))\n'
+                 '\n'
+                 '        # Even though llvm-rc doesn\'t preprocess, we still need to pass at least\n'
+                 '        # the -I flags.\n'
+                 '        command.extend(CPPFlag.all_flags)')
+          e3n = ('        if is_windres:\n'
+                 '            command.extend(("-O", "coff"))\n'
+                 '        else:\n'
+                 '            # camoufox: windres got an already-preprocessed file; only llvm-rc\n'
+                 '            # (which does not preprocess) still needs the -I flags.\n'
+                 '            command.extend(CPPFlag.all_flags)')
+          if e3o not in s: sys.exit('ERROR: create_res.py windres-command anchor missing')
+          s = s.replace(e3o, e3n, 1)
+          diago = ('        retcode = subprocess.run(command, check=False).returncode\n'
+                   '        if retcode:\n'
+                   '            # Rely on the subprocess printing out any relevant error\n'
+                   '            return retcode')
+          diagn = ('        retcode = subprocess.run(command, check=False).returncode\n'
+                   '        if retcode:\n'
+                   '            if is_windres:\n'
+                   '                print("camoufox-diag: windres failed", retcode, "on", path, file=sys.stderr)\n'
+                   '                try:\n'
+                   '                    for i, ln in enumerate(open(path, encoding="latin1"), 1):\n'
+                   '                        if "ICON" in ln or "VERSIONINFO" in ln:\n'
+                   '                            print("camoufox-diag:%6d|" % i, ln.rstrip(), file=sys.stderr)\n'
+                   '                except Exception as e:\n'
+                   '                    print("camoufox-diag: could not read", path, e, file=sys.stderr)\n'
+                   '            # Rely on the subprocess printing out any relevant error\n'
+                   '            return retcode')
+          if diago not in s: sys.exit('ERROR: create_res.py retcode anchor missing')
+          s = s.replace(diago, diagn, 1)
           compile(s, f, 'exec')
           open(f, 'w', encoding='utf-8').write(s)
-          print('added camoufox-diag windres-failure dump to create_res.py')
+          print('patched config/create_res.py: gcc-preprocess for windres + diag')
           PYEOF
 
       - name: Validate patch graph
