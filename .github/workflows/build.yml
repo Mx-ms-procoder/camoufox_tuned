@@ -2711,6 +2711,81 @@ jobs:
           print('patched config/config.mk: %d -Xlink=-STACK -> --stack' % n)
           PYEOF
 
+          # (NN) Replace _ltoa_s in WindowsDllBlocklist.cpp. mozglue's DLL
+          # blocklist formats a blocked module's version with the MS secure-CRT
+          # _ltoa_s(). On x86_64 that import resolves from msvcrt.dll, but the
+          # i686 legacy msvcrt.dll does not export it, so the i686 mozglue.dll
+          # link dies with `undefined reference to _imp___ltoa_s` (x4). The value
+          # is just a uint16_t version part, so format it by hand -- no CRT call,
+          # no extra include, works on both arches. windows-only step.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'toolkit', 'xre', 'dllservices', 'mozglue', 'WindowsDllBlocklist.cpp')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: _ltoa_s' in s:
+              print('NOTE: _ltoa_s already replaced; skipping.')
+              sys.exit(0)
+          old = '          _ltoa_s(parts[p], buf, sizeof(buf), 10);'
+          if old not in s:
+              sys.exit('ERROR: _ltoa_s anchor missing in ' + f)
+          new = ('          {\n'
+                 '            // camoufox: _ltoa_s is a secure-CRT import absent from i686 mingw\n'
+                 '            // msvcrt.dll; format the uint16_t version part by hand (no CRT dep).\n'
+                 '            unsigned camou_v = parts[p];\n'
+                 '            char camou_tmp[8];\n'
+                 '            int camou_ti = 0;\n'
+                 '            do { camou_tmp[camou_ti++] = (char)(48 + (camou_v % 10)); camou_v /= 10; } while (camou_v);\n'
+                 '            int camou_bi = 0;\n'
+                 '            while (camou_ti > 0) { buf[camou_bi++] = camou_tmp[--camou_ti]; }\n'
+                 '            buf[camou_bi] = 0;\n'
+                 '          }')
+          s = s.replace(old, new, 1)
+          open(f, 'w', encoding='utf-8').write(s)
+          print('replaced _ltoa_s with manual conversion in WindowsDllBlocklist.cpp')
+          PYEOF
+
+          # (NN) Disable the mozinference ONNX-ML shared library on the mingw
+          # cross-build. config/external/moz.build builds it for every non-Android
+          # toolkit (GeckoSharedLibrary("mozinference")); it is the ONNX inference
+          # runtime, loaded *dynamically as needed* (no USE_LIBS, so libxul does
+          # not hard-link it). On our cross-build its link fails with a silent
+          # `clang++: error: linker command failed with exit code 1` (no symbols
+          # printed; not OOM). ML inference is irrelevant to Camoufox's
+          # Playwright/Juggler automation, so -- as with nmhproxy -- we drop it
+          # rather than chase a silent linker failure, removing it from both the
+          # build graph and the package manifest. windows-only step, so the macOS
+          # leg keeps mozinference.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          mb = os.path.join(src_dir, 'config', 'external', 'moz.build')
+          s = open(mb, encoding='utf-8').read()
+          if 'camoufox: mozinference' in s:
+              print('NOTE: mozinference already disabled in moz.build; skipping.')
+          else:
+              old = '    DIRS += ["mozinference"]'
+              if old not in s:
+                  sys.exit('ERROR: mozinference DIRS anchor missing in ' + mb)
+              s = s.replace(
+                  old,
+                  '    pass  # camoufox: mozinference (ONNX ML, runtime-loaded) disabled on mingw cross-build',
+                  1)
+              open(mb, 'w', encoding='utf-8').write(s)
+              print('disabled mozinference in config/external/moz.build')
+          pm = os.path.join(src_dir, 'browser', 'installer', 'package-manifest.in')
+          s = open(pm, encoding='utf-8').read()
+          if 'camoufox: mozinference' in s:
+              print('NOTE: mozinference already removed from manifest; skipping.')
+          else:
+              old = '@BINPATH@/@DLL_PREFIX@mozinference@DLL_SUFFIX@'
+              if old not in s:
+                  sys.exit('ERROR: mozinference manifest anchor missing in ' + pm)
+              s = s.replace(old, '; camoufox: mozinference disabled on mingw cross-build', 1)
+              open(pm, 'w', encoding='utf-8').write(s)
+              print('removed mozinference from package-manifest.in')
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
