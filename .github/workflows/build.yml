@@ -2674,6 +2674,43 @@ jobs:
           print('patched config/create_res.py: gcc-preprocess for windres + diag')
           PYEOF
 
+          # (NN) Use the GNU-ld stack-reserve flag for program links. For the
+          # non-MSVC/clang-cl (i.e. GNU/clang-mingw) Windows branch,
+          # config/config.mk sets
+          #   MOZ_PROGRAM_LDFLAGS += -Wl,-Xlink=-STACK:8388608   (x86_64)
+          #   MOZ_PROGRAM_LDFLAGS += -Wl,-Xlink=-STACK:1572864   (x86)
+          # but `-Xlink=-STACK:N` is an lld-link/MSVC linker option. Our actual
+          # linker is GNU binutils ld (x86_64-w64-mingw32-ld), which rejects it:
+          #   ld: Error: unable to disambiguate: -Xlink=-STACK:8388608
+          #   clang++: error: linker command failed with exit code 1
+          # (reproduced exactly with local binutils ld 2.45). This first bites
+          # the pbproxy program (private_browsing.exe) and would equally break
+          # the main camoufox.exe link. The GNU-ld equivalent is `-Wl,--stack,N`
+          # (verified to link cleanly locally). `-Wl,-pdb,...` on the same line
+          # is accepted/ignored by GNU ld, so it needs no change. macOS is
+          # unaffected (this whole config.mk block is OS_ARCH==WINNT only).
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'config', 'config.mk')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: GNU ld stack' in s:
+              print('NOTE: config.mk stack flag already patched; skipping.')
+              sys.exit(0)
+          if '-Wl,-Xlink=-STACK:' not in s:
+              sys.exit('ERROR: -Xlink=-STACK anchor missing in ' + f)
+          n = s.count('-Wl,-Xlink=-STACK:')
+          for size in ('8388608', '1572864'):
+              s = s.replace(
+                  'MOZ_PROGRAM_LDFLAGS += -Wl,-Xlink=-STACK:' + size,
+                  'MOZ_PROGRAM_LDFLAGS += -Wl,--stack,' + size
+                  + '  # camoufox: GNU ld stack (not MSVC -Xlink=-STACK:)')
+          if '-Wl,-Xlink=-STACK:' in s:
+              sys.exit('ERROR: leftover -Xlink=-STACK after patch')
+          open(f, 'w', encoding='utf-8').write(s)
+          print('patched config/config.mk: %d -Xlink=-STACK -> --stack' % n)
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
