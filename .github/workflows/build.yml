@@ -2784,6 +2784,27 @@ jobs:
               s = s.replace(old, '; camoufox: mozinference disabled on mingw cross-build', 1)
               open(pm, 'w', encoding='utf-8').write(s)
               print('removed mozinference from package-manifest.in')
+          # (c) The mozinference shared lib aggregates third_party/llama.cpp
+          # (its moz.build has FINAL_LIBRARY = "mozinference"), pulled in via
+          # toolkit/components/ml/moz.build's `DIRS += ["backends/llama"]`. With
+          # mozinference gone, llama.cpp would have no target and configure dies
+          # with `FINAL_LIBRARY ("mozinference") does not match any LIBRARY_NAME`,
+          # so drop the llama backend too. The ML glue (MLUtils.cpp, FINAL_LIBRARY
+          # = xul) stays and loads the backend at runtime, so libxul is unaffected.
+          ml = os.path.join(src_dir, 'toolkit', 'components', 'ml', 'moz.build')
+          s = open(ml, encoding='utf-8').read()
+          if 'camoufox: mozinference' in s:
+              print('NOTE: llama backend already disabled; skipping.')
+          else:
+              old = '    DIRS += ["backends/llama"]'
+              if old not in s:
+                  sys.exit('ERROR: backends/llama DIRS anchor missing in ' + ml)
+              s = s.replace(
+                  old,
+                  '    pass  # camoufox: mozinference llama backend disabled on mingw cross-build',
+                  1)
+              open(ml, 'w', encoding='utf-8').write(s)
+              print('disabled backends/llama in toolkit/components/ml/moz.build')
           PYEOF
 
       - name: Validate patch graph
