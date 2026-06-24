@@ -75,6 +75,31 @@ fi
 # command with `-v -Wl,--verbose` so the build log shows (a) which linker
 # binary clang invoked and its full argv, and (b) the linker's own verbose
 # output / error. The recorded exit code is from the first (clean) run.
+# Pin clang to the POSIX-threads mingw GCC installation for BOTH the libstdc++
+# headers it compiles against and the static libstdc++/libgcc it links. Ubuntu
+# ships win32- and posix-threads mingw runtimes side by side
+# (/usr/lib/gcc/<triple>/<ver>-win32 and -posix); clang's GCC-install detection
+# defaults to the win32 one, whose libstdc++.a omits the gthr-posix TLS globals
+# std::__once_call / std::__once_callable that std::call_once references. ANGLE's
+# WorkerThread.cpp (std::async/std::call_once) then fails the libGLESv2.dll link
+# with "undefined reference to std::__once_callable" (relocation truncated,
+# IMAGE_REL_*_SECREL against undefined symbol); on i686 clang could not resolve a
+# usable win32 install at link time at all and aborted before invoking ld. The
+# posix runtime defines those symbols, so derive its gcc-install dir from the
+# -posix driver and bake --gcc-install-dir into the wrapper.
+_camou_gccflag=""
+_camou_posix_gxx="$(command -v "$MINGW_TRIPLE-g++-posix" || true)"
+if [ -n "$_camou_posix_gxx" ]; then
+    _camou_gcc_dir="$(dirname "$("$_camou_posix_gxx" -print-libgcc-file-name)")"
+    if [ -n "$_camou_gcc_dir" ] && [ -d "$_camou_gcc_dir" ]; then
+        _camou_gccflag="--gcc-install-dir=$_camou_gcc_dir"
+        echo "camou: pinning clang to posix mingw gcc install: $_camou_gcc_dir"
+    fi
+fi
+if [ -z "$_camou_gccflag" ]; then
+    echo "camou: WARNING could not locate posix mingw gcc install for $MINGW_TRIPLE; using clang default"
+fi
+
 _camou_wrap="${MOZBUILD_STATE_PATH:-$HOME/.mozbuild}/camou-mingw"
 mkdir -p "$_camou_wrap"
 cat > "$_camou_wrap/cc" <<EOF
@@ -87,11 +112,11 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-clang --target=$MINGW_TRIPLE "\$@"
+clang --target=$MINGW_TRIPLE $_camou_gccflag "\$@"
 rc=\$?
 if [ \$rc -ne 0 ]; then
   echo "camou-diag: clang(cc) --target=$MINGW_TRIPLE exited \$rc; verbose retry:" 1>&2
-  clang --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
+  clang --target=$MINGW_TRIPLE $_camou_gccflag -v -Wl,--verbose "\$@" 1>&2
 fi
 exit \$rc
 EOF
@@ -105,11 +130,11 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-clang++ --target=$MINGW_TRIPLE "\$@"
+clang++ --target=$MINGW_TRIPLE $_camou_gccflag "\$@"
 rc=\$?
 if [ \$rc -ne 0 ]; then
   echo "camou-diag: clang(cxx) --target=$MINGW_TRIPLE exited \$rc; verbose retry:" 1>&2
-  clang++ --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
+  clang++ --target=$MINGW_TRIPLE $_camou_gccflag -v -Wl,--verbose "\$@" 1>&2
 fi
 exit \$rc
 EOF

@@ -309,13 +309,23 @@ jobs:
             sudo apt-get install -y --no-install-recommends wine wine64 zstd
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
-            sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+            # Install the posix-threads variant explicitly: clang links the
+            # static libstdc++ from the mingw GCC install, and only the posix
+            # runtime defines the gthr-posix TLS globals std::__once_call /
+            # std::__once_callable that std::call_once (ANGLE WorkerThread.cpp)
+            # needs. windows.mozconfig pins clang to this install via
+            # --gcc-install-dir.
+            sudo apt-get install -y gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64 binutils-mingw-w64-x86-64 \
+              gcc-mingw-w64-x86-64-posix g++-mingw-w64-x86-64-posix
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-mingw32-windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-pc-mingw32-windres
           fi
           if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "i686" ]; then
-            sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686
+            # posix-threads variant (see x86_64 note above): provides the
+            # libstdc++ that defines std::__once_call / std::__once_callable.
+            sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686 \
+              gcc-mingw-w64-i686-posix g++-mingw-w64-i686-posix
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-pc-mingw32-windres
