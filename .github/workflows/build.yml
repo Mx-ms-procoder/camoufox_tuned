@@ -2784,33 +2784,47 @@ jobs:
               s = s.replace(old, '; camoufox: mozinference disabled on mingw cross-build', 1)
               open(pm, 'w', encoding='utf-8').write(s)
               print('removed mozinference from package-manifest.in')
-          # (c) mozinference's only source is third_party/llama.cpp (its
-          # moz.build has FINAL_LIBRARY = "mozinference"), pulled in by
+          # (c) mozinference's heavy sources all live in third_party/llama.cpp
+          # (its moz.build has FINAL_LIBRARY = "mozinference"), pulled in by
           # toolkit/components/ml/backends/llama/moz.build's
-          # `DIRS += ["/third_party/llama.cpp"]`. With mozinference gone that
-          # would orphan llama.cpp (`FINAL_LIBRARY ("mozinference") does not
-          # match any LIBRARY_NAME`), so drop just that DIRS line -- removing the
-          # heavy llama.cpp lib while KEEPING the backend glue
-          # (LlamaRunner.cpp/.h, FINAL_LIBRARY = xul, EXPORTS LlamaRunner.h).
-          # The glue must stay: it exports LlamaRunner.h that the always-on
-          # LlamaRunner WebIDL binding (LlamaRunnerBinding.cpp) includes, and it
-          # reaches llama.cpp only through LlamaRuntimeLinker.cpp (runtime
-          # GetProcAddress into mozinference.dll), so libxul has no link-time
-          # dependency on the dropped lib.
-          llb = os.path.join(src_dir, 'toolkit', 'components', 'ml', 'backends', 'llama', 'moz.build')
-          s = open(llb, encoding='utf-8').read()
-          if 'camoufox: mozinference' in s:
-              print('NOTE: llama.cpp lib already dropped; skipping.')
+          # `DIRS += ["/third_party/llama.cpp"]`. We must KEEP that DIRS line:
+          # llama.cpp's EXPORTS publish llama/llama.h + the ggml headers into
+          # dist/include, and the always-on backend glue
+          # (LlamaBackend.h -> LlamaRuntimeLinker.h, #include "llama/llama.h",
+          # "ggml.h", "ggml-cpu.h") is compiled into libxul via the LlamaRunner
+          # WebIDL binding (UnifiedBindings) and needs those headers. Dropping the
+          # dir removed them and broke `UnifiedBindings13.o` with
+          # `'llama/llama.h' file not found`. So instead make llama.cpp
+          # HEADER-ONLY: keep its EXPORTS but empty its SOURCES and remove
+          # FINAL_LIBRARY = "mozinference" (which would otherwise orphan against
+          # the now-disabled mozinference lib). The glue resolves the real llama
+          # symbols at runtime via LlamaRuntimeLinker's GetProcAddress, so
+          # building no objects here is safe; ML is unused in Camoufox's
+          # Playwright/Juggler automation anyway.
+          lmb = os.path.join(src_dir, 'third_party', 'llama.cpp', 'moz.build')
+          s = open(lmb, encoding='utf-8').read()
+          if 'camoufox: header-only' in s:
+              print('NOTE: llama.cpp already header-only; skipping.')
           else:
-              old = '    DIRS += ["/third_party/llama.cpp"]'
-              if old not in s:
-                  sys.exit('ERROR: llama.cpp DIRS anchor missing in ' + llb)
+              inc = "include('sources.mozbuild')"
+              if inc not in s:
+                  sys.exit('ERROR: sources.mozbuild include anchor missing in ' + lmb)
               s = s.replace(
-                  old,
-                  '    pass  # camoufox: mozinference llama.cpp lib dropped on mingw cross-build',
+                  inc,
+                  inc + "\n"
+                  "# camoufox: header-only on mingw cross-build -- keep EXPORTS\n"
+                  "# (llama/ggml headers the libxul glue needs), build no objects.\n"
+                  "files = {k: [] for k in files}",
                   1)
-              open(llb, 'w', encoding='utf-8').write(s)
-              print('dropped third_party/llama.cpp in backends/llama/moz.build')
+              fl = "FINAL_LIBRARY = 'mozinference'"
+              if fl not in s:
+                  sys.exit('ERROR: FINAL_LIBRARY anchor missing in ' + lmb)
+              s = s.replace(
+                  fl,
+                  "# camoufox: header-only -- FINAL_LIBRARY removed, no objects to link",
+                  1)
+              open(lmb, 'w', encoding='utf-8').write(s)
+              print('made third_party/llama.cpp header-only (EXPORTS kept, no sources)')
           PYEOF
 
       - name: Validate patch graph
