@@ -53,10 +53,44 @@ fi
 # A wrapper binary that bakes --target into the compiler itself survives all of
 # mozbuild's flag splitting, because the target is part of the program, not a
 # flag that can be stripped or dropped.
+#
+# The wrapper also drops any -Wl,-Xlink=* linker options. Firefox's non-MSVC
+# Windows branch emits MSVC/lld-link-only flags wrapped as -Wl,-Xlink=<opt>
+# (notably -Xlink=-DELAYLOAD:<dll> from DELAYLOAD_DLLS), but our actual linker
+# is GNU binutils ld, which rejects them with
+#   ld: Error: unable to disambiguate: -Xlink=-DELAYLOAD:advapi32.dll
+# GNU ld has no delay-load support, so we simply drop them: the affected DLLs
+# (advapi32/ole32/oleaut32/user32/version/winmm/dbghelp) then load eagerly at
+# startup instead of on first use, which is functionally equivalent. The stack
+# reserve, the one -Xlink= flag we must keep, is translated to GNU `-Wl,--stack`
+# separately in config/config.mk, so by the time the wrapper runs the only
+# -Xlink= options left are the safe-to-drop ones.
 _camou_wrap="${MOZBUILD_STATE_PATH:-$HOME/.mozbuild}/camou-mingw"
 mkdir -p "$_camou_wrap"
-printf '#!/bin/sh\nexec clang --target=%s "$@"\n' "$MINGW_TRIPLE" > "$_camou_wrap/cc"
-printf '#!/bin/sh\nexec clang++ --target=%s "$@"\n' "$MINGW_TRIPLE" > "$_camou_wrap/cxx"
+cat > "$_camou_wrap/cc" <<EOF
+#!/bin/sh
+n=\$#
+while [ \$n -gt 0 ]; do
+  a=\$1; shift; n=\$((n - 1))
+  case "\$a" in
+    -Wl,-Xlink=*) ;;
+    *) set -- "\$@" "\$a" ;;
+  esac
+done
+exec clang --target=$MINGW_TRIPLE "\$@"
+EOF
+cat > "$_camou_wrap/cxx" <<EOF
+#!/bin/sh
+n=\$#
+while [ \$n -gt 0 ]; do
+  a=\$1; shift; n=\$((n - 1))
+  case "\$a" in
+    -Wl,-Xlink=*) ;;
+    *) set -- "\$@" "\$a" ;;
+  esac
+done
+exec clang++ --target=$MINGW_TRIPLE "\$@"
+EOF
 chmod +x "$_camou_wrap/cc" "$_camou_wrap/cxx"
 export CC="$_camou_wrap/cc"
 export CXX="$_camou_wrap/cxx"
