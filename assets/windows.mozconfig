@@ -40,6 +40,21 @@ else
     MINGW_TRIPLE=x86_64-w64-mingw32
 fi
 
+# Use EMULATED TLS to match the mingw GCC libstdc++ we statically link. clang
+# defaults to native (SECREL) TLS for *-windows-gnu, but mingw GCC builds
+# libstdc++ with emulated TLS: its thread-local globals -- notably
+# std::__once_call / std::__once_callable that std::call_once references -- are
+# emitted as `__emutls_v._ZSt...` control variables, not native-TLS symbols
+# (verified with nm on both the win32 and posix libstdc++.a). clang's native-TLS
+# references therefore do not resolve against libstdc++'s emutls definitions and
+# the libGLESv2.dll link (ANGLE WorkerThread.cpp -> std::call_once/std::async)
+# dies with "undefined reference to std::__once_callable" (relocation truncated,
+# IMAGE_REL_*_SECREL). -femulated-tls switches clang to the same emutls ABI, so
+# the references match libstdc++ and libgcc's __emutls_get_address resolves them.
+# Applied globally so every TU's TLS access is consistent.
+export CFLAGS="$CFLAGS -femulated-tls"
+export CXXFLAGS="$CXXFLAGS -femulated-tls"
+
 # MinGW cross C/C++ compiler. We deliberately do NOT use a plain
 # `clang --target=$MINGW_TRIPLE` string here. mozbuild derives cargo's
 # per-target compiler env (CC_<rust_target>) from $(CC) and re-distributes a

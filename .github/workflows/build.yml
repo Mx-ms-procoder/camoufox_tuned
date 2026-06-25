@@ -2870,39 +2870,23 @@ jobs:
           # wrapper. If wine reports a normal --version output, the chain works.
           python3 -c "import subprocess; print(subprocess.check_output(['/usr/lib/wine/wine64', '--version']).decode().strip())" || echo "intercept exec failed"
 
-      - name: Probe mingw libstdc++ for std::__once_callable (diagnostic)
-        # clang IGNORES --gcc-install-dir for the mingw toolchain (it warned
-        # "argument unused" and kept using the 13-win32 libstdc++), so the posix
-        # pin was a no-op and std::__once_callable stays undefined. Locate every
-        # mingw libstdc++.a and report which threading variant actually DEFINES
-        # std::__once_call(able)/__once_proxy, and which c++ header/lib dirs
-        # exist, so we can pick the correct way to point clang at the posix
-        # libstdc++ (e.g. removing the win32 variant, or an explicit -L/-lstdc++).
+      - name: Probe -femulated-tls fixes std::__once_callable (diagnostic)
+        # nm showed both win32 and posix mingw libstdc++.a define std::__once_call
+        # / std::__once_callable as EMULATED-TLS control vars (__emutls_v._ZSt...),
+        # while clang defaults to native TLS for *-windows-gnu -> the references
+        # don't match -> undefined at link. Confirm in isolation that compiling
+        # the call_once+async pattern WITH -femulated-tls (now set globally in
+        # windows.mozconfig) links cleanly, vs WITHOUT it failing. Non-destructive.
         if: matrix.target == 'windows'
         run: |
           set +e
           T=${{ matrix.arch == 'i686' && 'i686-w64-mingw32' || 'x86_64-w64-mingw32' }}
-          NM=$(command -v $T-nm || echo nm)
-          echo "=== /usr/lib/gcc/$T (version+threadmodel dirs clang scans) ==="
-          ls -la /usr/lib/gcc/$T/ 2>&1
-          echo "=== all mingw libstdc++ archives + __once symbol presence ==="
-          find /usr -path "*$T*" \( -name 'libstdc++.a' -o -name 'libstdc++.dll.a' -o -name 'libstdc++*.a' \) 2>/dev/null | while read a; do
-            once=$($NM "$a" 2>/dev/null | grep -E ' [TtDdBb] .*__once_call(able)?$' | head -3)
-            proxy=$($NM "$a" 2>/dev/null | grep -cE '__once_proxy')
-            echo "--- $a : __once_proxy_defs=$proxy ---"
-            echo "$once"
-          done
-          echo "=== c++ header dirs (win32 vs posix) ==="
-          ls -d /usr/$T/include/c++/* /usr/include/c++/*win32* /usr/include/c++/*posix* 2>/dev/null
-          echo "=== update-alternatives default for $T-gcc/g++ ==="
-          ls -l /usr/bin/$T-gcc /usr/bin/$T-g++ 2>&1
-          echo "=== TEST A: default clang call_once link (expect undefined __once_callable) ==="
           printf '#include <mutex>\n#include <future>\nstd::once_flag f;\nint main(){std::call_once(f,[]{});auto x=std::async([]{return 1;});return x.get();}\n' > /tmp/c.cpp
-          timeout 120 clang++ --target=$T /tmp/c.cpp -o /tmp/cA.exe -static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition 2>&1 | tail -6; echo "A rc=${PIPESTATUS[0]}"
-          echo "=== TEST B: remove win32 gcc dir, retry (does clang then pick posix and link?) ==="
-          sudo rm -rf /usr/lib/gcc/$T/*-win32 /usr/$T/include/c++/*-win32 /usr/include/c++/*-win32 2>/dev/null
-          ls -la /usr/lib/gcc/$T/ 2>&1
-          timeout 120 clang++ --target=$T -v /tmp/c.cpp -o /tmp/cB.exe -static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition 2>&1 | grep -iE 'once_call|13-posix|13-win32|error|undefined|in-process' | tail -15; echo "B rc=${PIPESTATUS[0]}"
+          L="-static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition"
+          echo "=== WITHOUT -femulated-tls (expect undefined __once_callable) ==="
+          timeout 120 clang++ --target=$T /tmp/c.cpp -o /tmp/cN.exe $L 2>&1 | tail -3; echo "without rc=${PIPESTATUS[0]}"
+          echo "=== WITH -femulated-tls (expect rc=0) ==="
+          timeout 120 clang++ --target=$T -femulated-tls /tmp/c.cpp -o /tmp/cE.exe $L 2>&1 | tail -8; echo "emutls rc=${PIPESTATUS[0]}"
           echo "PROBE DONE"
 
       - name: Build
@@ -2921,9 +2905,7 @@ jobs:
         # (after which GitHub uploads nothing and the tee'd progress is lost --
         # exactly what happened to run 28132105096, which ran the full 6h then
         # was killed mid-link with no retrievable log).
-        # NOTE: temporarily 40 (diagnostic) to capture the early-build hang fast
-        # via the script(1) PTY log; restore to 335 once the build streams again.
-        timeout-minutes: 40
+        timeout-minutes: 335
         env:
           MACH_BUILD_ARGS: ${{ matrix.target == 'windows' && '--verbose' || '' }}
         run: |
