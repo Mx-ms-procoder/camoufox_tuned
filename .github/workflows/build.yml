@@ -2870,6 +2870,31 @@ jobs:
           # wrapper. If wine reports a normal --version output, the chain works.
           python3 -c "import subprocess; print(subprocess.check_output(['/usr/lib/wine/wine64', '--version']).decode().strip())" || echo "intercept exec failed"
 
+      - name: Probe posix mingw toolchain (diagnostic)
+        # The posix --gcc-install-dir pin (commit 10bec28) introduced an early
+        # build hang (run 28147970820 produced no output for 5.5h after the
+        # mozconfig eval). Exercise the exact suspect -- clang with
+        # --gcc-install-dir=<posix> -- in isolation under `timeout`, so we learn
+        # at minute ~1 whether it hangs/errors instead of waiting for configure.
+        if: matrix.target == 'windows'
+        run: |
+          set -x
+          T=${{ matrix.arch == 'i686' && 'i686-w64-mingw32' || 'x86_64-w64-mingw32' }}
+          which $T-g++-posix || echo "NO g++-posix"
+          timeout 30 $T-g++-posix -print-libgcc-file-name; echo "print-libgcc rc=$?"
+          GCCDIR=$(dirname "$($T-g++-posix -print-libgcc-file-name)")
+          echo "GCCDIR=$GCCDIR"
+          ls -la "$GCCDIR" 2>&1 | head -20
+          printf 'int main(){return 0;}\n' > /tmp/t.cpp
+          echo "=== compile probe (timeout 60) ==="
+          timeout 60 clang++ --target=$T --gcc-install-dir="$GCCDIR" -v -c /tmp/t.cpp -o /tmp/t.o; echo "compile rc=$?"
+          echo "=== link probe (timeout 120) ==="
+          timeout 120 clang++ --target=$T --gcc-install-dir="$GCCDIR" -v /tmp/t.o -o /tmp/t.exe -static-libstdc++ -static-libgcc -Wl,--allow-multiple-definition; echo "link rc=$?"
+          echo "=== call_once probe: the actual failing pattern (timeout 120) ==="
+          printf '#include <mutex>\n#include <future>\nstd::once_flag f;\nint main(){std::call_once(f,[]{});auto x=std::async([]{return 1;});return x.get();}\n' > /tmp/c.cpp
+          timeout 120 clang++ --target=$T --gcc-install-dir="$GCCDIR" /tmp/c.cpp -o /tmp/c.exe -static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition 2>&1 | tail -25; echo "call_once link rc=${PIPESTATUS[0]}"
+          echo "PROBE DONE"
+
       - name: Build
         # Tee the entire build log to disk so we can attach it as an artifact
         # on failure. Without this, GitHub's UI truncates long output and the
@@ -2903,7 +2928,10 @@ jobs:
           # captures the real progress even when the step is killed. `-e`
           # propagates the child's exit code so a real build failure still fails
           # the step.
-          script -q -e -c "python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}" "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
+          # -f flushes the typescript after every write so the log on disk is
+          # complete up to the kill -- without it script block-buffers and the
+          # last (hanging) command is lost. stdbuf forces line buffering too.
+          script -f -q -e -c "stdbuf -oL -eL python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}" "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
 
       - name: Upload build log on failure
         # always() (not failure()): a Build-step timeout is reported as a
