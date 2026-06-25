@@ -66,15 +66,6 @@ fi
 # separately in config/config.mk, so by the time the wrapper runs the only
 # -Xlink= options left are the safe-to-drop ones.
 #
-# camou-diag: several final PE links (mozinference.dll, nmhproxy.exe, and now
-# libGLESv2.dll on x86_64 / camoufox.exe on i686) fail with a bare
-# `clang: error: linker command failed with exit code 1` and NO linker
-# diagnostic, so we cannot tell what the linker (lld) rejected. To capture
-# ground truth WITHOUT perturbing the normal (success) path, the wrapper now
-# runs clang normally and, ONLY when it exits non-zero, re-runs the exact same
-# command with `-v -Wl,--verbose` so the build log shows (a) which linker
-# binary clang invoked and its full argv, and (b) the linker's own verbose
-# output / error. The recorded exit code is from the first (clean) run.
 # Pin clang to the POSIX-threads mingw GCC installation for BOTH the libstdc++
 # headers it compiles against and the static libstdc++/libgcc it links. Ubuntu
 # ships win32- and posix-threads mingw runtimes side by side
@@ -112,13 +103,7 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-clang --target=$MINGW_TRIPLE $_camou_gccflag "\$@"
-rc=\$?
-if [ \$rc -ne 0 ]; then
-  echo "camou-diag: clang(cc) --target=$MINGW_TRIPLE exited \$rc; verbose retry:" 1>&2
-  clang --target=$MINGW_TRIPLE $_camou_gccflag -v -Wl,--verbose "\$@" 1>&2
-fi
-exit \$rc
+exec clang --target=$MINGW_TRIPLE $_camou_gccflag "\$@"
 EOF
 cat > "$_camou_wrap/cxx" <<EOF
 #!/bin/sh
@@ -130,13 +115,7 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-clang++ --target=$MINGW_TRIPLE $_camou_gccflag "\$@"
-rc=\$?
-if [ \$rc -ne 0 ]; then
-  echo "camou-diag: clang(cxx) --target=$MINGW_TRIPLE exited \$rc; verbose retry:" 1>&2
-  clang++ --target=$MINGW_TRIPLE $_camou_gccflag -v -Wl,--verbose "\$@" 1>&2
-fi
-exit \$rc
+exec clang++ --target=$MINGW_TRIPLE $_camou_gccflag "\$@"
 EOF
 chmod +x "$_camou_wrap/cc" "$_camou_wrap/cxx"
 export CC="$_camou_wrap/cc"

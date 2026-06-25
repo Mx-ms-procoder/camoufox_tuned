@@ -2886,13 +2886,24 @@ jobs:
         # (after which GitHub uploads nothing and the tee'd progress is lost --
         # exactly what happened to run 28132105096, which ran the full 6h then
         # was killed mid-link with no retrievable log).
-        timeout-minutes: 335
+        # NOTE: temporarily 40 (diagnostic) to capture the early-build hang fast
+        # via the script(1) PTY log; restore to 335 once the build streams again.
+        timeout-minutes: 40
         env:
           MACH_BUILD_ARGS: ${{ matrix.target == 'windows' && '--verbose' || '' }}
         run: |
-          set -o pipefail
           mkdir -p build-logs
-          python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }} 2>&1 | tee "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
+          # Run the build under `script` so it executes against a pseudo-TTY.
+          # Plain `| tee` loses the build output: mozbuild detects a non-TTY
+          # stdout and stops streaming the per-command build log to stdout, so
+          # the tee'd file ended at the post-source env dump with none of the
+          # 335 minutes of compile/link output (and a step-timeout kill drops
+          # GitHub's own live log too). A PTY makes mozbuild stream everything
+          # live, line-buffered to the file on disk, so the always() upload
+          # captures the real progress even when the step is killed. `-e`
+          # propagates the child's exit code so a real build failure still fails
+          # the step.
+          script -q -e -c "python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}" "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
 
       - name: Upload build log on failure
         # always() (not failure()): a Build-step timeout is reported as a
