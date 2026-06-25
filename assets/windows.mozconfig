@@ -93,7 +93,19 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-exec clang --target=$MINGW_TRIPLE "\$@"
+clang --target=$MINGW_TRIPLE "\$@"
+rc=\$?
+if [ \$rc -ne 0 ]; then
+  for a in "\$@"; do
+    case "\$a" in
+      -shared|*.exe|*.dll)
+        echo "camou-diag: link(cc) failed rc=\$rc, verbose retry:" 1>&2
+        clang --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
+        break ;;
+    esac
+  done
+fi
+exit \$rc
 EOF
 cat > "$_camou_wrap/cxx" <<EOF
 #!/bin/sh
@@ -105,7 +117,19 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-exec clang++ --target=$MINGW_TRIPLE "\$@"
+clang++ --target=$MINGW_TRIPLE "\$@"
+rc=\$?
+if [ \$rc -ne 0 ]; then
+  for a in "\$@"; do
+    case "\$a" in
+      -shared|*.exe|*.dll)
+        echo "camou-diag: link(cxx) failed rc=\$rc, verbose retry:" 1>&2
+        clang++ --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
+        break ;;
+    esac
+  done
+fi
+exit \$rc
 EOF
 chmod +x "$_camou_wrap/cc" "$_camou_wrap/cxx"
 export CC="$_camou_wrap/cc"
