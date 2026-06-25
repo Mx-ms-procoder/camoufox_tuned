@@ -2870,29 +2870,39 @@ jobs:
           # wrapper. If wine reports a normal --version output, the chain works.
           python3 -c "import subprocess; print(subprocess.check_output(['/usr/lib/wine/wine64', '--version']).decode().strip())" || echo "intercept exec failed"
 
-      - name: Probe posix mingw toolchain (diagnostic)
-        # The posix --gcc-install-dir pin (commit 10bec28) introduced an early
-        # build hang (run 28147970820 produced no output for 5.5h after the
-        # mozconfig eval). Exercise the exact suspect -- clang with
-        # --gcc-install-dir=<posix> -- in isolation under `timeout`, so we learn
-        # at minute ~1 whether it hangs/errors instead of waiting for configure.
+      - name: Probe mingw libstdc++ for std::__once_callable (diagnostic)
+        # clang IGNORES --gcc-install-dir for the mingw toolchain (it warned
+        # "argument unused" and kept using the 13-win32 libstdc++), so the posix
+        # pin was a no-op and std::__once_callable stays undefined. Locate every
+        # mingw libstdc++.a and report which threading variant actually DEFINES
+        # std::__once_call(able)/__once_proxy, and which c++ header/lib dirs
+        # exist, so we can pick the correct way to point clang at the posix
+        # libstdc++ (e.g. removing the win32 variant, or an explicit -L/-lstdc++).
         if: matrix.target == 'windows'
         run: |
-          set -x
+          set +e
           T=${{ matrix.arch == 'i686' && 'i686-w64-mingw32' || 'x86_64-w64-mingw32' }}
-          which $T-g++-posix || echo "NO g++-posix"
-          timeout 30 $T-g++-posix -print-libgcc-file-name; echo "print-libgcc rc=$?"
-          GCCDIR=$(dirname "$($T-g++-posix -print-libgcc-file-name)")
-          echo "GCCDIR=$GCCDIR"
-          ls -la "$GCCDIR" 2>&1 | head -20
-          printf 'int main(){return 0;}\n' > /tmp/t.cpp
-          echo "=== compile probe (timeout 60) ==="
-          timeout 60 clang++ --target=$T --gcc-install-dir="$GCCDIR" -v -c /tmp/t.cpp -o /tmp/t.o; echo "compile rc=$?"
-          echo "=== link probe (timeout 120) ==="
-          timeout 120 clang++ --target=$T --gcc-install-dir="$GCCDIR" -v /tmp/t.o -o /tmp/t.exe -static-libstdc++ -static-libgcc -Wl,--allow-multiple-definition; echo "link rc=$?"
-          echo "=== call_once probe: the actual failing pattern (timeout 120) ==="
+          NM=$(command -v $T-nm || echo nm)
+          echo "=== /usr/lib/gcc/$T (version+threadmodel dirs clang scans) ==="
+          ls -la /usr/lib/gcc/$T/ 2>&1
+          echo "=== all mingw libstdc++ archives + __once symbol presence ==="
+          find /usr -path "*$T*" \( -name 'libstdc++.a' -o -name 'libstdc++.dll.a' -o -name 'libstdc++*.a' \) 2>/dev/null | while read a; do
+            once=$($NM "$a" 2>/dev/null | grep -E ' [TtDdBb] .*__once_call(able)?$' | head -3)
+            proxy=$($NM "$a" 2>/dev/null | grep -cE '__once_proxy')
+            echo "--- $a : __once_proxy_defs=$proxy ---"
+            echo "$once"
+          done
+          echo "=== c++ header dirs (win32 vs posix) ==="
+          ls -d /usr/$T/include/c++/* /usr/include/c++/*win32* /usr/include/c++/*posix* 2>/dev/null
+          echo "=== update-alternatives default for $T-gcc/g++ ==="
+          ls -l /usr/bin/$T-gcc /usr/bin/$T-g++ 2>&1
+          echo "=== TEST A: default clang call_once link (expect undefined __once_callable) ==="
           printf '#include <mutex>\n#include <future>\nstd::once_flag f;\nint main(){std::call_once(f,[]{});auto x=std::async([]{return 1;});return x.get();}\n' > /tmp/c.cpp
-          timeout 120 clang++ --target=$T --gcc-install-dir="$GCCDIR" /tmp/c.cpp -o /tmp/c.exe -static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition 2>&1 | tail -25; echo "call_once link rc=${PIPESTATUS[0]}"
+          timeout 120 clang++ --target=$T /tmp/c.cpp -o /tmp/cA.exe -static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition 2>&1 | tail -6; echo "A rc=${PIPESTATUS[0]}"
+          echo "=== TEST B: remove win32 gcc dir, retry (does clang then pick posix and link?) ==="
+          sudo rm -rf /usr/lib/gcc/$T/*-win32 /usr/$T/include/c++/*-win32 /usr/include/c++/*-win32 2>/dev/null
+          ls -la /usr/lib/gcc/$T/ 2>&1
+          timeout 120 clang++ --target=$T -v /tmp/c.cpp -o /tmp/cB.exe -static-libstdc++ -static-libgcc -Wl,-Bstatic,-lpthread,-lwinpthread,-Bdynamic -Wl,--allow-multiple-definition 2>&1 | grep -iE 'once_call|13-posix|13-win32|error|undefined|in-process' | tail -15; echo "B rc=${PIPESTATUS[0]}"
           echo "PROBE DONE"
 
       - name: Build
