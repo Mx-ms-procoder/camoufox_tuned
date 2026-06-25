@@ -2879,6 +2879,14 @@ jobs:
         # MACH_BUILD_ARGS=--verbose is set for Windows so that mach passes
         # --verbose to gmake, disabling the -s (silent) flag and surfacing the
         # exact failing compiler/linker command in the artifact log.
+        #
+        # timeout-minutes caps the Build step BELOW the 360-minute job limit so
+        # that a too-slow build is cut off as a *step* failure (which still runs
+        # the always() log-upload below) instead of a hard job *cancellation*
+        # (after which GitHub uploads nothing and the tee'd progress is lost --
+        # exactly what happened to run 28132105096, which ran the full 6h then
+        # was killed mid-link with no retrievable log).
+        timeout-minutes: 335
         env:
           MACH_BUILD_ARGS: ${{ matrix.target == 'windows' && '--verbose' || '' }}
         run: |
@@ -2887,11 +2895,15 @@ jobs:
           python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }} 2>&1 | tee "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
 
       - name: Upload build log on failure
-        if: failure()
+        # always() (not failure()): a Build-step timeout is reported as a
+        # cancellation, under which failure() would not fire and we would again
+        # lose the partial log. always() captures it regardless of outcome.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: BuildLog-${{ matrix.target }}-${{ matrix.arch }}
           path: build-logs/*
+          if-no-files-found: ignore
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
