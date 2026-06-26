@@ -330,6 +330,25 @@ jobs:
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-pc-mingw32-windres
           fi
+          if [ "${{ matrix.target }}" = "windows" ]; then
+            # Generate a libbcryptprimitives.a import library. Rust's std links
+            # bcryptprimitives.dll (ProcessPrng, the Win10 CSPRNG) via raw-dylib,
+            # which doesn't work on MinGW, so toolkit/library/moz.build adds
+            # `OS_LIBS += ["bcryptprimitives"]` to the xul.dll link for non
+            # clang-cl. Ubuntu's mingw-w64 11.0.1 ships no libbcryptprimitives.a,
+            # so GNU ld fails the xul.dll link with `cannot find
+            # -lbcryptprimitives`. Synthesize the import lib from a .def (the
+            # only symbol needed is ProcessPrng; on i686 it is __stdcall, decorated
+            # @8). Place it in the sysroot lib dir that the link already -L's.
+            T=${{ matrix.arch == 'i686' && 'i686-w64-mingw32' || 'x86_64-w64-mingw32' }}
+            if [ "${{ matrix.arch }}" = "i686" ]; then
+              printf 'LIBRARY bcryptprimitives.dll\nEXPORTS\nProcessPrng@8\n' > /tmp/bcp.def
+            else
+              printf 'LIBRARY bcryptprimitives.dll\nEXPORTS\nProcessPrng\n' > /tmp/bcp.def
+            fi
+            sudo $T-dlltool -d /tmp/bcp.def -l /usr/$T/lib/libbcryptprimitives.a
+            ls -la /usr/$T/lib/libbcryptprimitives.a
+          fi
           # macOS is cross-compiled with Mozilla's bootstrapped clang + SDK
           # (see the "Bootstrap macOS cross toolchain" step). `mach bootstrap`
           # installs whatever host packages it needs itself, so no osxcross
