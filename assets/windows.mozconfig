@@ -101,6 +101,8 @@ if [ \$rc -ne 0 ]; then
       -shared|*.exe|*.dll)
         echo "camou-diag: link(cc) failed rc=\$rc, verbose retry:" 1>&2
         clang --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
+        echo "camou-diag: link(cc) -### job construction:" 1>&2
+        clang --target=$MINGW_TRIPLE '-###' "\$@" 1>&2
         break ;;
     esac
   done
@@ -125,6 +127,8 @@ if [ \$rc -ne 0 ]; then
       -shared|*.exe|*.dll)
         echo "camou-diag: link(cxx) failed rc=\$rc, verbose retry:" 1>&2
         clang++ --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
+        echo "camou-diag: link(cxx) -### job construction:" 1>&2
+        clang++ --target=$MINGW_TRIPLE '-###' "\$@" 1>&2
         break ;;
     esac
   done

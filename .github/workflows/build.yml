@@ -2686,6 +2686,13 @@ jobs:
                  '        command.extend(CPPFlag.all_flags)')
           e3n = ('        if is_windres:\n'
                  '            command.extend(("-O", "coff"))\n'
+                 '            # camoufox: windres opens CURSOR/ICON/BITMAP files itself (they are\n'
+                 '            # not #include directives, so the gcc -E prepass does not embed them);\n'
+                 '            # give it the -I search dirs as --include-dir (for windres bare -I\n'
+                 '            # means --input-format) so it finds e.g. widget/windows res/grab.cur\n'
+                 '            # referenced by xul.dll.rc. Only the dirs, not the -D defines.\n'
+                 '            _f = CPPFlag.all_flags\n'
+                 '            command.extend(x for i in range(len(_f) - 1) if _f[i] == "-I" for x in ("--include-dir", _f[i + 1]))\n'
                  '        else:\n'
                  '            # camoufox: windres got an already-preprocessed file; only llvm-rc\n'
                  '            # (which does not preprocess) still needs the -I flags.\n'
