@@ -1345,6 +1345,37 @@ jobs:
           print('MemFnInvoker: injected helper, swapped %d (mfbt) + %d (quota) mem_fn call(s)' % (n1, n2))
           PYEOF
 
+          # (13b) Disable MOZ_FOLD_LIBS on the mingw cross-build. toolkit/moz.configure
+          # hardcodes MOZ_FOLD_LIBS on for WINNT/OSX/iOS/Android, which folds NSPR
+          # (built as static Library("nspr4")/plc4/plds4) into nss3.dll. On Windows
+          # that relies on the linker auto-importing the folded NSPR statics, but GNU
+          # ld does NOT pull a static archive member when only its __imp_ thunk is
+          # referenced, so nss3.dll fails with ~1500 "undefined reference to
+          # __imp_PR_*" / __imp_PL_* (NSPR). macOS folds fine (ld64), so disable
+          # folding for WINNT only: NSPR/NSS then build as separate DLLs (nspr4,
+          # plc4, plds4, smime3, softokn3, ...), nss3 links the real -lnspr4 import
+          # lib, and browser/installer/package-manifest.in already ships the matching
+          # `#ifndef MOZ_FOLD_LIBS` entries for those DLLs. windows-only patch step,
+          # so macOS keeps its working folded layout.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'toolkit', 'moz.configure')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: no fold-libs on mingw' in s:
+              print('NOTE: fold-libs already disabled; skipping.')
+              sys.exit(0)
+          old = 'return target.os in ("WINNT", "OSX", "iOS", "Android")'
+          if old not in s:
+              sys.exit('ERROR: fold_libs anchor missing in ' + f)
+          s = s.replace(
+              old,
+              'return target.os in ("OSX", "iOS", "Android")  # camoufox: no fold-libs on mingw',
+              1)
+          open(f, 'w', encoding='utf-8').write(s)
+          print('disabled MOZ_FOLD_LIBS for WINNT in toolkit/moz.configure')
+          PYEOF
+
           # (14) dom/media/gmp/rlz/lib/machine_id.h uses std::vector<uint8_t> but
           # includes only <string>/<vector>; MSVC's <vector> transitively drags in
           # <cstdint> while libstdc++'s MinGW <vector> does not, so uint8_t is
