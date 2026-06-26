@@ -2741,6 +2741,112 @@ jobs:
           print('patched config/create_res.py: gcc-preprocess for windres + diag')
           PYEOF
 
+          # (NN) Provide the last xul.dll-link symbols that Ubuntu mingw-w64
+          # declares but does not define (all MSVC/clang-cl-only in upstream):
+          #  - PowerCounters::{ctor,dtor,Sample}: tools/profiler/moz.build builds
+          #    core/PowerCounters-win.cpp only for clang-cl (it needs <emi.h>,
+          #    absent in mingw), yet PowerCounters.h declares the class for every
+          #    Windows build -> add an emi.h-free stub for the GNU/clang-mingw build.
+          #  - _com_util::ConvertBSTRToString: declared in mingw comutil.h, defined
+          #    only in MSVC comsuppw.lib; libwebrtc desktop_capture references it.
+          #  - PKEY_Link_Arguments: declared in propkey.h, undefined (needs the SDK
+          #    propsys/INITGUID); widget JumpListBuilder.cpp references it.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+
+          stub = os.path.join(src_dir, 'tools', 'profiler', 'core', 'PowerCounters-camoufox-stub.cpp')
+          if not os.path.exists(stub):
+              open(stub, 'w', encoding='utf-8').write(
+                  '/* camoufox: PowerCounters stub for the GNU/clang-mingw cross-build.\n'
+                  ' * core/PowerCounters-win.cpp needs <emi.h> (absent in mingw-w64), so\n'
+                  ' * tools/profiler/moz.build only builds it for clang-cl. PowerCounters.h\n'
+                  ' * still declares the class for every Windows build, so provide an empty\n'
+                  ' * implementation; power profiling just reports no counters. */\n'
+                  '#include "PowerCounters.h"\n'
+                  '\n'
+                  '// PowerCounters.h forward-declares PowerMeterDevice and stores a\n'
+                  '// Vector<UniquePtr<PowerMeterDevice>>; define a trivial complete type so\n'
+                  '// the (empty) vector can be destroyed.\n'
+                  'class PowerMeterDevice {};\n'
+                  '\n'
+                  'PowerCounters::PowerCounters() = default;\n'
+                  'PowerCounters::~PowerCounters() = default;\n'
+                  'void PowerCounters::Sample() {}\n')
+              print('wrote PowerCounters-camoufox-stub.cpp')
+
+          pm = os.path.join(src_dir, 'tools', 'profiler', 'moz.build')
+          s = open(pm, encoding='utf-8').read()
+          if 'PowerCounters-camoufox-stub' not in s:
+              anchor = ('    if CONFIG["CC_TYPE"] == "clang-cl":\n'
+                        '        UNIFIED_SOURCES += [\n'
+                        '            "core/PowerCounters-win.cpp",\n'
+                        '        ]\n'
+                        '        SOURCES += {\n'
+                        '            "core/ETWTools.cpp",\n'
+                        '        }\n')
+              if anchor not in s:
+                  sys.exit('ERROR: profiler clang-cl anchor missing')
+              s = s.replace(anchor, anchor +
+                            '    else:\n'
+                            '        # camoufox: emi.h-free stub so the mingw build resolves\n'
+                            '        # PowerCounters::{ctor,dtor,Sample}.\n'
+                            '        SOURCES += [\n'
+                            '            "core/PowerCounters-camoufox-stub.cpp",\n'
+                            '        ]\n', 1)
+              open(pm, 'w', encoding='utf-8').write(s)
+              print('patched tools/profiler/moz.build (PowerCounters stub for non-clang-cl)')
+
+          compat = os.path.join(src_dir, 'widget', 'windows', 'CamoufoxMingwCompat.cpp')
+          if not os.path.exists(compat):
+              open(compat, 'w', encoding='utf-8').write(
+                  '/* camoufox: definitions Ubuntu mingw-w64 declares but does not provide,\n'
+                  ' * needed to link xul.dll on the GNU/clang-mingw cross-build. */\n'
+                  '#include <windows.h>\n'
+                  '#include <comutil.h>\n'
+                  '#include <propkey.h>\n'
+                  '\n'
+                  '// comutil.h declares _com_util::ConvertBSTRToString; its definition is\n'
+                  '// in MSVC comsuppw.lib. libwebrtc desktop_capture references it.\n'
+                  'namespace _com_util {\n'
+                  'char* WINAPI ConvertBSTRToString(BSTR pSrc) {\n'
+                  '  if (!pSrc) return nullptr;\n'
+                  '  UINT len = ::SysStringLen(pSrc);\n'
+                  '  int n = ::WideCharToMultiByte(CP_ACP, 0, pSrc, (int)len, nullptr, 0,\n'
+                  '                                nullptr, nullptr);\n'
+                  '  char* dst = new char[n + 1];\n'
+                  '  ::WideCharToMultiByte(CP_ACP, 0, pSrc, (int)len, dst, n, nullptr, nullptr);\n'
+                  '  dst[n] = 0;\n'
+                  '  return dst;\n'
+                  '}\n'
+                  '}  // namespace _com_util\n'
+                  '\n'
+                  '// mingw-w64 propkey.h declares but does not define PKEY_Link_Arguments\n'
+                  '// (used by widget/windows JumpListBuilder.cpp). Windows SDK value:\n'
+                  '// {436f2667-14e2-4feb-b30a-146c53b5b674}, 100.\n'
+                  'extern "C" const PROPERTYKEY PKEY_Link_Arguments = {\n'
+                  '    {0x436f2667, 0x14e2, 0x4feb,\n'
+                  '     {0xb3, 0x0a, 0x14, 0x6c, 0x53, 0xb5, 0xb6, 0x74}},\n'
+                  '    100};\n')
+              print('wrote widget/windows/CamoufoxMingwCompat.cpp')
+
+          wm = os.path.join(src_dir, 'widget', 'windows', 'moz.build')
+          s = open(wm, encoding='utf-8').read()
+          if 'CamoufoxMingwCompat' not in s:
+              anchor = 'FINAL_LIBRARY = "xul"'
+              if anchor not in s:
+                  sys.exit('ERROR: widget/windows FINAL_LIBRARY anchor missing')
+              s = s.replace(anchor,
+                            '# camoufox: mingw lacks _com_util::ConvertBSTRToString and the\n'
+                            '# PKEY_Link_Arguments definition; supply them for the xul.dll link.\n'
+                            'if CONFIG["CC_TYPE"] != "clang-cl":\n'
+                            '    SOURCES += ["CamoufoxMingwCompat.cpp"]\n'
+                            '\n'
+                            + anchor, 1)
+              open(wm, 'w', encoding='utf-8').write(s)
+              print('patched widget/windows/moz.build (CamoufoxMingwCompat for non-clang-cl)')
+          PYEOF
+
           # (NN) Use the GNU-ld stack-reserve flag for program links. For the
           # non-MSVC/clang-cl (i.e. GNU/clang-mingw) Windows branch,
           # config/config.mk sets
