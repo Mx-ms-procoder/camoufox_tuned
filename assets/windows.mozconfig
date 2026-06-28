@@ -98,6 +98,24 @@ export CXXFLAGS="$CXXFLAGS -femulated-tls"
 #
 _camou_wrap="${MOZBUILD_STATE_PATH:-$HOME/.mozbuild}/camou-mingw"
 mkdir -p "$_camou_wrap"
+
+# TECH#28: route ONLY the i686 camoufox.exe link through lld. With TECH#27's
+# AppContainer + freestanding-_ltoa_s fixes the 4 undefined symbols are gone,
+# after which lld links camoufox.exe cleanly (camou-diag "lld probe exit=0")
+# but GNU ld STILL exits 1 with no undefined symbols -- a GNU-ld-specific
+# failure unique to this binary's object set (every other i686 binary, and the
+# whole x86_64 leg, link fine with GNU ld; x86_64 is GREEN). The PDB crash that
+# originally forced GNU ld is moot now --disable-debug-symbols is set. So inject
+# -fuse-ld=lld for the camoufox.exe link only, on i686 only, leaving GNU ld for
+# everything else (minimal blast radius; x86_64 untouched). The wrapper matches
+# the `-o .../dist/bin/camoufox.exe` arg; on x86_64 the glob is an unmatchable
+# sentinel so no link changes.
+if [ "$MINGW_TRIPLE" = "i686-w64-mingw32" ]; then
+    _camou_lld_glob='*/dist/bin/camoufox.exe'
+else
+    _camou_lld_glob='__camou_no_lld_match__'
+fi
+
 cat > "$_camou_wrap/cc" <<EOF
 #!/bin/sh
 n=\$#
@@ -108,7 +126,13 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-clang --target=$MINGW_TRIPLE "\$@"
+_camou_ld=
+for a in "\$@"; do
+  case "\$a" in
+    $_camou_lld_glob) _camou_ld=-fuse-ld=lld ;;
+  esac
+done
+clang --target=$MINGW_TRIPLE \$_camou_ld "\$@"
 rc=\$?
 if [ \$rc -ne 0 ]; then
   for a in "\$@"; do
@@ -140,7 +164,13 @@ while [ \$n -gt 0 ]; do
     *) set -- "\$@" "\$a" ;;
   esac
 done
-clang++ --target=$MINGW_TRIPLE "\$@"
+_camou_ld=
+for a in "\$@"; do
+  case "\$a" in
+    $_camou_lld_glob) _camou_ld=-fuse-ld=lld ;;
+  esac
+done
+clang++ --target=$MINGW_TRIPLE \$_camou_ld "\$@"
 rc=\$?
 if [ \$rc -ne 0 ]; then
   for a in "\$@"; do
