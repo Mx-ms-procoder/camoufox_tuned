@@ -2504,8 +2504,16 @@ jobs:
               print('NOTE: xptcstubs.cpp already GNU-ported; skipping.')
               sys.exit(0)
           # (a) PrepareAndDispatch: drop __stdcall on mingw (cdecl -> undecorated symbol)
+          # and force its emission. SharedStub references it ONLY from an inline-asm
+          # string (`call _PrepareAndDispatch`), which the optimizer does not see as a
+          # use, so without __attribute__((used)) clang DCEs the static cdecl function
+          # and the i686 xul.dll link fails with `undefined symbol: _PrepareAndDispatch`.
           a_old = 'static\nnsresult __stdcall\nPrepareAndDispatch('
-          a_new = ('static\nnsresult\n'
+          a_new = ('static\n'
+                   '#if defined(__MINGW32__)  // camoufox: SharedStub references this only from\n'
+                   '__attribute__((__used__))  // an asm string (invisible to DCE); force emission\n'
+                   '#endif                     // else the i686 xul.dll link loses _PrepareAndDispatch\n'
+                   'nsresult\n'
                    '#if !defined(__MINGW32__)\n__stdcall\n#endif\n'
                    'PrepareAndDispatch(')
           if a_old not in s:
@@ -3149,47 +3157,6 @@ jobs:
                             "(no NSIS on mingw cross-build; ZIP is the deliverable)'")
               open(f, 'w', encoding='utf-8').write('\n'.join(lines))
               print('neutralized packager.mk NSIS windows installer sub-make at line %d' % (hit + 1))
-          PYEOF
-
-          # (NN) Pin PrepareAndDispatch's assembler name for the i686 xptcall stubs.
-          # xpcom/reflect/xptcall/md/win32/xptcstubs.cpp's SharedStub() is MOZ_NAKED
-          # MSVC inline asm; clang resolves its `call PrepareAndDispatch` to the
-          # UNDECORATED symbol _PrepareAndDispatch, but the function is `static
-          # __stdcall` so its definition symbol is _PrepareAndDispatch@16 -- the i686
-          # xul.dll link then fails with `undefined symbol: _PrepareAndDispatch`.
-          # (x86_64 compiles xptcstubs_x86_64_gnu.cpp, no inline asm, so it is
-          # unaffected and GREEN.) The SharedStub epilogue restores esp from ebp, so
-          # the calling convention is moot; just pin the assembler name to the
-          # undecorated form the asm expects and force emission (__used__). i386-only.
-          python3 - "$src_dir" <<'PYEOF'
-          import sys, os
-          src_dir = sys.argv[1]
-          f = os.path.join(src_dir, 'xpcom', 'reflect', 'xptcall', 'md', 'win32',
-                           'xptcstubs.cpp')
-          s = open(f, encoding='utf-8').read()
-          if 'camoufox: pin PrepareAndDispatch' in s:
-              print('NOTE: xptcstubs.cpp PrepareAndDispatch asm label already present; skipping.')
-          else:
-              anchor = 'extern "C" {\n'
-              if s.count(anchor) != 1:
-                  sys.exit('ERROR: unique `extern "C" {` anchor missing in ' + f)
-              decl = (
-                  '#if defined(__i386__) && defined(__GNUC__) && !defined(_MSC_VER)\n'
-                  '// camoufox: pin PrepareAndDispatch assembler name. SharedStub() below is\n'
-                  '// MOZ_NAKED MSVC inline asm whose `call PrepareAndDispatch` clang resolves\n'
-                  '// to the UNDECORATED symbol _PrepareAndDispatch, but __stdcall makes the\n'
-                  '// static definition _PrepareAndDispatch@16, so the i686 xul.dll link fails\n'
-                  '// with `undefined symbol: _PrepareAndDispatch`. Pin the assembler name to\n'
-                  '// the undecorated form the asm expects and force emission; the calling\n'
-                  '// convention is unchanged (SharedStub restores esp from ebp regardless).\n'
-                  'static nsresult __stdcall PrepareAndDispatch(nsXPTCStubBase*, uint32_t,\n'
-                  '                                             uint32_t*, uint32_t*)\n'
-                  '    asm("PrepareAndDispatch") __attribute__((__used__));\n'
-                  '#endif\n'
-                  '\n')
-              s = s.replace(anchor, anchor + decl, 1)
-              open(f, 'w', encoding='utf-8').write(s)
-              print('patched xptcstubs.cpp: pinned PrepareAndDispatch asm name (i386)')
           PYEOF
 
       - name: Validate patch graph
