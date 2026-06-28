@@ -3000,6 +3000,136 @@ jobs:
               print('made third_party/llama.cpp header-only (EXPORTS kept, no sources)')
           PYEOF
 
+          # (NN) The launcher process keeps its OWN copy of NativeNtBlockSet::Write
+          # in browser/app/winlauncher/freestanding/DllBlocklist.cpp, which also calls
+          # the secure-CRT _ltoa_s() that i686 mingw's msvcrt lacks. The earlier
+          # _ltoa_s patch fixed only the mozglue copy; without this the i686
+          # camoufox.exe link dies with `undefined symbol: __ltoa_s` (referenced by
+          # winlauncher/freestanding/Unified_cpp_freestanding0.o). Same hand-rolled
+          # uint16->decimal conversion; harmless on x86_64 too. windows-only step.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'browser', 'app', 'winlauncher',
+                           'freestanding', 'DllBlocklist.cpp')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: _ltoa_s' in s:
+              print('NOTE: freestanding _ltoa_s already replaced; skipping.')
+              sys.exit(0)
+          old = '          _ltoa_s(parts[p], buf, sizeof(buf), 10);'
+          if old not in s:
+              sys.exit('ERROR: freestanding _ltoa_s anchor missing in ' + f)
+          new = ('          {\n'
+                 '            // camoufox: _ltoa_s is a secure-CRT import absent from i686 mingw\n'
+                 '            // msvcrt.dll; format the uint16_t version part by hand (no CRT dep).\n'
+                 '            unsigned camou_v = parts[p];\n'
+                 '            char camou_tmp[8];\n'
+                 '            int camou_ti = 0;\n'
+                 '            do { camou_tmp[camou_ti++] = (char)(48 + (camou_v % 10)); camou_v /= 10; } while (camou_v);\n'
+                 '            int camou_bi = 0;\n'
+                 '            while (camou_ti > 0) { buf[camou_bi++] = camou_tmp[--camou_ti]; }\n'
+                 '            buf[camou_bi] = 0;\n'
+                 '          }')
+          s = s.replace(old, new, 1)
+          open(f, 'w', encoding='utf-8').write(s)
+          print('replaced _ltoa_s in freestanding DllBlocklist.cpp')
+          PYEOF
+
+          # (NN) i686 mingw-w64 libuserenv.a omits the Win8 AppContainer profile APIs
+          # (CreateAppContainerProfile / DeriveAppContainerSidFromAppContainerName /
+          # DeleteAppContainerProfile) that the chromium sandbox broker
+          # (security/sandbox/.../app_container_base.cc) calls, so the i686 camoufox.exe
+          # link dies with `undefined symbol: _CreateAppContainerProfile@24` (+2 more);
+          # GNU ld fails identically but prints nothing. x86_64 mingw has the imports.
+          # Provide stdcall stubs that forward to userenv.dll at runtime via
+          # GetProcAddress (real AppContainer on Win8+ 32-bit), falling back to
+          # E_NOTIMPL. i386-only (#ifdef __i386__); linked into camoufox.exe via
+          # browser/app/moz.build SOURCES, the x86_64 TU compiles empty. windows-only.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          stub = os.path.join(src_dir, 'browser', 'app', 'CamoufoxAppContainerStub.cpp')
+          if not os.path.exists(stub):
+              open(stub, 'w', encoding='utf-8').write(
+                  '/* camoufox: i686 mingw-w64 libuserenv.a lacks the Win8 AppContainer\n'
+                  ' * profile APIs the chromium sandbox broker links. Forward them to the\n'
+                  ' * real userenv.dll at runtime. x86_64 has the imports, so this is empty\n'
+                  ' * there (#ifdef __i386__). */\n'
+                  '#if defined(__i386__)\n'
+                  '#  include <windows.h>\n'
+                  'extern "C" {\n'
+                  'long __stdcall CreateAppContainerProfile(const wchar_t* a, const wchar_t* b,\n'
+                  '    const wchar_t* c, void* d, unsigned long e, void** f) {\n'
+                  '  typedef long(__stdcall * Fn)(const wchar_t*, const wchar_t*, const wchar_t*,\n'
+                  '                               void*, unsigned long, void**);\n'
+                  '  HMODULE m = ::LoadLibraryW(L"userenv.dll");\n'
+                  '  Fn fn = m ? (Fn)::GetProcAddress(m, "CreateAppContainerProfile") : 0;\n'
+                  '  return fn ? fn(a, b, c, d, e, f) : (long)0x80004001L;\n'
+                  '}\n'
+                  'long __stdcall DeriveAppContainerSidFromAppContainerName(const wchar_t* a,\n'
+                  '                                                         void** b) {\n'
+                  '  typedef long(__stdcall * Fn)(const wchar_t*, void**);\n'
+                  '  HMODULE m = ::LoadLibraryW(L"userenv.dll");\n'
+                  '  Fn fn = m ? (Fn)::GetProcAddress(\n'
+                  '                  m, "DeriveAppContainerSidFromAppContainerName") : 0;\n'
+                  '  return fn ? fn(a, b) : (long)0x80004001L;\n'
+                  '}\n'
+                  'long __stdcall DeleteAppContainerProfile(const wchar_t* a) {\n'
+                  '  typedef long(__stdcall * Fn)(const wchar_t*);\n'
+                  '  HMODULE m = ::LoadLibraryW(L"userenv.dll");\n'
+                  '  Fn fn = m ? (Fn)::GetProcAddress(m, "DeleteAppContainerProfile") : 0;\n'
+                  '  return fn ? fn(a) : (long)0x80004001L;\n'
+                  '}\n'
+                  '}  // extern "C"\n'
+                  '#endif  // __i386__\n')
+              print('wrote browser/app/CamoufoxAppContainerStub.cpp')
+          bm = os.path.join(src_dir, 'browser', 'app', 'moz.build')
+          s = open(bm, encoding='utf-8').read()
+          if 'CamoufoxAppContainerStub' not in s:
+              anchor = 'SOURCES += [\n    "nsBrowserApp.cpp",\n]'
+              if anchor not in s:
+                  sys.exit('ERROR: browser/app SOURCES anchor missing in ' + bm)
+              s = s.replace(anchor,
+                            anchor + '\n\n'
+                            '# camoufox: i686 AppContainer userenv stubs for the sandbox broker\n'
+                            '# (mingw libuserenv.a lacks them); the TU is empty on x86_64.\n'
+                            'if CONFIG["CC_TYPE"] != "clang-cl":\n'
+                            '    SOURCES += ["CamoufoxAppContainerStub.cpp"]\n',
+                            1)
+              open(bm, 'w', encoding='utf-8').write(s)
+              print('patched browser/app/moz.build (CamoufoxAppContainerStub for non-clang-cl)')
+          PYEOF
+
+          # (NN) Skip Firefox's NSIS setup.exe step during packaging. After the
+          # win{64,32}.zip is built, toolkit/mozapps/installer/packager.mk's make-package
+          # (on WINNT + MOZ_PKG_FORMAT=ZIP, with NO MOZ_INSTALLER guard) unconditionally
+          # runs `$(MAKE) -C windows ... installer` to build the NSIS installer. The
+          # mingw cross-build has no NSIS and never traverses browser/installer/windows,
+          # so that objdir is absent and the sub-make dies with
+          #   gmake[4]: *** windows: No such file or directory.  Stop.
+          # Camoufox ships the ZIP, so neutralize the line. Applies to both win arches.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'toolkit', 'mozapps', 'installer', 'packager.mk')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: skip NSIS' in s:
+              print('NOTE: packager.mk NSIS installer step already neutralized; skipping.')
+          else:
+              lines = s.split('\n')
+              hit = None
+              for i, ln in enumerate(lines):
+                  if '$(MAKE) -C windows' in ln and 'installer' in ln:
+                      hit = i
+                      break
+              if hit is None:
+                  sys.exit('ERROR: packager.mk "-C windows ... installer" line missing in ' + f)
+              lines[hit] = ("\t@echo 'camoufox: skip NSIS -C windows installer "
+                            "(no NSIS on mingw cross-build; ZIP is the deliverable)'")
+              open(f, 'w', encoding='utf-8').write('\n'.join(lines))
+              print('neutralized packager.mk NSIS windows installer sub-make at line %d' % (hit + 1))
+          PYEOF
+
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
 
