@@ -2827,7 +2827,28 @@ jobs:
                   'extern "C" const PROPERTYKEY PKEY_Link_Arguments = {\n'
                   '    {0x436f2667, 0x14e2, 0x4feb,\n'
                   '     {0xb3, 0x0a, 0x14, 0x6c, 0x53, 0xb5, 0xb6, 0x74}},\n'
-                  '    100};\n')
+                  '    100};\n'
+                  '\n'
+                  '#if defined(__i386__)\n'
+                  '// camoufox: CoIncrementMTAUsage (Win8+) is absent from the i686 mingw-w64\n'
+                  '// import lib libole32.a, so libgkrust.a (the Rust shell_windows crate) fails\n'
+                  '// the i686 xul.dll link with `undefined symbol: _CoIncrementMTAUsage@4`.\n'
+                  '// x86_64 mingw has the import. Forward to the real ole32.dll at runtime.\n'
+                  'extern "C" long __stdcall CoIncrementMTAUsage(void** cookie) {\n'
+                  '  typedef long(__stdcall * Fn)(void**);\n'
+                  '  HMODULE m = ::LoadLibraryW(L"ole32.dll");\n'
+                  '  Fn fn = m ? (Fn)::GetProcAddress(m, "CoIncrementMTAUsage") : 0;\n'
+                  '  return fn ? fn(cookie) : (long)0x80004001L;\n'
+                  '}\n'
+                  '\n'
+                  '// camoufox: i686 mingw-w64 libstdc++.a lacks the GCC iostream-init anchor\n'
+                  '// std::ios_base_library_init() that jsoncpp and abseil-cpp reference\n'
+                  '// (x86_64 libstdc++.a has it). It is only a link anchor -- cin/cout/cerr\n'
+                  '// stay initialized by the std::ios_base::Init __ioinit object every TU\n'
+                  '// that includes <iostream> still emits -- so an empty body is safe and\n'
+                  '// resolves the i686 xul.dll link.\n'
+                  'namespace std { void ios_base_library_init() {} }\n'
+                  '#endif  // __i386__\n')
               print('wrote widget/windows/CamoufoxMingwCompat.cpp')
 
           wm = os.path.join(src_dir, 'widget', 'windows', 'moz.build')
@@ -3128,6 +3149,47 @@ jobs:
                             "(no NSIS on mingw cross-build; ZIP is the deliverable)'")
               open(f, 'w', encoding='utf-8').write('\n'.join(lines))
               print('neutralized packager.mk NSIS windows installer sub-make at line %d' % (hit + 1))
+          PYEOF
+
+          # (NN) Pin PrepareAndDispatch's assembler name for the i686 xptcall stubs.
+          # xpcom/reflect/xptcall/md/win32/xptcstubs.cpp's SharedStub() is MOZ_NAKED
+          # MSVC inline asm; clang resolves its `call PrepareAndDispatch` to the
+          # UNDECORATED symbol _PrepareAndDispatch, but the function is `static
+          # __stdcall` so its definition symbol is _PrepareAndDispatch@16 -- the i686
+          # xul.dll link then fails with `undefined symbol: _PrepareAndDispatch`.
+          # (x86_64 compiles xptcstubs_x86_64_gnu.cpp, no inline asm, so it is
+          # unaffected and GREEN.) The SharedStub epilogue restores esp from ebp, so
+          # the calling convention is moot; just pin the assembler name to the
+          # undecorated form the asm expects and force emission (__used__). i386-only.
+          python3 - "$src_dir" <<'PYEOF'
+          import sys, os
+          src_dir = sys.argv[1]
+          f = os.path.join(src_dir, 'xpcom', 'reflect', 'xptcall', 'md', 'win32',
+                           'xptcstubs.cpp')
+          s = open(f, encoding='utf-8').read()
+          if 'camoufox: pin PrepareAndDispatch' in s:
+              print('NOTE: xptcstubs.cpp PrepareAndDispatch asm label already present; skipping.')
+          else:
+              anchor = 'extern "C" {\n'
+              if s.count(anchor) != 1:
+                  sys.exit('ERROR: unique `extern "C" {` anchor missing in ' + f)
+              decl = (
+                  '#if defined(__i386__) && defined(__GNUC__) && !defined(_MSC_VER)\n'
+                  '// camoufox: pin PrepareAndDispatch assembler name. SharedStub() below is\n'
+                  '// MOZ_NAKED MSVC inline asm whose `call PrepareAndDispatch` clang resolves\n'
+                  '// to the UNDECORATED symbol _PrepareAndDispatch, but __stdcall makes the\n'
+                  '// static definition _PrepareAndDispatch@16, so the i686 xul.dll link fails\n'
+                  '// with `undefined symbol: _PrepareAndDispatch`. Pin the assembler name to\n'
+                  '// the undecorated form the asm expects and force emission; the calling\n'
+                  '// convention is unchanged (SharedStub restores esp from ebp regardless).\n'
+                  'static nsresult __stdcall PrepareAndDispatch(nsXPTCStubBase*, uint32_t,\n'
+                  '                                             uint32_t*, uint32_t*)\n'
+                  '    asm("PrepareAndDispatch") __attribute__((__used__));\n'
+                  '#endif\n'
+                  '\n')
+              s = s.replace(anchor, anchor + decl, 1)
+              open(f, 'w', encoding='utf-8').write(s)
+              print('patched xptcstubs.cpp: pinned PrepareAndDispatch asm name (i386)')
           PYEOF
 
       - name: Validate patch graph
