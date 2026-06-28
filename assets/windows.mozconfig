@@ -23,6 +23,21 @@ ac_add_options --disable-debug-symbols
 # builds retain LTO via --enable-release in base.mozconfig.
 ac_add_options --disable-lto
 
+# Disable the Windows native notification COM server on the mingw cross-build.
+# Upstream toolkit/moz.build only builds toolkit/mozapps/notificationserver for
+# clang-cl ("mingw is missing Windows toast notification definitions"), so the
+# DLL is never produced here -- yet MOZ_NOTIFICATION_SERVER defaults to True on
+# Windows/browser, which makes browser/installer/package-manifest.in:425
+#   #if defined(MOZ_NOTIFICATION_SERVER)
+#   @BINPATH@/@DLL_PREFIX@notificationserver@DLL_SUFFIX@
+# require bin/notificationserver.dll at `./mach package`, failing packaging with
+#   error: package-manifest.in:425: Missing file(s): bin/notificationserver.dll
+# Disabling the feature mirrors upstream's own "not on mingw" stance: the
+# manifest entry is then preprocessed out and packaging no longer expects it.
+# Persistent (relaunch-when-closed) toast notifications are unavailable on the
+# mingw build either way; foreground notifications are unaffected.
+ac_add_options --disable-notification-server
+
 if [ "$BUILD_TARGET" = "windows,i686" ]; then
     MINGW_TRIPLE=i686-w64-mingw32
     # SSE2 baseline for 32-bit, mirroring linux.mozconfig. Firefox's i686 target
@@ -99,10 +114,16 @@ if [ \$rc -ne 0 ]; then
   for a in "\$@"; do
     case "\$a" in
       -shared|*.exe|*.dll)
-        echo "camou-diag: link(cc) failed rc=\$rc, verbose retry:" 1>&2
-        clang --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
-        echo "camou-diag: link(cc) -### job construction:" 1>&2
-        clang --target=$MINGW_TRIPLE '-###' "\$@" 1>&2
+        _dlog="\${TMPDIR:-/tmp}/camoudiag.\$\$"
+        echo "camou-diag: link(cc) failed rc=\$rc; full -v capture (GNU ld):" 1>&2
+        clang --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" > "\$_dlog" 2>&1
+        echo "camou-diag: clang -v exit=\$?" 1>&2
+        cat "\$_dlog" 1>&2
+        echo "camou-diag: lld fallback probe (-fuse-ld=lld):" 1>&2
+        clang --target=$MINGW_TRIPLE -fuse-ld=lld -v "\$@" > "\$_dlog" 2>&1
+        echo "camou-diag: lld probe exit=\$?" 1>&2
+        cat "\$_dlog" 1>&2
+        rm -f "\$_dlog"
         break ;;
     esac
   done
@@ -125,10 +146,16 @@ if [ \$rc -ne 0 ]; then
   for a in "\$@"; do
     case "\$a" in
       -shared|*.exe|*.dll)
-        echo "camou-diag: link(cxx) failed rc=\$rc, verbose retry:" 1>&2
-        clang++ --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" 1>&2
-        echo "camou-diag: link(cxx) -### job construction:" 1>&2
-        clang++ --target=$MINGW_TRIPLE '-###' "\$@" 1>&2
+        _dlog="\${TMPDIR:-/tmp}/camoudiag.\$\$"
+        echo "camou-diag: link(cxx) failed rc=\$rc; full -v capture (GNU ld):" 1>&2
+        clang++ --target=$MINGW_TRIPLE -v -Wl,--verbose "\$@" > "\$_dlog" 2>&1
+        echo "camou-diag: clang -v exit=\$?" 1>&2
+        cat "\$_dlog" 1>&2
+        echo "camou-diag: lld fallback probe (-fuse-ld=lld):" 1>&2
+        clang++ --target=$MINGW_TRIPLE -fuse-ld=lld -v "\$@" > "\$_dlog" 2>&1
+        echo "camou-diag: lld probe exit=\$?" 1>&2
+        cat "\$_dlog" 1>&2
+        rm -f "\$_dlog"
         break ;;
     esac
   done
