@@ -3071,17 +3071,21 @@ jobs:
           # (NN) i686 mingw-w64 libuserenv.a omits the Win8 AppContainer profile APIs
           # (CreateAppContainerProfile / DeriveAppContainerSidFromAppContainerName /
           # DeleteAppContainerProfile) that the chromium sandbox broker
-          # (security/sandbox/.../app_container_base.cc) calls, so the i686 camoufox.exe
-          # link dies with `undefined symbol: _CreateAppContainerProfile@24` (+2 more);
-          # GNU ld fails identically but prints nothing. x86_64 mingw has the imports.
+          # (security/sandbox/chromium/sandbox/win/src/app_container_base.cc) calls, so
+          # the i686 link of EVERY binary that pulls the broker -- camoufox.exe,
+          # plugin-container.exe, xpcshell.exe -- dies with `undefined symbol:
+          # _CreateAppContainerProfile@24` (+2 more). x86_64 mingw has the imports.
           # Provide stdcall stubs that forward to userenv.dll at runtime via
           # GetProcAddress (real AppContainer on Win8+ 32-bit), falling back to
-          # E_NOTIMPL. i386-only (#ifdef __i386__); linked into camoufox.exe via
-          # browser/app/moz.build SOURCES, the x86_64 TU compiles empty. windows-only.
+          # E_NOTIMPL. i386-only (#ifdef __i386__; x86_64 TU empty). Compile them INTO
+          # the sandbox_s static lib (security/sandbox/moz.build, the same lib as
+          # app_container_base.o) so they reach ALL broker-linking binaries in one shot,
+          # not just browser/app (where the earlier per-exe placement missed the rest).
+          # windows-only.
           python3 - "$src_dir" <<'PYEOF'
           import sys, os
           src_dir = sys.argv[1]
-          stub = os.path.join(src_dir, 'browser', 'app', 'CamoufoxAppContainerStub.cpp')
+          stub = os.path.join(src_dir, 'security', 'sandbox', 'CamoufoxAppContainerStub.cpp')
           if not os.path.exists(stub):
               open(stub, 'w', encoding='utf-8').write(
                   '/* camoufox: i686 mingw-w64 libuserenv.a lacks the Win8 AppContainer\n'
@@ -3115,22 +3119,27 @@ jobs:
                   '}\n'
                   '}  // extern "C"\n'
                   '#endif  // __i386__\n')
-              print('wrote browser/app/CamoufoxAppContainerStub.cpp')
-          bm = os.path.join(src_dir, 'browser', 'app', 'moz.build')
+              print('wrote security/sandbox/CamoufoxAppContainerStub.cpp')
+          bm = os.path.join(src_dir, 'security', 'sandbox', 'moz.build')
           s = open(bm, encoding='utf-8').read()
-          if 'CamoufoxAppContainerStub' not in s:
-              anchor = 'SOURCES += [\n    "nsBrowserApp.cpp",\n]'
-              if anchor not in s:
-                  sys.exit('ERROR: browser/app SOURCES anchor missing in ' + bm)
-              s = s.replace(anchor,
-                            anchor + '\n\n'
-                            '# camoufox: i686 AppContainer userenv stubs for the sandbox broker\n'
-                            '# (mingw libuserenv.a lacks them); the TU is empty on x86_64.\n'
-                            'if CONFIG["CC_TYPE"] != "clang-cl":\n'
-                            '    SOURCES += ["CamoufoxAppContainerStub.cpp"]\n',
-                            1)
+          if 'CamoufoxAppContainerStub' in s:
+              print('NOTE: sandbox_s already has CamoufoxAppContainerStub; skipping.')
+          else:
+              # sandbox_s's Library() may sit inside an `if WINNT:` block, so APPEND a
+              # self-contained guarded block at EOF (always top-level-safe) instead of
+              # splicing at an anchor. SOURCES in this moz.build land in sandbox_s.
+              if 'sandbox_s' not in s:
+                  sys.exit('ERROR: sandbox_s Library not found in ' + bm)
+              s = s.rstrip('\n') + '\n\n' + (
+                  '# camoufox: i686 AppContainer userenv stubs, compiled into THIS lib\n'
+                  '# (sandbox_s) alongside app_container_base.o so every broker-linking\n'
+                  '# binary (camoufox.exe, plugin-container.exe, xpcshell.exe, ...) resolves\n'
+                  '# them; Ubuntu mingw libuserenv.a lacks the Win8 AppContainer exports.\n'
+                  '# x86_64 TU is empty (#ifdef __i386__).\n'
+                  'if CONFIG["OS_ARCH"] == "WINNT" and CONFIG["CC_TYPE"] != "clang-cl":\n'
+                  '    SOURCES += ["CamoufoxAppContainerStub.cpp"]\n')
               open(bm, 'w', encoding='utf-8').write(s)
-              print('patched browser/app/moz.build (CamoufoxAppContainerStub for non-clang-cl)')
+              print('patched security/sandbox/moz.build (CamoufoxAppContainerStub in sandbox_s)')
           PYEOF
 
           # (NN) Skip Firefox's NSIS setup.exe step during packaging. After the
