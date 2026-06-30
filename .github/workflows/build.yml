@@ -1058,6 +1058,38 @@ jobs:
             echo "wrapped STL wrapper body in extern \"C++\": $f"
           done
 
+      - name: Fix cbindgen BudgetType::COUNT array size (all platforms)
+        # cbindgen >= 0.29.x mistranslates the associated-const array *size*
+        # `BudgetType::COUNT` in gfx/wr/webrender/src/texture_cache.rs into a
+        # bare, undeclared `COUNT` in the generated webrender_ffi_generated.h
+        # (`constexpr static const BudgetType BudgetType_VALUES[COUNT]`), so any
+        # TU that includes that header fails with "use of undeclared identifier
+        # 'COUNT'". cbindgen evaluates target cfgs while generating, so the
+        # broken line lands in the Linux-target header (compiled by
+        # accessible/atk + accessible/base) but NOT the macOS-target one -- which
+        # is why only the three Linux legs regressed once the floating `^0.29`
+        # cbindgen pin drifted (build-0.11 on 2026-06-06 predates the bad
+        # release; v0.29.4 has the bug). The windows leg already applies this
+        # exact rewrite inside "Patch MinGW-specific Firefox source gaps" (#12);
+        # this dedicated, ungated step makes it platform-agnostic so Linux/macOS
+        # get it too. Idempotent: on windows this runs first and the windows
+        # copy then finds nothing and no-ops. 7 == BudgetType::COUNT so the
+        # rewrite is behaviourally identical; value-context uses (which end in
+        # `)` not `]`) are deliberately left untouched. Must run after "Setup
+        # source" (the tree is extracted) and before "Build" (cbindgen runs).
+        run: |
+          set -eux
+          src_dir="$(ls -d camoufox-*/ | head -n1)"
+          texcache="${src_dir}gfx/wr/webrender/src/texture_cache.rs"
+          test -f "$texcache" || { echo "ERROR: $texcache not found"; exit 1; }
+          if grep -qE '\[[^]]*BudgetType::COUNT\]' "$texcache"; then
+            sed -i -E 's@(\[[^]]*); BudgetType::COUNT\]@\1; 7]@g' "$texcache"
+            echo "rewrote BudgetType::COUNT array sizes to literal 7 in texture_cache.rs"
+            grep -nE '\[[^]]*BudgetType::COUNT\]' "$texcache" && { echo "ERROR: array-size BudgetType::COUNT still present"; exit 1; } || true
+          else
+            echo "NOTE: no BudgetType::COUNT array sizes in texture_cache.rs; skipping."
+          fi
+
       - name: Patch MinGW-specific Firefox source gaps
         # Firefox's MinGW code paths are not exercised by Mozilla CI (which
         # builds Windows with MSVC), so a few are subtly broken for the
