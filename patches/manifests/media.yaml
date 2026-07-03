@@ -2,6 +2,16 @@ name: media
 description: "Media devices, WebGL, AudioContext, and audio-fingerprint protection"
 patches:
   - media/webgl-spoofing.patch
+  # WebGL readPixels() content-aware noise. webgl-spoofing.patch above spoofs
+  # the renderer/vendor STRING and all GL parameters, but not the actual
+  # rendered pixels: in a container those come from llvmpipe/Mesa while the
+  # string claims a discrete GPU, so a detector that reads back a rendered
+  # scene sees a mismatch (camoufox issue #311). Firefox's own
+  # RandomizeElements for readPixels is RFP-gated (RFP is OFF in Camoufox), so
+  # this applies the perturbation unconditionally, keyed by canvas:noiseSeed.
+  # Must apply after webgl-spoofing (whose MaskConfig include it relies on);
+  # different region of ClientWebGLContext.cpp, so no hunk overlap.
+  - media/webgl-readback-noise.patch
   - media/audio-context-spoofing.patch
   - media/audio-fingerprint-manager.patch
   - media/media-device-spoofing.patch

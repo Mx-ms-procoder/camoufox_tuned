@@ -8,3 +8,8 @@ patches:
   - security/disable-extension-newtab.patch
   - security/no-search-engines.patch
   - security/pin-addons.patch
+  # Audit 2026-07-03: deletes the inert window.set* setter island. MUST be the
+  # last-applied feature patch — its "zzz-" basename sorts after all others in
+  # scripts/patch.py's basename apply order, so it runs against the fully-patched
+  # tree. See the patch header for rationale.
+  - security/zzz-remove-inert-setters.patch

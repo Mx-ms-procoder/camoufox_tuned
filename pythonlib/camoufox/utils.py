@@ -1,5 +1,6 @@
 import atexit
 import os
+import secrets
 import tempfile
 import time
 from os.path import abspath
@@ -583,6 +584,46 @@ def sync_attach_vd(
     return browser
 
 
+# Marker file that pins a persistent profile to one fingerprint identity.
+_FINGERPRINT_SEED_MARKER = '.camoufox_fingerprint_seed'
+
+
+def _resolve_persistent_seed(user_data_dir: Union[str, Path]) -> str:
+    """
+    Return a stable ``fingerprint_seed`` for a persistent profile directory.
+
+    Without a pinned seed the IdentityCoherenceEngine derives a *fresh*
+    identity (device profile, canvas/audio noise seeds, window metrics) on
+    every launch, so an anti-bot that stores state — CreepJS / FingerprintJS
+    Pro / DataDome — sees a brand-new "first visit" every time the SAME
+    profile is reused. That volatility is itself a strong bot signal
+    (camoufox issue #328). Pinning the seed to the profile makes every
+    relaunch reproduce one coherent identity.
+
+    The seed is written once into the profile dir and read back on later
+    launches. If the marker cannot be written (read-only mount, etc.) we fall
+    back to deriving the seed deterministically from the resolved path so the
+    identity is still stable for that path.
+    """
+    try:
+        profile = Path(user_data_dir)
+        profile.mkdir(parents=True, exist_ok=True)
+        marker = profile / _FINGERPRINT_SEED_MARKER
+        if marker.is_file():
+            existing = marker.read_text(encoding='utf-8').strip()
+            if existing:
+                return existing
+        seed = secrets.token_hex(16)
+        try:
+            marker.write_text(seed, encoding='utf-8')
+        except OSError:
+            return 'camoufox-profile:' + str(profile.resolve())
+        return seed
+    except Exception:
+        # Never let seed-pinning break a launch; fall back to the raw path.
+        return 'camoufox-profile:' + str(user_data_dir)
+
+
 def launch_options(
     *,
     config: Optional[Dict[str, Any]] = None,
@@ -880,6 +921,19 @@ def launch_options(
     if not webgl_enabled:
         firefox_user_prefs['webgl.disabled'] = True
         LeakWarning.warn('block_webgl', i_know_what_im_doing)
+
+    # Identity stability (fix for camoufox issue #328). With no explicit
+    # fingerprint_seed the identity is randomised per launch. For a
+    # persistent profile that means the same profile presents a different
+    # fingerprint every run — an anti-bot "always first visit" signal — so we
+    # auto-pin the seed to the profile. Ephemeral launches keep the per-run
+    # behaviour but get a one-time warning nudging the operator to pin a seed.
+    if fingerprint_seed is None:
+        user_data_dir = launch_options.get('user_data_dir')
+        if user_data_dir:
+            fingerprint_seed = _resolve_persistent_seed(user_data_dir)
+        else:
+            LeakWarning.warn('unpinned_fingerprint_seed', i_know_what_im_doing)
 
     identity_state = IdentityCoherenceEngine().build(
         fingerprint=fingerprint,

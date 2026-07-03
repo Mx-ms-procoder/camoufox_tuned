@@ -10,5 +10,16 @@ patches:
   - identity/screen-spoofing.patch
   - identity/system-ui-font-spoofing.patch
   - identity/anti-font-fingerprinting.patch
+  # Canvas 2D pixel-readback noise. Consumes canvas:noiseSeed (set by
+  # identity.py, previously exposed via IdentityStateProvider but never
+  # applied to any render path). Firefox's own RandomizePixels only runs
+  # under RFP, which Camoufox keeps OFF; without this, getImageData /
+  # toDataURL return un-noised real rendering (stable across every instance
+  # on the same GPU). Content-aware (folds each pixel's value into the PRNG)
+  # to resist the Pixel-Recovery attack (ACM WWW'25). Touches a different
+  # region of CanvasRenderingContext2D.cpp than anti-font-fingerprinting, so
+  # the two compose without a hunk overlap; applies after it in this
+  # manifest.
+  - identity/canvas-noise.patch
   - identity/font-hijacker.patch
   - identity/force-default-pointer.patch

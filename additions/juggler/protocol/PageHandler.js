@@ -495,6 +495,22 @@ export class PageHandler {
       }
       return;
     }
+    // Human-like keystroke timing (gated on `humanize`, mirrors the per-step
+    // mouse-move jitter in Page.dispatchMouseEvent below). Without this,
+    // synthetic key events arrive with zero — or a single fixed — inter-key
+    // interval, which behavioural anti-bots (DataDome / HUMAN) flag: real
+    // typing has a variable inter-key gap plus a variable key-hold time.
+    // Autorepeat events (`repeat === true`) are left untouched so a held
+    // key's real cadence is preserved.
+    if (!repeat && ChromeUtils.camouGetBool('humanize', false)) {
+      let delayMs = 0;
+      if (type === 'keydown')
+        delayMs = 45 + Math.floor(Math.random() * 90);  // ~45-135ms inter-key gap
+      else if (type === 'keyup')
+        delayMs = 25 + Math.floor(Math.random() * 45);  // ~25-70ms key hold
+      if (delayMs > 0)
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
     return await this._contentPage.send('dispatchKeyEvent', {type, keyCode, code, key, repeat, location, text});
   }
 
@@ -641,6 +657,11 @@ export class PageHandler {
           await watcher.ensureEventsAndDispose(['dragover']);
           this._isDragging = false;
         } else {
+          // Human-like click hold (gated on `humanize`): a real press holds the
+          // button ~50-120ms before release; a 0ms mousedown->mouseup gap is a
+          // synthetic-click tell. Skipped while dragging (handled above).
+          if (ChromeUtils.camouGetBool('humanize', false))
+            await new Promise(resolve => setTimeout(resolve, 50 + Math.floor(Math.random() * 70)));
           await sendEvents(['mouseup']);
         }
         return;

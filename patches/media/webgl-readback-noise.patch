@@ -1,0 +1,55 @@
+diff --git a/dom/canvas/ClientWebGLContext.cpp b/dom/canvas/ClientWebGLContext.cpp
+--- a/dom/canvas/ClientWebGLContext.cpp
++++ b/dom/canvas/ClientWebGLContext.cpp
+@@ -28,5 +28,6 @@
+ #include "mozilla/dom/BufferSourceBinding.h"
+ #include "mozilla/dom/Document.h"
+ #include "mozilla/dom/GeneratePlaceholderCanvasData.h"
++#include "CanvasNoise.hpp"
+ #include "mozilla/dom/ToJSValue.h"
+ #include "mozilla/dom/TypedArray.h"
+@@ -5439,8 +5440,44 @@ void ClientWebGLContext::ReadPixels(GLint x, GLint y, GLsizei width,
+           nsRFPService::RandomizeElements(
+               GetCookieJarSettings(), PrincipalOrNull(), range->data(),
+               range->size_bytes(), pii->elementsPerPixel, pii->bytesPerElement,
+               alphaChannelOffset, hasAlphaChannel);
+         }
++        // Camoufox: content-aware WebGL readback noise, independent of RFP.
++        // Same dead-path as the 2D-canvas hook — RFP (the only trigger for
++        // RandomizeElements above) is OFF in Camoufox, so readPixels would
++        // otherwise return the real backend's pixels, letting a detector
++        // compare them against a reference for the spoofed renderer string or
++        // fingerprint the actual (e.g. llvmpipe) GPU. Only 8-bit
++        // UNSIGNED_BYTE readback is perturbed (the fingerprinting case).
++        if (extraction != CanvasUtils::ImageExtraction::Randomize &&
++            type == LOCAL_GL_UNSIGNED_BYTE) {
++          if (auto camouSeed = MaskConfig::GetUint64("canvas:noiseSeed")) {
++            uint32_t camouEpp;
++            switch (format) {
++              case LOCAL_GL_RGBA:
++              case LOCAL_GL_BGRA:
++              case LOCAL_GL_SRGB_ALPHA:
++                camouEpp = 4;
++                break;
++              case LOCAL_GL_RGB:
++              case LOCAL_GL_SRGB:
++                camouEpp = 3;
++                break;
++              case LOCAL_GL_LUMINANCE_ALPHA:
++                camouEpp = 2;
++                break;
++              default:
++                camouEpp = 1;
++                break;
++            }
++            const bool camouHasAlpha =
++                format == LOCAL_GL_SRGB_ALPHA || format == LOCAL_GL_RGBA ||
++                format == LOCAL_GL_BGRA || format == LOCAL_GL_LUMINANCE_ALPHA;
++            camoufox::ApplyByteReadbackNoise(range->data(), range->size_bytes(),
++                                             width, height, camouEpp,
++                                             camouHasAlpha, camouSeed.value());
++          }
++        }
+       }
+     }
+   });

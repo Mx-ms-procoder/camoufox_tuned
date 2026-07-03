@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..6ec4dc5265
 --- /dev/null
 +++ b/dom/base/AudioFingerprintManager.cpp
-@@ -0,0 +1,106 @@
+@@ -0,0 +1,101 @@
 +#include "AudioFingerprintManager.h"
 +#include "nsTHashMap.h"  // Must come before RoverfoxStorageManager.h for template defs
 +#include "nsHashKeys.h"  // For nsStringHashKey
@@ -13,6 +13,7 @@ index 0000000000..6ec4dc5265
 +#include "xpcpublic.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include <algorithm>
++#include <cstring>
 +
 +namespace mozilla {
 +namespace dom {
@@ -60,9 +61,17 @@ index 0000000000..6ec4dc5265
 +  }
 +  // LCG for deterministic transformation - same seed always produces same result
 +  // Uses 0.8% variance (range [0.996, 1.004]) with non-linear polynomial component
-+  // This is more robust than Brave's 0.1-0.2% variance which was bypassed
++  // This is more robust than Brave's 0.1-0.2% variance which was bypassed.
++  // Content-aware: each sample's own bits are folded into the PRNG state, so
++  // the multiplier depends on the value, not just (seed, index). A
++  // position-only sequence can be recovered from a known reference signal and
++  // divided back out (cf. Pixel-Recovery, ACM WWW'25); mixing the sample in
++  // defeats that inversion.
 +  uint32_t state = seed;
 +  for (uint32_t i = 0; i < length; ++i) {
++    uint32_t sampleBits;
++    std::memcpy(&sampleBits, &data[i], sizeof(sampleBits));
++    state ^= sampleBits;
 +    state = (state * 1664525u + 1013904223u);
 +    float normalized = static_cast<float>(state) / 4294967295.0f;
 +    // Linear base: 0.8% variance
@@ -79,9 +88,12 @@ index 0000000000..6ec4dc5265
 +  if (seed == 0 || length == 0 || !data) {
 +    return;
 +  }
-+  // For byte data, apply small integer adjustments based on seed
++  // For byte data, apply small integer adjustments based on seed.
++  // Content-aware: fold each byte's value into the PRNG state so the
++  // adjustment depends on the content (see ApplyTransformation above).
 +  uint32_t state = seed;
 +  for (uint32_t i = 0; i < length; ++i) {
++    state ^= static_cast<uint32_t>(data[i]);
 +    state = (state * 1664525u + 1013904223u);
 +    // Small adjustment: -1, 0, or +1
 +    int32_t adjustment = static_cast<int32_t>(state % 3) - 1;
@@ -91,23 +103,6 @@ index 0000000000..6ec4dc5265
 +  }
 +}
 +
-+/* static */ bool
-+AudioFingerprintManager::IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) {
-+    return false;
-+  }
-+
-+  uint32_t userContextId = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    userContextId = bc->OriginAttributesRef().mUserContextId;
-+  }
-+
-+  bool disabled = false;
-+  RoverfoxStorageManager::GetBool(DisabledKeyForUserContext(userContextId), disabled);
-+  return !disabled;
-+}
-+
 +}  // namespace dom
 +}  // namespace mozilla
 diff --git a/dom/base/AudioFingerprintManager.h b/dom/base/AudioFingerprintManager.h
@@ -115,7 +110,7 @@ new file mode 100644
 index 0000000000..6848990431
 --- /dev/null
 +++ b/dom/base/AudioFingerprintManager.h
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,30 @@
 +#ifndef mozilla_dom_AudioFingerprintManager_h
 +#define mozilla_dom_AudioFingerprintManager_h
 +
@@ -137,7 +132,6 @@ index 0000000000..6848990431
 +  static void ApplyTransformationToBytes(uint8_t* data, uint32_t length, uint32_t seed);
 +
 +  static void DisableFunction(uint32_t userContextId);
-+  static bool IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 + private:
 +  static nsString DisabledKeyForUserContext(uint32_t userContextId);
@@ -421,20 +415,3 @@ index b962c175f1..0bafa2f0a7 100644
 +
 +# AudioFingerprintManager in dom/base
 +LOCAL_INCLUDES += ["/dom/base"]
-diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
-index ae2d14e105..16afc72899 100644
---- a/dom/webidl/Window.webidl
-+++ b/dom/webidl/Window.webidl
-@@ -930,6 +930,12 @@ partial interface Window {
-   readonly attribute VisualViewport visualViewport;
- };
- 
-+// Audio fingerprint seed for per-context audio fingerprinting
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::AudioFingerprintManager::IsFunctionEnabledForWebIDL"]
-+  undefined setAudioFingerprintSeed(unsigned long seed);
-+};
-+
- // Used to assign marks to appear on the scrollbar when
- // finding on a page.
- partial interface Window {

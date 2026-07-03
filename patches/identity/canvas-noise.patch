@@ -1,0 +1,49 @@
+diff --git a/dom/canvas/CanvasRenderingContext2D.cpp b/dom/canvas/CanvasRenderingContext2D.cpp
+--- a/dom/canvas/CanvasRenderingContext2D.cpp
++++ b/dom/canvas/CanvasRenderingContext2D.cpp
+@@ -9,5 +9,8 @@
+ #include "CanvasImageCache.h"
+ #include "CanvasUtils.h"
++// Camoufox: content-aware 2D canvas noise (see /camoucfg/CanvasNoise.hpp).
++#include "MaskConfig.hpp"
++#include "CanvasNoise.hpp"
+ #include "GeckoBindings.h"
+ #include "ImageEncoder.h"
+ #include "ImageRegion.h"
+@@ -6633,9 +6636,21 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
+   if (extractionBehavior == CanvasUtils::ImageExtraction::Randomize) {
+     if (readback) {
+       readback = CreateDataSourceSurfaceByCloning(readback);
+     }
+   }
+
++  // Camoufox: content-aware canvas noise, independent of RFP. RFP is
++  // intentionally OFF in Camoufox, so the upstream Randomize path above
++  // never runs. When canvas:noiseSeed is configured we clone the readback
++  // (unless the Randomize branch already did) so the real canvas buffer is
++  // never mutated, then perturb the mapped pixels below.
++  auto camouCanvasSeed = MaskConfig::GetUint64("canvas:noiseSeed");
++  if (camouCanvasSeed && readback &&
++      extractionBehavior != CanvasUtils::ImageExtraction::Randomize &&
++      extractionBehavior != CanvasUtils::ImageExtraction::Placeholder) {
++    readback = CreateDataSourceSurfaceByCloning(readback);
++  }
++
+   DataSourceSurface::MappedSurface rawData;
+   if (!readback || !readback->Map(DataSourceSurface::READ, &rawData)) {
+     return NS_ERROR_OUT_OF_MEMORY;
+@@ -6662,6 +6677,14 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
+                                     size.height * size.width * 4,
+                                     SurfaceFormat::A8R8G8B8_UINT32);
+     }
++    // Camoufox: apply content-aware noise to the mapped readback (skipped
++    // for the placeholder path, whose buffer is discarded below). Operates
++    // on the cloned surface set up above, so the real canvas is untouched.
++    if (camouCanvasSeed &&
++        extractionBehavior != CanvasUtils::ImageExtraction::Placeholder) {
++      camoufox::ApplyCanvasNoise(rawData.mData, rawData.mStride, size.width,
++                                 size.height, camouCanvasSeed.value());
++    }
+
+     JS::AutoCheckCannotGC nogc;
+     bool isShared;

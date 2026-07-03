@@ -19,7 +19,8 @@
 >
 > **Status 2026-05-21 (dritter Pass, §1.2 Security-Defaults):**
 > Faktenbasiert verifiziert über DevTools-Source (Searchfox) und gefixt:
->  * `devtools.debugger.remote-enabled` von `true`→`false` (Camoufox-Automation
+
+`devtools.debugger.remote-enabled` von `true`→`false` (Camoufox-Automation
 >    nutzt Juggler, nicht den DevTools-Debugger; vorher band der Server auf
 >    **0.0.0.0:6000 ohne Prompt** — verifiziert in
 >    `devtools/shared/security/socket.js`, das nur bei

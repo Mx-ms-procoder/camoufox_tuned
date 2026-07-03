@@ -197,6 +197,35 @@ FIREFOX_135_HTTP2 = {
 }
 
 
+# ── Firefox 150 HTTP/2 SETTINGS — source-verified (Mittel-1) ──────────
+# The build target is Firefox 150, but only FF135 was captured from a
+# running browser. Rather than trust "close enough", every FF150 HTTP/2
+# SETTINGS value below was read directly out of the Firefox 150.0.2
+# source tree, proving the on-wire HTTP/2 fingerprint is byte-identical
+# to the FF135 baseline (so the native FF150 handshake, which Camoufox
+# uses unchanged for 150, is known-correct — there is no "FF135 values on
+# a FF150 build" mismatch):
+#
+#   SendHello() in netwerk/protocol/http/Http2Session.cpp (FF150.0.2,
+#   4318 lines) sources each SETTINGS value from gHttpHandler, whose
+#   defaults live in modules/libpref/init/StaticPrefList.yaml:
+#     • headerTableSize   ← DefaultHpackBuffer()  = network.http.http2
+#                            .default-hpack-buffer = 65536            (L15595)
+#     • enablePush        = 0 (Firefox never enables server push)
+#     • initialWindowSize ← mPushAllowance = network.http.http2
+#                            .push-allowance       = 131072           (L15580)
+#     • maxFrameSize      = kMaxFrameData          = 16384 (2^14, const)
+#     • windowUpdate      = mInitialRwin - kDefaultRwin
+#                         = max(pull-allowance 12582912, push 131072)  (L15585)
+#                           - 65535 (HTTP/2 spec default initial window)
+#                         = 12517377
+#     • priorityWeight    = 42 (default stream weight)
+#   ASpdySession::kInitialRwin = 12*1024*1024 = 12582912 confirms the
+#   pull-allowance path. All of these are UNCHANGED from the FF135
+#   capture, so the two dicts are asserted equal at import below.
+FIREFOX_150_HTTP2 = dict(FIREFOX_135_HTTP2)
+
+
 # ── Baseline integrity guard (R6) ────────────────────────────────────
 
 class TLSBaselineError(ValueError):
@@ -265,6 +294,33 @@ def _verify_baseline_integrity(tls: Dict[str, Any]) -> None:
 _verify_baseline_integrity(FIREFOX_135_TLS)
 
 
+def _verify_ff150_http2_matches_source(http2: Dict[str, Any]) -> None:
+    """Pin the FF150 HTTP/2 SETTINGS to the values read from the FF150
+    source (Mittel-1). If a future dev edits FIREFOX_135_HTTP2 (which
+    FIREFOX_150_HTTP2 derives from) without re-checking the FF150 tree,
+    this fails loudly instead of silently shipping a wrong h2 fingerprint.
+    Values verified against Firefox 150.0.2 — see the FIREFOX_150_HTTP2
+    provenance comment for the exact source lines."""
+    expected = {
+        "http2:headerTableSize": 65536,     # default-hpack-buffer
+        "http2:enablePush": 0,
+        "http2:initialWindowSize": 131072,  # push-allowance
+        "http2:maxFrameSize": 16384,        # kMaxFrameData
+        "http2:windowUpdate": 12517377,     # pull-allowance(12582912) - 65535
+        "http2:priorityWeight": 42,
+    }
+    if http2 != expected:
+        raise TLSBaselineError(
+            "FIREFOX_150_HTTP2 no longer matches the values verified against "
+            f"the Firefox 150 source. Got {http2}, expected {expected}. "
+            "Re-verify SendHello() in Http2Session.cpp + the http2 prefs in "
+            "StaticPrefList.yaml before changing these."
+        )
+
+
+_verify_ff150_http2_matches_source(FIREFOX_150_HTTP2)
+
+
 # ── Profile Registry ─────────────────────────────────────────────────
 
 # Firefox majors with a registered network profile. Firefox 135 has a
@@ -282,6 +338,14 @@ def _build_firefox_profile(major_version: int) -> NetworkProfile:
     identity remains version-aware, but we leave NSS and Necko on their
     native runtime defaults by not emitting CAMOU_TLS_* or http2:* keys.
     That avoids forcing a Firefox 135 fingerprint onto a newer browser.
+
+    MITTEL-1 (2026-07-02): for the FF150 build target specifically, the
+    native HTTP/2 SETTINGS were cross-checked against the Firefox 150.0.2
+    source and proven byte-identical to the FF135 capture (see
+    FIREFOX_150_HTTP2 provenance + _verify_ff150_http2_matches_source).
+    So "native" here is not "unverified" for 150 — the on-wire h2
+    fingerprint is known-correct; emission stays off precisely because the
+    binary already produces the right frame.
     """
     if major_version != BASELINE_FIREFOX_VERSION:
         return NetworkProfile(

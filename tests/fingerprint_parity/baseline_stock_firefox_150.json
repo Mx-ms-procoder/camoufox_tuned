@@ -1,62 +1,65 @@
 {
-  "_README": "Placeholder baseline. Replace by running: python -m tests.fingerprint_parity.harness --browser stock --executable /path/to/firefox --out tests/fingerprint_parity/baseline_stock_firefox_150.json — against a stock Firefox 150 install. Until this file is regenerated against a real FF150 build, harness will treat the listed fields as the reference; the values below are intentionally schema-shaped placeholders that any real capture will diverge from in the ALLOWED_DRIFT_FIELDS allowlist only.",
+  "_README": "PARTIAL, source-honest FF150 baseline (Mittel-2, 2026-07-02). A full baseline needs a live stock Firefox 150 capture (see README). Until then, every runtime-dependent field is the sentinel \"__CAPTURE_PENDING__\", which harness.diff_probes() SKIPS — so this file never fabricates a value and never emits a false regression. Asserted concretely are only fields that are hard, verifiable facts and must match Camoufox: navigator.webdriver=false, navigator.cookieEnabled=true, navigator.pdfViewerEnabled=true, webgl.version=\"WebGL 1.0\", webgl.shadingLanguageVersion=\"WebGL GLSL ES 1.0\". The two webgl strings were confirmed from a live WebGL1 context (Playwright's Firefox 146) and are universal WebGL1 constants — identical on every Firefox version/OS/GPU — so they hold for FF150 too. NOTE: Playwright's bundled Firefox is NOT a valid stock reference for the automation-sensitive fields (it reports webdriver=true, webdriverType='boolean', pdfViewerEnabled=false — the OPPOSITE of stock and of Camoufox, because it is the base Camoufox patches, with automation exposed and without Camoufox's fixes). Those webdriver-hiding fields are therefore left pending here and asserted on the Camoufox side by harness.stealth_invariants(). Regenerate the full baseline against a real stock FF150 (geckodriver/BiDi, not Playwright) with: python -m tests.fingerprint_parity.harness --browser stock --executable /path/to/firefox-150/firefox --out tests/fingerprint_parity/baseline_stock_firefox_150.json",
   "audio": {
-    "baseLatency": 0,
-    "maxChannelCount": 2,
-    "outputLatency": 0,
-    "sampleRate": 48000,
-    "state": "suspended"
+    "baseLatency": "__CAPTURE_PENDING__",
+    "maxChannelCount": "__CAPTURE_PENDING__",
+    "outputLatency": "__CAPTURE_PENDING__",
+    "sampleRate": "__CAPTURE_PENDING__",
+    "state": "__CAPTURE_PENDING__"
   },
   "canvas": {
-    "dataURL": "data:image/png;base64,placeholder",
-    "length": 0,
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "dataURL": "__CAPTURE_PENDING__",
+    "length": "__CAPTURE_PENDING__",
+    "sha256": "__CAPTURE_PENDING__"
   },
   "intl": {
-    "resolvedLocale": "en-US",
-    "timeZone": "UTC"
+    "resolvedLocale": "__CAPTURE_PENDING__",
+    "timeZone": "__CAPTURE_PENDING__"
   },
   "navigator": {
-    "appVersion": "5.0 (placeholder)",
+    "appVersion": "__CAPTURE_PENDING__",
     "cookieEnabled": true,
-    "doNotTrack": null,
-    "hardwareConcurrency": 8,
-    "language": "en-US",
-    "languages": ["en-US", "en"],
-    "maxTouchPoints": 0,
-    "oscpu": "placeholder",
+    "doNotTrack": "__CAPTURE_PENDING__",
+    "hardwareConcurrency": "__CAPTURE_PENDING__",
+    "language": "__CAPTURE_PENDING__",
+    "languages": "__CAPTURE_PENDING__",
+    "maxTouchPoints": "__CAPTURE_PENDING__",
+    "oscpu": "__CAPTURE_PENDING__",
     "pdfViewerEnabled": true,
-    "platform": "placeholder",
-    "userAgent": "Mozilla/5.0 (placeholder) Gecko/20100101 Firefox/150.0",
-    "webdriver": false
+    "platform": "__CAPTURE_PENDING__",
+    "userAgent": "__CAPTURE_PENDING__",
+    "webdriver": false,
+    "webdriverInNavigator": "__CAPTURE_PENDING__",
+    "webdriverOnPrototype": "__CAPTURE_PENDING__",
+    "webdriverType": "__CAPTURE_PENDING__"
   },
   "plugins": {
-    "length": 0,
-    "mimeTypeLength": 0
+    "length": "__CAPTURE_PENDING__",
+    "mimeTypeLength": "__CAPTURE_PENDING__"
   },
   "screen": {
-    "availHeight": 0,
-    "availWidth": 0,
-    "colorDepth": 24,
-    "devicePixelRatio": 1,
-    "height": 0,
-    "pixelDepth": 24,
-    "width": 0
+    "availHeight": "__CAPTURE_PENDING__",
+    "availWidth": "__CAPTURE_PENDING__",
+    "colorDepth": "__CAPTURE_PENDING__",
+    "devicePixelRatio": "__CAPTURE_PENDING__",
+    "height": "__CAPTURE_PENDING__",
+    "pixelDepth": "__CAPTURE_PENDING__",
+    "width": "__CAPTURE_PENDING__"
   },
   "webgl": {
-    "extensions": [],
-    "maxRenderbufferSize": 0,
-    "maxTextureSize": 0,
-    "maxViewportDims": [0, 0],
-    "renderer": "placeholder",
-    "shadingLanguageVersion": "placeholder",
-    "vendor": "placeholder",
-    "version": "placeholder"
+    "extensions": "__CAPTURE_PENDING__",
+    "maxRenderbufferSize": "__CAPTURE_PENDING__",
+    "maxTextureSize": "__CAPTURE_PENDING__",
+    "maxViewportDims": "__CAPTURE_PENDING__",
+    "renderer": "__CAPTURE_PENDING__",
+    "shadingLanguageVersion": "WebGL GLSL ES 1.0",
+    "vendor": "__CAPTURE_PENDING__",
+    "version": "WebGL 1.0"
   },
   "window": {
-    "innerHeight": 0,
-    "innerWidth": 0,
-    "outerHeight": 0,
-    "outerWidth": 0
+    "innerHeight": "__CAPTURE_PENDING__",
+    "innerWidth": "__CAPTURE_PENDING__",
+    "outerHeight": "__CAPTURE_PENDING__",
+    "outerWidth": "__CAPTURE_PENDING__"
   }
 }

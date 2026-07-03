@@ -56,6 +56,14 @@ HERE = Path(__file__).resolve().parent
 PROBE_PAGE = HERE / "probes.html"
 DEFAULT_BASELINE = HERE / "baseline_stock_firefox_150.json"
 
+# Sentinel for baseline fields we do NOT yet have ground truth for. The
+# committed FF150 baseline is partial (a full capture needs a running stock
+# FF150 — see README): every runtime-dependent field is set to this marker
+# instead of a fabricated placeholder. diff_probes() SKIPS such fields, so an
+# incomplete baseline never produces false regressions. A real capture via
+# `--out` overwrites these with concrete values and the checks light up.
+CAPTURE_PENDING = "__CAPTURE_PENDING__"
+
 # Fields where Camoufox is *expected* to differ from stock Firefox
 # because the engine deliberately spoofs them. Format: dotted path
 # from the root probe object (e.g. ``canvas.sha256``).
@@ -152,6 +160,11 @@ def diff_probes(
 
     all_keys = set(flat_c) | set(flat_b)
     for key in sorted(all_keys):
+        # Ground truth not captured yet — skip rather than compare against a
+        # placeholder (see CAPTURE_PENDING). This keeps a partial baseline
+        # usable in CI without emitting spurious regressions.
+        if flat_b.get(key) == CAPTURE_PENDING:
+            continue
         if key not in flat_b:
             if key not in tolerated:
                 warnings.append(f"only in captured: {key} = {flat_c[key]!r}")
@@ -264,9 +277,16 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 2
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
+    pending = sorted(k for k, v in _flatten(baseline).items() if v == CAPTURE_PENDING)
     regressions, allowed_drift, warnings = diff_probes(captured, baseline)
     if args.browser == "camoufox":
         regressions.extend(stealth_invariants(captured))
+    if pending:
+        print(
+            f"NOTE: {len(pending)} baseline field(s) are capture-pending and "
+            f"were skipped. Regenerate against a stock FF150 (--out) for full "
+            f"coverage."
+        )
 
     if args.json:
         json.dump({

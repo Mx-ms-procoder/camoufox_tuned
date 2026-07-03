@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..e07de3e753
 --- /dev/null
 +++ b/dom/base/FontSpacingSeedManager.cpp
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,74 @@
 +#include "FontSpacingSeedManager.h"
 +#include "nsPrintfCString.h"
 +#include "MaskConfig.hpp"
@@ -76,23 +76,6 @@ index 0000000000..e07de3e753
 +  RoverfoxStorageManager::PutBool(key, true);
 +}
 +
-+/* static */ bool
-+FontSpacingSeedManager::IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) {
-+    return false;
-+  }
-+
-+  uint32_t userContextId = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    userContextId = bc->OriginAttributesRef().mUserContextId;
-+  }
-+
-+  bool disabled = false;
-+  RoverfoxStorageManager::GetBool(DisabledKeyForUserContext(userContextId), disabled);
-+  return !disabled;
-+}
-+
 +} // namespace dom
 +} // namespace mozilla
 \ No newline at end of file
@@ -101,7 +84,7 @@ new file mode 100644
 index 0000000000..63d43f3b86
 --- /dev/null
 +++ b/dom/base/FontSpacingSeedManager.h
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,70 @@
 +#ifndef mozilla_dom_FontSpacingSeedManager_h
 +#define mozilla_dom_FontSpacingSeedManager_h
 +
@@ -159,7 +142,6 @@ index 0000000000..63d43f3b86
 +   * @param aObj JavaScript object (window)
 +   * @return true if function should be available, false otherwise
 +   */
-+  static bool IsFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 +private:
 +  // Helper to convert userContextId to string key
@@ -559,23 +541,6 @@ index a802950043..fa8b4e4490 100644
  bool OffscreenCanvas::IsChrome() const {
    if (NS_IsMainThread()) {
      nsCOMPtr<nsPIDOMWindowInner> win = do_QueryInterface(GetOwnerGlobal());
-diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
-index ae2d14e105..838aef642d 100644
---- a/dom/webidl/Window.webidl
-+++ b/dom/webidl/Window.webidl
-@@ -930,6 +930,12 @@ partial interface Window {
-   readonly attribute VisualViewport visualViewport;
- };
- 
-+// Font spacing seed interface for privacy-preserving font fingerprinting
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::FontSpacingSeedManager::IsFunctionEnabledForWebIDL"]
-+  undefined setFontSpacingSeed(unsigned long seed);
-+};
-+
- // Used to assign marks to appear on the scrollbar when
- // finding on a page.
- partial interface Window {
 diff --git a/dom/workers/WorkerPrivate.h b/dom/workers/WorkerPrivate.h
 index c34db27680..6fdccc0279 100644
 --- a/dom/workers/WorkerPrivate.h
@@ -861,7 +826,7 @@ index 8bd7f6f38c..5282efb7e5 100644
  
  #include <algorithm>
  
-@@ -1466,6 +1470,36 @@ bool gfxHarfBuzzShaper::ShapeText(DrawTarget* aDrawTarget,
+@@ -1466,6 +1470,47 @@ bool gfxHarfBuzzShaper::ShapeText(DrawTarget* aDrawTarget,
  
    hb_shape(mHBFont, mBuffer, features.Elements(), features.Length());
  
@@ -871,19 +836,30 @@ index 8bd7f6f38c..5282efb7e5 100644
 +  uint32_t seed = mozilla::dom::FontSpacingSeedManager::GetSeed(pbid);
 +
 +  if (seed != 0) {
-+    // Generate a random float [0, 0.1] to offset the letter spacing
-+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-+    float randomFloat = (static_cast<float>(seed) / 2147483647.0f) * 0.1f;
-+    hb_position_t spacing = FloatToFixed(randomFloat);
-+
 +    uint32_t glyphCount;
 +    hb_glyph_position_t* glyphPositions =
 +        hb_buffer_get_glyph_positions(mBuffer, &glyphCount);
++    hb_glyph_info_t* glyphInfos = hb_buffer_get_glyph_infos(mBuffer, nullptr);
 +
 +    hb_position_t cumulativeOffset = 0;
 +
-+    // Apply custom letter spacing
++    // Content-aware per-glyph jitter. The previous version added ONE constant
++    // `spacing` (derived from the seed alone) to every glyph, which is
++    // trivially reversible: measureText() of two strings of different lengths
++    // yields totalWidth = trueWidth + glyphCount * spacing, i.e. two equations
++    // that solve for the constant and recover the true metrics (the same class
++    // of position-only defence broken in "Breaking the Shield", ACM WWW'25).
++    // Folding the shaped glyph id and index into the PRNG gives each glyph its
++    // own sub-pixel offset, so no single constant exists to subtract; the
++    // per-(word,context) result stays deterministic (word cache keys on the
++    // context) so repeated measurements of the same string are self-consistent.
 +    for (uint32_t i = 0; i < glyphCount; ++i) {
++      uint32_t g =
++          seed ^ (glyphInfos[i].codepoint * 2654435761u) ^ (i * 40503u);
++      g = (g * 1103515245u + 12345u) & 0x7fffffff;
++      // Range [0, 0.1] px, same magnitude as the original constant.
++      float randomFloat = (static_cast<float>(g) / 2147483647.0f) * 0.1f;
++      hb_position_t spacing = FloatToFixed(randomFloat);
 +      if (aVertical) {
 +        glyphPositions[i].y_advance -= spacing;
 +        glyphPositions[i].y_offset -= cumulativeOffset;

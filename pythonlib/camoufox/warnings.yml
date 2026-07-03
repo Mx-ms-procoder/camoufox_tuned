@@ -57,6 +57,15 @@ http2_profile_inert: >-
     Http2Session.cpp patch wired to IdentityStateProvider — see
     AUDIT_2026-05-18.md.
 
+unpinned_fingerprint_seed: >-
+    No `fingerprint_seed` was set, so a fresh identity (device profile,
+    canvas/audio noise seeds, window metrics) is generated on every launch.
+    Anti-bot systems that store state (CreepJS, FingerprintJS Pro, DataDome)
+    will see a brand-new "first visit" each run, which is itself a bot
+    signal. Pass a stable `fingerprint_seed` (any string/int) to reproduce
+    one coherent identity across sessions, or use a persistent profile
+    (`user_data_dir`) — Camoufox auto-pins the seed to it.
+
 sidecar_mitm_ca_not_auto_trusted: >-
     The uTLS sidecar was selected (transport_mode='utls-sidecar') but
     Camoufox no longer auto-enables `security.enterprise_roots.enabled`

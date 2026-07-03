@@ -3,10 +3,11 @@ new file mode 100644
 index 0000000000..94575f2631
 --- /dev/null
 +++ b/dom/base/WebRTCIPManager.cpp
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,134 @@
 +#include "WebRTCIPManager.h"
 +#include "nsTHashMap.h"
 +#include "RoverfoxStorageManager.h"
++#include "MaskConfig.hpp"
 +#include "nsPrintfCString.h"
 +#include "nsGlobalWindowInner.h"
 +#include "nsDocShell.h"
@@ -64,7 +65,19 @@ index 0000000000..94575f2631
 +/* static */ bool
 +WebRTCIPManager::GetIPv4(uint32_t userContextId, nsAString& outIPv4) {
 +  nsString key = IPv4KeyForUserContext(userContextId);
-+  return RoverfoxStorageManager::GetString(key, outIPv4);
++  if (RoverfoxStorageManager::GetString(key, outIPv4)) {
++    return true;
++  }
++  // Camoufox: the window.setWebRTCIPv4 runtime setter was removed (audit
++  // Option B). The launcher configures the WebRTC exit IP via the global
++  // CAMOU_CONFIG "webrtc:ipv4" key, so fall back to it here — otherwise the
++  // per-context store is never populated and ShouldSpoofCandidateIP() never
++  // fires. Mirrors how the navigator / WebGL getters fall back to MaskConfig.
++  if (auto value = MaskConfig::GetString("webrtc:ipv4")) {
++    outIPv4 = NS_ConvertUTF8toUTF16(value.value());
++    return true;
++  }
++  return false;
 +}
 +
 +/* static */ void
@@ -79,7 +92,16 @@ index 0000000000..94575f2631
 +/* static */ bool
 +WebRTCIPManager::GetIPv6(uint32_t userContextId, nsAString& outIPv6) {
 +  nsString key = IPv6KeyForUserContext(userContextId);
-+  return RoverfoxStorageManager::GetString(key, outIPv6);
++  if (RoverfoxStorageManager::GetString(key, outIPv6)) {
++    return true;
++  }
++  // Camoufox: see GetIPv4 — fall back to the global CAMOU_CONFIG "webrtc:ipv6"
++  // key so IPv6 spoofing activates without the removed runtime setter.
++  if (auto value = MaskConfig::GetString("webrtc:ipv6")) {
++    outIPv6 = NS_ConvertUTF8toUTF16(value.value());
++    return true;
++  }
++  return false;
 +}
 +
 +
@@ -112,40 +134,6 @@ index 0000000000..94575f2631
 +
 +
 +
-+/* static */ bool
-+WebRTCIPManager::IsIPv4FunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) {
-+    return false;
-+  }
-+
-+  uint32_t userContextId = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    userContextId = bc->OriginAttributesRef().mUserContextId;
-+  }
-+
-+  bool disabled = false;
-+  RoverfoxStorageManager::GetBool(IPv4DisabledKeyForUserContext(userContextId), disabled);
-+  return !disabled;
-+}
-+
-+/* static */ bool
-+WebRTCIPManager::IsIPv6FunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) {
-+    return false;
-+  }
-+
-+  uint32_t userContextId = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    userContextId = bc->OriginAttributesRef().mUserContextId;
-+  }
-+
-+  bool disabled = false;
-+  RoverfoxStorageManager::GetBool(IPv6DisabledKeyForUserContext(userContextId), disabled);
-+  return !disabled;
-+}
-+
 +
 +
 +} // namespace dom
@@ -155,7 +143,7 @@ new file mode 100644
 index 0000000000..c20cb032f6
 --- /dev/null
 +++ b/dom/base/WebRTCIPManager.h
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,103 @@
 +#ifndef mozilla_dom_WebRTCIPManager_h
 +#define mozilla_dom_WebRTCIPManager_h
 +
@@ -238,7 +226,6 @@ index 0000000000..c20cb032f6
 +   * @param aObj The JavaScript object (window)
 +   * @return true if the function should be enabled, false otherwise
 +   */
-+  static bool IsIPv4FunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 +  /**
 +   * WebIDL-compatible function to check if setWebRTCIPv6 should be enabled.
@@ -246,7 +233,6 @@ index 0000000000..c20cb032f6
 +   * @param aObj The JavaScript object (window)
 +   * @return true if the function should be enabled, false otherwise
 +   */
-+  static bool IsIPv6FunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 +
 +
@@ -387,7 +373,7 @@ index ca237977cd..abfc081ae7 100644
 
    SyncToJsep();
 
-@@ -1760,11 +1772,41 @@ already_AddRefed<dom::Promise> PeerConnectionImpl::GetStats(
+@@ -1760,11 +1772,53 @@ already_AddRefed<dom::Promise> PeerConnectionImpl::GetStats(
    }
  
    if (!IsClosed()) {
@@ -419,10 +405,22 @@ index ca237977cd..abfc081ae7 100644
 +                    addr.Assign(NS_ConvertUTF16toUTF8(candStat.mAddress.Value()));
 +                    // Check for colons AND no periods to avoid IPv4:port false positives
 +                    bool isIPv6 = addr.FindChar(':') != kNotFound && addr.FindChar('.') == kNotFound;
-+                    if (isIPv6 && !ipv6.IsEmpty()) {
-+                      candStat.mAddress.Value() = NS_ConvertUTF8toUTF16(ipv6Utf8);
-+                    } else if (!isIPv6 && !ipv4.IsEmpty()) {
-+                      candStat.mAddress.Value() = NS_ConvertUTF8toUTF16(ipv4Utf8);
++                    if (isIPv6) {
++                      if (!ipv6.IsEmpty()) {
++                        candStat.mAddress.Value() = NS_ConvertUTF8toUTF16(ipv6Utf8);
++                      } else if (!StringEndsWith(addr, ".local"_ns)) {
++                        // H-2: no IPv6 mask configured — never expose the real
++                        // IPv6. mDNS ".local" host names carry no IP, so skip.
++                        candStat.mAddress.Value() = u"::"_ns;
++                      }
++                    } else {
++                      if (!ipv4.IsEmpty()) {
++                        candStat.mAddress.Value() = NS_ConvertUTF8toUTF16(ipv4Utf8);
++                      } else if (!StringEndsWith(addr, ".local"_ns)) {
++                        // H-2: no IPv4 mask configured — never expose the real
++                        // IPv4. mDNS ".local" host names carry no IP, so skip.
++                        candStat.mAddress.Value() = u"0.0.0.0"_ns;
++                      }
 +                    }
 +                  }
 +                }
@@ -430,7 +428,7 @@ index ca237977cd..abfc081ae7 100644
                RefPtr<RTCStatsReport> report(new RTCStatsReport(window));
                report->Incorporate(*aReport);
                promise->MaybeResolve(std::move(report));
-@@ -3229,12 +3286,22 @@ const std::string& PeerConnectionImpl::GetName() {
+@@ -3229,12 +3286,19 @@ const std::string& PeerConnectionImpl::GetName() {
    return mName;
  }
  
@@ -441,20 +439,17 @@ index ca237977cd..abfc081ae7 100644
    STAMP_TIMECARD(mTimeCard, "Ice Candidate gathered");
    PC_AUTO_ENTER_API_CALL_VOID_RETURN(false);
  
-+  const std::string& candidate = [&]() -> const std::string& {
-+    if (ShouldSpoofCandidateIP()) {
-+      static std::string spoofedCandidate;
-+      spoofedCandidate = SpoofCandidateIP(candidate_);
-+      return spoofedCandidate;
-+    } else {
-+      return candidate_;
-+    }
-+  }();
++  // A local value, not a reference to a function-local `static` (the previous
++  // form returned a reference to shared mutable state that a second in-flight
++  // candidate could clobber). ICE candidates are small and infrequent, so the
++  // copy is negligible.
++  std::string candidate =
++      ShouldSpoofCandidateIP() ? SpoofCandidateIP(candidate_) : candidate_;
 +
    if (mForceIceTcp && std::string::npos != candidate.find(" UDP ")) {
      CSFLogWarn(LOGTAG, "Blocking local UDP candidate: %s", candidate.c_str());
      STAMP_TIMECARD(mTimeCard, "UDP Ice Candidate blocked");
-@@ -3297,10 +3364,197 @@ void PeerConnectionImpl::SendLocalIceCandidateToContent(
+@@ -3297,10 +3364,182 @@ void PeerConnectionImpl::SendLocalIceCandidateToContent(
      uint16_t level, const std::string& mid, const std::string& candidate,
      const std::string& ufrag) {
    STAMP_TIMECARD(mTimeCard, "Send Ice Candidate to content");
@@ -505,28 +500,6 @@ index ca237977cd..abfc081ae7 100644
 +          ip.compare(0, 4, "fe80") == 0);
 +}
 +
-+bool isPrivateIP(const std::string& ip) {
-+  // Check if an IP is on a private network
-+  // Use colons AND no periods to avoid IPv4:port false positives
-+  bool isIPv6 = (ip.find(':') != std::string::npos) && (ip.find('.') == std::string::npos);
-+  
-+  if (isIPv6) {
-+    // check for private ipv6 (fc00::/7)
-+    return (ip.length() >= 4 && 
-+            ((ip[0] == 'f' || ip[0] == 'F') && 
-+             (ip[1] == 'c' || ip[1] == 'd' || 
-+              ip[1] == 'C' || ip[1] == 'D')));
-+  } else {
-+    // check ipv4 private ranges (RFC1918)
-+    return (ip.compare(0, 8, "192.168.") == 0 || 
-+            ip.compare(0, 3, "10.") == 0 || 
-+            (ip.compare(0, 4, "172.") == 0 && 
-+             ip.length() >= 7 && 
-+             ip[4] >= '1' && ip[4] <= '3' && 
-+             (ip[5] >= '0' && ip[5] <= '9')));
-+  }
-+}
-+
 +std::string getMaskForIP(const std::string& ip, uint32_t userContextId) {
 +  // Get the corresponding mask for an ip address
 +  if (isSpecialIP(ip)) {
@@ -544,13 +517,18 @@ index ca237977cd..abfc081ae7 100644
 +    if (hasIPv6) {
 +      return NS_ConvertUTF16toUTF8(ipv6Value).get();
 +    }
++    // Camoufox (H-2): all callers gate on ShouldSpoofCandidateIP, so spoofing
++    // is active for this context yet no IPv6 mask is configured. Returning the
++    // real IP here leaked the true address of the *other* family (e.g. an
++    // IPv6-only spoof identity running on a host that still has a routable
++    // IPv4). Collapse to the unspecified address so nothing real escapes.
++    return "::";
 +  } else {
 +    if (hasIPv4) {
 +      return NS_ConvertUTF16toUTF8(ipv4Value).get();
 +    }
++    return "0.0.0.0";
 +  }
-+  // return original ip if no mask is available
-+  return ip;
 +}
 +
 +std::string replaceIPAddresses(
@@ -623,6 +601,12 @@ index ca237977cd..abfc081ae7 100644
 +  std::string line;
 +
 +  while (std::getline(iss, line)) {
++    // std::getline leaves the '\r' of a CRLF pair (SDP is CRLF-terminated),
++    // so strip it and re-emit one canonical terminator below. The old code
++    // re-emitted CRLF lines with the '\r' but no '\n', collapsing the SDP.
++    if (!line.empty() && line.back() == '\r') {
++      line.pop_back();
++    }
 +    // process candidates and other lines that might contain IPs
 +    if (line.compare(0, 12, "a=candidate:") == 0) {
 +      std::string processed = SpoofCandidateIP(line);
@@ -630,12 +614,8 @@ index ca237977cd..abfc081ae7 100644
 +        line = processed;
 +      }
 +    }
-+    // add line back with proper line ending
-+    if (line.empty() || (line.back() != '\r' && line.back() != '\n')) {
-+      oss << line << "\r\n";
-+    } else {
-+      oss << line;
-+    }
++    // Re-emit with a canonical CRLF terminator (RFC 4566).
++    oss << line << "\r\n";
 +  }
 +  // process the entire SDP for any remaining IP addresses
 +  std::string processedSdp = oss.str();
@@ -728,25 +708,3 @@ index 62bb6eecff..da26fe05ee 100644
 +
 +# DOM Mask
 +LOCAL_INCLUDES += ["/camoucfg"]
-diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
-index 7c509eb87e..0a9010c2d1 100644
---- a/dom/webidl/Window.webidl
-+++ b/dom/webidl/Window.webidl
-@@ -892,6 +892,17 @@ partial interface Window {
-   readonly attribute VisualViewport visualViewport;
- };
-
-+// WebRTC IP interfaces for privacy-preserving IP spoofing
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::WebRTCIPManager::IsIPv4FunctionEnabledForWebIDL"]
-+  undefined setWebRTCIPv4(DOMString ipv4);
-+};
-+
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::WebRTCIPManager::IsIPv6FunctionEnabledForWebIDL"]
-+  undefined setWebRTCIPv6(DOMString ipv6);
-+};
-+
- // Used to assign marks to appear on the scrollbar when
- // finding on a page.
- partial interface Window {

@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000000..37a1713159
 --- /dev/null
 +++ b/dom/base/NavigatorManager.cpp
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,30 @@
 +/* Camoufox: Per-context navigator property manager */
 +#include "NavigatorManager.h"
 +
@@ -32,54 +32,6 @@ index 0000000000..37a1713159
 +  return disabled;
 +}
 +
-+/* static */
-+bool NavigatorManager::IsPlatformFunctionEnabledForWebIDL(JSContext* aCx,
-+                                                          JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) return false;
-+  uint32_t id = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    id = bc->OriginAttributesRef().mUserContextId;
-+  }
-+  return !IsDisabled("nav_plat", id);
-+}
-+
-+/* static */
-+bool NavigatorManager::IsOscpuFunctionEnabledForWebIDL(JSContext* aCx,
-+                                                       JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) return false;
-+  uint32_t id = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    id = bc->OriginAttributesRef().mUserContextId;
-+  }
-+  return !IsDisabled("nav_oscpu", id);
-+}
-+
-+/* static */
-+bool NavigatorManager::IsHwcFunctionEnabledForWebIDL(JSContext* aCx,
-+                                                     JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) return false;
-+  uint32_t id = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    id = bc->OriginAttributesRef().mUserContextId;
-+  }
-+  return !IsDisabled("nav_hwc", id);
-+}
-+
-+/* static */
-+bool NavigatorManager::IsUaFunctionEnabledForWebIDL(JSContext* aCx,
-+                                                    JSObject* aObj) {
-+  nsGlobalWindowInner* win = xpc::WindowOrNull(aObj);
-+  if (!win) return false;
-+  uint32_t id = 0;
-+  if (BrowsingContext* bc = win->GetBrowsingContext()) {
-+    id = bc->OriginAttributesRef().mUserContextId;
-+  }
-+  return !IsDisabled("nav_ua", id);
-+}
-+
 +}  // namespace dom
 +}  // namespace mozilla
 diff --git a/dom/base/NavigatorManager.h b/dom/base/NavigatorManager.h
@@ -87,7 +39,7 @@ new file mode 100644
 index 0000000000..918d94be04
 --- /dev/null
 +++ b/dom/base/NavigatorManager.h
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,92 @@
 +/* Camoufox: Per-context navigator property manager */
 +#ifndef mozilla_dom_NavigatorManager_h
 +#define mozilla_dom_NavigatorManager_h
@@ -118,8 +70,6 @@ index 0000000000..918d94be04
 +    return RoverfoxStorageManager::GetString(key, aOut);
 +  }
 +
-+  static bool IsPlatformFunctionEnabledForWebIDL(JSContext* aCx,
-+                                                 JSObject* aObj);
 +
 +  // Oscpu (e.g. "Windows NT 10.0; Win64; x64")
 +  static void SetOscpu(uint32_t aId, const nsAString& aValue) {
@@ -137,7 +87,6 @@ index 0000000000..918d94be04
 +    return RoverfoxStorageManager::GetString(key, aOut);
 +  }
 +
-+  static bool IsOscpuFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 +  // HardwareConcurrency (CPU core count)
 +  static void SetHardwareConcurrency(uint32_t aId, uint32_t aValue) {
@@ -159,7 +108,6 @@ index 0000000000..918d94be04
 +    return 0;
 +  }
 +
-+  static bool IsHwcFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 +  // UserAgent (e.g. "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:146.0)...")
 +  static void SetUserAgent(uint32_t aId, const nsAString& aValue) {
@@ -177,7 +125,6 @@ index 0000000000..918d94be04
 +    return RoverfoxStorageManager::GetString(key, aOut);
 +  }
 +
-+  static bool IsUaFunctionEnabledForWebIDL(JSContext* aCx, JSObject* aObj);
 +
 +};
 +
@@ -467,41 +414,6 @@ index 87f1e92cec..4991123b64 100644
   public:
    void Alert(nsIPrincipal& aSubjectPrincipal, mozilla::ErrorResult& aError);
 
-diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
-index 6a0570cdf7..cf69daa15d 100644
---- a/dom/webidl/Window.webidl
-+++ b/dom/webidl/Window.webidl
-@@ -976,6 +976,30 @@ partial interface Window {
-   undefined setWebGLRenderer(DOMString renderer);
- };
- 
-+// Per-context navigator platform spoofing
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::NavigatorManager::IsPlatformFunctionEnabledForWebIDL"]
-+  undefined setNavigatorPlatform(DOMString platform);
-+};
-+
-+// Per-context navigator oscpu spoofing
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::NavigatorManager::IsOscpuFunctionEnabledForWebIDL"]
-+  undefined setNavigatorOscpu(DOMString oscpu);
-+};
-+
-+// Per-context navigator hardware concurrency spoofing
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::NavigatorManager::IsHwcFunctionEnabledForWebIDL"]
-+  undefined setNavigatorHardwareConcurrency(unsigned long cores);
-+};
-+
-+// Per-context navigator user agent spoofing
-+partial interface Window {
-+  [Throws, Func="mozilla::dom::NavigatorManager::IsUaFunctionEnabledForWebIDL"]
-+  undefined setNavigatorUserAgent(DOMString ua);
-+};
-+
- dictionary WindowPostMessageOptions : StructuredSerializeOptions {
-   USVString targetOrigin = "/";
- };
 diff --git a/dom/workers/WorkerNavigator.cpp b/dom/workers/WorkerNavigator.cpp
 index c9a65ff013..d8268dd9ce 100644
 --- a/dom/workers/WorkerNavigator.cpp

@@ -1,0 +1,427 @@
+# Camoufox audit 2026-07-03 — remove the inert window.set* setter island.
+#
+# Option B removed the WebIDL `partial interface Window { set* }` declarations
+# and the manager Is...EnabledForWebIDL gates, so these nsGlobalWindowInner
+# setter methods (setWebGLRenderer/Vendor, setNavigator*, setAudioFingerprintSeed,
+# setWebRTCIPv4/6, setFontSpacingSeed, setFontList, setSpeechVoices, setTimezone,
+# setScreenDimensions/ColorDepth) are unreachable dead code — no WebIDL binding
+# and no other caller references them. They could not be excised in-place from
+# their originating patches because those patches chain across nsGlobalWindowInner.cpp
+# (each hunk's context is the previously-inserted setter). This patch instead runs
+# LAST (basename sorts after every feature patch, matching scripts/patch.py's
+# basename apply order) and deletes the whole island against the fully-patched tree.
+# Verified: applies with no fuzz/rejects after the full chain on real FF150.0.2;
+# leaves 0 setter defs/decls; getters and manager Get* (config-driven spoofing)
+# are untouched.
+diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
+index e526e8c..8d37243 100644
+--- a/dom/base/nsGlobalWindowInner.cpp
++++ b/dom/base/nsGlobalWindowInner.cpp
+@@ -7715,52 +7715,6 @@ nsISerialEventTarget* nsGlobalWindowInner::SerialEventTarget() const {
+   return GetMainThreadSerialEventTarget();
+ }
+ 
+-void nsGlobalWindowInner::SetScreenDimensions(int32_t aWidth, int32_t aHeight,
+-                                              ErrorResult& aRv) {
+-  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
+-
+-  if (aWidth <= 0 || aHeight <= 0) {
+-    aRv.ThrowTypeError("Screen dimensions must be positive integers");
+-    return;
+-  }
+-
+-  ScreenDimensionManager::SetDimensions(userContextId, aWidth, aHeight);
+-  ScreenDimensionManager::DisableFunction(userContextId);
+-
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setScreenDimensions", undef);
+-      JS_DeleteProperty(cx, global, "setScreenDimensions");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetScreenColorDepth(int32_t aColorDepth,
+-                                              ErrorResult& aRv) {
+-  uint32_t userContextId = ScreenDimensionManager::GetUserContextIdFromWindow(this);
+-
+-  if (aColorDepth <= 0) {
+-    aRv.ThrowTypeError("Color depth must be a positive integer");
+-    return;
+-  }
+-
+-  ScreenDimensionManager::SetColorDepth(userContextId, aColorDepth);
+-  ScreenDimensionManager::DisableFunction(userContextId);
+-
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setScreenColorDepth", undef);
+-      JS_DeleteProperty(cx, global, "setScreenColorDepth");
+-    }
+-  }
+-}
+-
+ Worklet* nsGlobalWindowInner::GetPaintWorklet(ErrorResult& aRv) {
+   if (!mPaintWorklet) {
+     nsIPrincipal* principal = GetPrincipal();
+@@ -7794,103 +7748,6 @@ IntlUtils* nsGlobalWindowInner::GetIntlUtils(ErrorResult& aError) {
+   return mIntlUtils;
+ }
+ 
+-void nsGlobalWindowInner::SetFontSpacingSeed(uint32_t seed, ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-
+-  FontSpacingSeedManager::SetSeed(userContextId, seed);
+-
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setFontSpacingSeed", undef);
+-      JS_DeleteProperty(cx, global, "setFontSpacingSeed");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetTimezone(const nsAString& timezone, ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-
+-  NS_LossyConvertUTF16toASCII timezoneASCII(timezone);
+-
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    if (!JS::SetRealmTimeZoneOverride(cx, timezoneASCII.get())) {
+-      aRv.ThrowTypeError("Invalid timezone identifier");
+-      return;
+-    }
+-  }
+-
+-  TimezoneManager::SetTimezone(userContextId, timezone);
+-
+-  // Also store under userContextId=0 as fallback for shared/service workers
+-  // which may have a different userContextId than the parent page.
+-  if (userContextId != 0) {
+-    TimezoneManager::SetTimezone(0, timezone);
+-  }
+-
+-  // Set global process-wide timezone as ultimate fallback.
+-  // Per-realm overrides (windows + dedicated workers) take priority.
+-  // Shared/service workers without per-realm override fall back to this.
+-  JS::SetTimeZoneOverride(timezoneASCII.get());
+-
+-  // Self-destruct: remove this function from the window object after first use.
+-  // Set to undefined first to bust IC/shape caches on ARM64 (macOS Apple Silicon),
+-  // then delete. Without this, the resolve hook may not re-fire on ARM64 and the
+-  // Func guard never gets checked, causing the property to survive deletion.
+-  if (JSContext* selfDestructCx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(selfDestructCx, JS::CurrentGlobalOrNull(selfDestructCx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(selfDestructCx, JS::UndefinedValue());
+-      JS_SetProperty(selfDestructCx, global, "setTimezone", undef);
+-      JS_DeleteProperty(selfDestructCx, global, "setTimezone");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetWebRTCIPv4(const nsAString& ipv4, ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-
+-  WebRTCIPManager::SetIPv4(userContextId, ipv4);
+-
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS_DeleteProperty(cx, global, "setWebRTCIPv4");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetWebRTCIPv6(const nsAString& ipv6, ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-
+-  WebRTCIPManager::SetIPv6(userContextId, ipv6);
+-
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS_DeleteProperty(cx, global, "setWebRTCIPv6");
+-    }
+-  }
+-}
+-
+-
+-
+ void nsGlobalWindowInner::StoreSharedWorker(SharedWorker* aSharedWorker) {
+   MOZ_ASSERT(aSharedWorker);
+   MOZ_ASSERT(!mSharedWorkers.Contains(aSharedWorker));
+@@ -7905,198 +7762,6 @@ void nsGlobalWindowInner::ForgetSharedWorker(SharedWorker* aSharedWorker) {
+   mSharedWorkers.RemoveElement(aSharedWorker);
+ }
+ 
+-
+-void nsGlobalWindowInner::SetAudioFingerprintSeed(uint32_t seed,
+-                                                    ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  AudioFingerprintManager::SetSeed(userContextId, seed);
+-  if (userContextId != 0) {
+-    AudioFingerprintManager::SetSeed(0, seed);
+-  }
+-  AudioFingerprintManager::DisableFunction(userContextId);
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setAudioFingerprintSeed", undef);
+-      JS_DeleteProperty(cx, global, "setAudioFingerprintSeed");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetFontList(const nsAString& aFontList,
+-                                      ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  FontListManager::SetFontList(userContextId, aFontList);
+-  FontListManager::DisableFunction(userContextId);
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setFontList", undef);
+-      JS_DeleteProperty(cx, global, "setFontList");
+-    }
+-  }
+-}
+-
+-
+-
+-void nsGlobalWindowInner::SetNavigatorPlatform(const nsAString& platform,
+-                                               ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  NavigatorManager::SetPlatform(userContextId, platform);
+-  if (userContextId != 0) {
+-    NavigatorManager::SetPlatform(0, platform);
+-  }
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setNavigatorPlatform", undef);
+-      JS_DeleteProperty(cx, global, "setNavigatorPlatform");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetNavigatorOscpu(const nsAString& oscpu,
+-                                            ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  NavigatorManager::SetOscpu(userContextId, oscpu);
+-  if (userContextId != 0) {
+-    NavigatorManager::SetOscpu(0, oscpu);
+-  }
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setNavigatorOscpu", undef);
+-      JS_DeleteProperty(cx, global, "setNavigatorOscpu");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetNavigatorHardwareConcurrency(uint32_t cores,
+-                                                          ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  NavigatorManager::SetHardwareConcurrency(userContextId, cores);
+-  if (userContextId != 0) {
+-    NavigatorManager::SetHardwareConcurrency(0, cores);
+-  }
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setNavigatorHardwareConcurrency", undef);
+-      JS_DeleteProperty(cx, global, "setNavigatorHardwareConcurrency");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetNavigatorUserAgent(const nsAString& ua,
+-                                                 ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  NavigatorManager::SetUserAgent(userContextId, ua);
+-  if (userContextId != 0) {
+-    NavigatorManager::SetUserAgent(0, ua);
+-  }
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setNavigatorUserAgent", undef);
+-      JS_DeleteProperty(cx, global, "setNavigatorUserAgent");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetSpeechVoices(const nsAString& aVoices,
+-                                           ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  SpeechVoicesManager::SetVoices(userContextId, aVoices);
+-  SpeechVoicesManager::DisableFunction(userContextId);
+-  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setSpeechVoices", undef);
+-      JS_DeleteProperty(cx, global, "setSpeechVoices");
+-    }
+-  }
+-}
+-
+-
+-void nsGlobalWindowInner::SetWebGLVendor(const nsAString& vendor,
+-                                          ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  WebGLParamsManager::SetVendor(userContextId, vendor);
+-  if (userContextId != 0) {
+-    WebGLParamsManager::SetVendor(0, vendor);
+-  }
+-  WebGLParamsManager::DisableVendorFunction(userContextId);
+-  // Self-destruct: only remove setWebGLVendor (renderer must remain callable)
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setWebGLVendor", undef);
+-      JS_DeleteProperty(cx, global, "setWebGLVendor");
+-    }
+-  }
+-}
+-
+-void nsGlobalWindowInner::SetWebGLRenderer(const nsAString& renderer,
+-                                            ErrorResult& aRv) {
+-  uint32_t userContextId = 0;
+-  if (BrowsingContext* bc = GetBrowsingContext()) {
+-    userContextId = bc->OriginAttributesRef().mUserContextId;
+-  }
+-  WebGLParamsManager::SetRenderer(userContextId, renderer);
+-  if (userContextId != 0) {
+-    WebGLParamsManager::SetRenderer(0, renderer);
+-  }
+-  WebGLParamsManager::DisableRendererFunction(userContextId);
+-  // Self-destruct: only remove setWebGLRenderer (vendor must remain callable)
+-  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
+-    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
+-    if (global) {
+-      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
+-      JS_SetProperty(cx, global, "setWebGLRenderer", undef);
+-      JS_DeleteProperty(cx, global, "setWebGLRenderer");
+-    }
+-  }
+-}
+-
+ RefPtr<GenericPromise> nsGlobalWindowInner::StorageAccessPermissionChanged(
+     bool aGranted) {
+   // Invalidate cached StorageAllowed field so that calls to GetLocalStorage
+diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
+index 1e4d62e..43b3ef9 100644
+--- a/dom/base/nsGlobalWindowInner.h
++++ b/dom/base/nsGlobalWindowInner.h
+@@ -674,47 +674,14 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+ 
+   mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
+ 
+-  // Audio fingerprint seed for per-context audio fingerprinting
+-  void SetAudioFingerprintSeed(uint32_t seed, mozilla::ErrorResult& aRv);
+-
+-  // Screen dimension methods for per-context screen spoofing
+-  void SetScreenDimensions(int32_t aWidth, int32_t aHeight, mozilla::ErrorResult& aRv);
+-  void SetScreenColorDepth(int32_t aColorDepth, mozilla::ErrorResult& aRv);
+-
+   void GetWebExposedLocales(nsTArray<nsString>& aLocales);
+ 
+   mozilla::dom::IntlUtils* GetIntlUtils(mozilla::ErrorResult& aRv);
+ 
+-  // Font spacing seed for privacy-preserving font fingerprinting
+-  void SetFontSpacingSeed(uint32_t seed, mozilla::ErrorResult& aRv);
+-  void SetTimezone(const nsAString& timezone, mozilla::ErrorResult& aRv);
+-
+-  // WebRTC IP addresses for privacy-preserving IP spoofing
+-  void SetWebRTCIPv4(const nsAString& ipv4, mozilla::ErrorResult& aRv);
+-  void SetWebRTCIPv6(const nsAString& ipv6, mozilla::ErrorResult& aRv);
+-
+   void StoreSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
+ 
+   void ForgetSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
+ 
+-  // Per-context font list spoofing
+-  void SetFontList(const nsAString& aFontList, mozilla::ErrorResult& aRv);
+-
+-  // Per-context navigator property spoofing
+-  void SetNavigatorPlatform(const nsAString& platform,
+-                            mozilla::ErrorResult& aRv);
+-  void SetNavigatorOscpu(const nsAString& oscpu, mozilla::ErrorResult& aRv);
+-  void SetNavigatorHardwareConcurrency(uint32_t cores,
+-                                       mozilla::ErrorResult& aRv);
+-  void SetNavigatorUserAgent(const nsAString& ua, mozilla::ErrorResult& aRv);
+-
+-  // Per-context speech voices
+-  void SetSpeechVoices(const nsAString& aVoices, mozilla::ErrorResult& aRv);
+-
+-  // Per-context WebGL parameter spoofing
+-  void SetWebGLVendor(const nsAString& vendor, mozilla::ErrorResult& aRv);
+-  void SetWebGLRenderer(const nsAString& renderer, mozilla::ErrorResult& aRv);
+-
+  public:
+   void Alert(nsIPrincipal& aSubjectPrincipal, mozilla::ErrorResult& aError);
+   void Alert(const nsAString& aMessage, nsIPrincipal& aSubjectPrincipal,

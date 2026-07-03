@@ -714,12 +714,22 @@ jobs:
       - name: Install cbindgen (Firefox 150 needs >= 0.29.1)
         # Ubuntu's apt cbindgen is 0.26.0, which Firefox 150 rejects
         # ("cbindgen version 0.26.0 is too old. At least version 0.29.1 is
-        # required." from build/moz.configure/bindgen.configure). Install a
-        # current 0.29.x from crates.io instead. --locked uses cbindgen's own
-        # pinned Cargo.lock for a reproducible build.
+        # required." from build/moz.configure/bindgen.configure). Install from
+        # crates.io instead.
+        #
+        # C-1 (audit 2026-07-03): pin an EXACT version, not a floating range.
+        # The old "^0.29" resolved to whatever the latest 0.29.x was at build
+        # time; --locked only pins cbindgen's own Cargo.lock, NOT which cbindgen
+        # version cargo selects. During the windows-only grind the range drifted
+        # from a green 0.29.x to 0.29.4, which mistranslates BudgetType::COUNT
+        # and silently broke all three Linux legs with no commit to blame (see
+        # the "Fix cbindgen BudgetType::COUNT array size" step). An exact "="
+        # pin makes the toolchain reproducible so a floating dep can never again
+        # regress an already-green leg. Keep this in lockstep with the Dockerfile
+        # (both install cbindgen 0.29.4) and bump both together, deliberately.
         run: |
           set -eux
-          cargo install cbindgen --version "^0.29" --locked
+          cargo install cbindgen --version "=0.29.4" --locked
           cbindgen --version
 
       - name: Set up Windows Rust crate

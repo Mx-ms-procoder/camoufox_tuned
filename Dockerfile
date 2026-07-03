@@ -18,8 +18,14 @@ COPY . /app
 # older rustc than the Firefox 150 baseline requires).
 RUN apt-get update && apt-get install -y \
     # Mach build tools
+    #
+    # C-1 (audit 2026-07-03): cbindgen is intentionally NOT apt-installed. apt
+    # ships 0.26.0, which Firefox 150 rejects (needs >= 0.29.1), and mixing an
+    # apt cbindgen with the CI's cargo one meant the container and CI disagreed
+    # on the toolchain. It is now installed from crates.io at an exact pinned
+    # version below, matching .github/workflows/build.yml exactly.
     build-essential make msitools wget zip unzip nasm yasm nodejs pkg-config \
-    patch clang-18 lld-18 llvm-18 libclang-18-dev cbindgen \
+    patch clang-18 lld-18 llvm-18 libclang-18-dev \
     # Python
     python3 python3-dev python3-pip \
     # Camoufox build system tools
@@ -84,6 +90,16 @@ RUN set -eux; \
         --default-toolchain "${RUST_TOOLCHAIN}"; \
     rm -f /tmp/rustup-init /tmp/rustup-init.sha256
 ENV PATH="/root/.cargo/bin:${PATH}"
+
+# C-1 (audit 2026-07-03): install cbindgen from crates.io at an EXACT pinned
+# version — the single source of truth shared with .github/workflows/build.yml.
+# A floating range ("^0.29") silently drifted to 0.29.4 (which mistranslates
+# BudgetType::COUNT) and regressed already-green build legs; "=" prevents that.
+# --locked pins cbindgen's own Cargo.lock for a reproducible build. Keep
+# CBINDGEN_VERSION in lockstep with the workflow and bump both together.
+ARG CBINDGEN_VERSION=0.29.4
+RUN cargo install cbindgen --version "=${CBINDGEN_VERSION}" --locked && \
+    cbindgen --version
 
 # Fetch Firefox & apply initial patches
 RUN make setup-minimal && \
