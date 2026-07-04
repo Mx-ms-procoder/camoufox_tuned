@@ -1,7 +1,9 @@
 diff --git a/dom/canvas/CanvasRenderingContext2D.cpp b/dom/canvas/CanvasRenderingContext2D.cpp
+index c1d3f13..61ffb6f 100644
 --- a/dom/canvas/CanvasRenderingContext2D.cpp
 +++ b/dom/canvas/CanvasRenderingContext2D.cpp
-@@ -9,5 +9,8 @@
+@@ -8,6 +8,9 @@
+ 
  #include "CanvasImageCache.h"
  #include "CanvasUtils.h"
 +// Camoufox: content-aware 2D canvas noise (see /camoucfg/CanvasNoise.hpp).
@@ -10,13 +12,10 @@ diff --git a/dom/canvas/CanvasRenderingContext2D.cpp b/dom/canvas/CanvasRenderin
  #include "GeckoBindings.h"
  #include "ImageEncoder.h"
  #include "ImageRegion.h"
-@@ -6633,9 +6636,21 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
-   if (extractionBehavior == CanvasUtils::ImageExtraction::Randomize) {
-     if (readback) {
-       readback = CreateDataSourceSurfaceByCloning(readback);
+@@ -6648,6 +6651,18 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
      }
    }
-
+ 
 +  // Camoufox: content-aware canvas noise, independent of RFP. RFP is
 +  // intentionally OFF in Camoufox, so the upstream Randomize path above
 +  // never runs. When canvas:noiseSeed is configured we clone the readback
@@ -32,7 +31,7 @@ diff --git a/dom/canvas/CanvasRenderingContext2D.cpp b/dom/canvas/CanvasRenderin
    DataSourceSurface::MappedSurface rawData;
    if (!readback || !readback->Map(DataSourceSurface::READ, &rawData)) {
      return NS_ERROR_OUT_OF_MEMORY;
-@@ -6662,6 +6677,14 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
+@@ -6674,6 +6689,14 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
                                      size.height * size.width * 4,
                                      SurfaceFormat::A8R8G8B8_UINT32);
      }
@@ -44,6 +43,6 @@ diff --git a/dom/canvas/CanvasRenderingContext2D.cpp b/dom/canvas/CanvasRenderin
 +      camoufox::ApplyCanvasNoise(rawData.mData, rawData.mStride, size.width,
 +                                 size.height, camouCanvasSeed.value());
 +    }
-
+ 
      JS::AutoCheckCannotGC nogc;
      bool isShared;
