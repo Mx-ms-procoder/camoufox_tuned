@@ -1,0 +1,102 @@
+# =============================================================================
+# EXPERIMENTAL clang-cl / windows-msvc cross-build (prototype, iteration 1)
+# =============================================================================
+# Parallel to assets/windows.mozconfig (the mingw *-pc-windows-gnu build). This
+# targets *-pc-windows-msvc with clang-cl + lld-link, cross-compiled from Linux
+# using MSVC CRT + Windows SDK provided by `xwin` (see scripts/setup_xwin.sh).
+#
+# WHY: the mingw build accreted ~a dozen toolchain workarounds (emutls, libssp,
+# --allow-multiple-definition, static-libstdc++, dcomp.h backfill, bcryptprimitives
+# synth, PDB/LTO/notification disables, cc/cxx wrappers) and hit a wall — mozjemalloc
+# self-deadlocks / crashes accessing its thread_local in mozglue's DllMain because
+# neither mingw TLS model works there. windows-msvc is Mozilla's first-class Windows
+# target: native TLS works in DllMain, so that whole class of bug disappears, and
+# the workarounds above retire. See WINDOWS_CLANG_CL_MIGRATION.md.
+#
+# base.mozconfig is prepended by patch.py (_update_mozconfig). It already sets
+# --disable-crashreporter (so NO DIA SDK needed) and --disable-bootstrap with
+# host llvm-18. This file only adds the windows-msvc toolchain specifics.
+#
+# STATUS: scaffold. Expect several CI iterations. Blocks flagged `# ITERATE:` are
+# the known friction points to resolve against real build output.
+# =============================================================================
+
+# --- Arch / target triple -----------------------------------------------------
+# BUILD_TARGET is exported by multibuild.py as "windows-msvc,<arch>". _mixin.py
+# get_moz_target() must map this to {arch}-pc-windows-msvc (see plan doc).
+if [ "$BUILD_TARGET" = "windows-msvc,i686" ]; then
+    MSVC_ARCH=x86
+    CLANG_TARGET=i686-pc-windows-msvc
+    XWIN_ARCH=x86
+else
+    MSVC_ARCH=x64
+    CLANG_TARGET=x86_64-pc-windows-msvc
+    XWIN_ARCH=x86_64
+fi
+
+ac_add_options --target=$CLANG_TARGET
+
+# --- xwin sysroot layout ------------------------------------------------------
+# `xwin splat --output "$XWIN_ROOT"` produces:
+#   $XWIN_ROOT/crt/{include,lib/<arch>}
+#   $XWIN_ROOT/sdk/{include/{ucrt,um,shared,winrt},lib/{ucrt,um}/<arch>}
+# and fixes header/lib case with symlinks. Overridable so CI and local devs can
+# point elsewhere; default matches setup_xwin.sh.
+XWIN_ROOT="${XWIN_ROOT:-$HOME/.xwin}"
+
+# --- Compiler / linker --------------------------------------------------------
+# Use the host llvm-18 clang-cl driver (MSVC-compatible CLI) + lld-link.
+export CC="clang-cl --target=$CLANG_TARGET"
+export CXX="clang-cl --target=$CLANG_TARGET"
+export AR=llvm-lib
+export LINKER=lld-link
+# Mozilla's toolchain configure keys the Windows link off these.
+export WINDOWSSDKDIR="$XWIN_ROOT/sdk"
+export DIA_SDK_PATH=""   # crashreporter disabled -> DIA not required
+
+# Feed the MSVC + SDK include trees to clang-cl. -imsvc marks them as system
+# includes (suppresses warnings, correct search order after user includes).
+_xwin_inc="-imsvc $XWIN_ROOT/crt/include \
+-imsvc $XWIN_ROOT/sdk/include/ucrt \
+-imsvc $XWIN_ROOT/sdk/include/um \
+-imsvc $XWIN_ROOT/sdk/include/shared \
+-imsvc $XWIN_ROOT/sdk/include/winrt"
+export CFLAGS="$CFLAGS -Wno-unused-command-line-argument $_xwin_inc"
+export CXXFLAGS="$CXXFLAGS -Wno-unused-command-line-argument $_xwin_inc"
+export HOST_CFLAGS="$HOST_CFLAGS"
+export HOST_CXXFLAGS="$HOST_CXXFLAGS"
+
+# Library search paths for lld-link (MSVC-style /libpath:).
+_xwin_lib="-libpath:$XWIN_ROOT/crt/lib/$XWIN_ARCH \
+-libpath:$XWIN_ROOT/sdk/lib/ucrt/$XWIN_ARCH \
+-libpath:$XWIN_ROOT/sdk/lib/um/$XWIN_ARCH"
+export LDFLAGS="$LDFLAGS $_xwin_lib"
+
+# --- Assembler ----------------------------------------------------------------
+# ITERATE: Firefox needs a MASM-compatible assembler for a handful of .asm files
+# (ml64.exe on native Windows). llvm-ml (ships with llvm-18) is the drop-in cross
+# assembler. Confirm mach picks it up; if configure hard-checks for ml64.exe, add
+# a shim named ml64.exe -> llvm-ml on PATH, or set the assembler var mach expects.
+if command -v llvm-ml-18 >/dev/null 2>&1; then
+    export MASM="$(command -v llvm-ml-18)"
+elif command -v llvm-ml >/dev/null 2>&1; then
+    export MASM="$(command -v llvm-ml)"
+fi
+
+# --- HLSL shader compiler (fxc) ----------------------------------------------
+# ANGLE needs fxc.exe. The mingw path already solved this with fxc2 + a wine
+# wrapper (assets/windows.mozconfig lines ~229-248). ITERATE: reuse that same
+# fxc2/wine-fxc-wrapper setup here unchanged — it is toolchain-independent.
+
+# --- Build tuning (kept from the mingw build where still relevant) -------------
+# Release build with no test/updater surface comes from base.mozconfig. Unlike
+# the mingw build we do NOT need --disable-lto / --disable-debug-symbols /
+# --disable-notification-server / --allow-multiple-definition / emutls / libssp /
+# static-libstdc++ — those were all mingw-toolchain workarounds. Start WITHOUT
+# them and only re-add if a real failure appears.
+#
+# ITERATE: MOZ_NOTIFICATION_SERVER builds on clang-cl (upstream only gates it off
+# for mingw), so it should compile here; leave enabled unless packaging complains.
+
+# i686 SSE2 baseline: clang-cl defaults 32-bit to SSE2 like MSVC (/arch:SSE2),
+# so the mingw `-msse2 -mfpmath=sse` workaround is NOT needed here.
