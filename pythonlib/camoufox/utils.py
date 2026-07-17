@@ -1032,7 +1032,6 @@ def launch_options(
         sidecar_env = _tls_profile.to_sidecar_env()
         env_vars.update(sidecar_env)
         env_vars["CAMOU_UTLS_MODE"] = "mitm"
-        from .warnings import LeakWarning
         LeakWarning.warn("sidecar_mitm_ca_not_auto_trusted")
 
 
