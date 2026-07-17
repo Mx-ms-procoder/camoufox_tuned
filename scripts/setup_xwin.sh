@@ -27,7 +27,23 @@ echo "Downloading xwin ${XWIN_VERSION} ..."
 curl --fail -L "$url" | tar -xz -C "$tmp" --strip-components=1
 
 echo "Splatting MSVC CRT + Windows SDK to $XWIN_ROOT (arches: $XWIN_ARCHES) ..."
-"$tmp/xwin" --accept-license --arch "$XWIN_ARCHES" splat --output "$XWIN_ROOT"
+# --preserve-ms-arch-notation: emit MS arch dir names (x64/x86) instead of
+# xwin's default x86_64/x86, because Firefox's windows.configure maps its target
+# to the MS notation (x86_64 -> x64) when it looks for <vc_path>/lib/<arch> and
+# <vc_path>/atlmfc/lib/<arch>. Without this the isdir checks miss.
+"$tmp/xwin" --accept-license --arch "$XWIN_ARCHES" splat \
+    --preserve-ms-arch-notation --output "$XWIN_ROOT"
+
+# xwin ships no ATL/MFC, but Firefox's windows.configure hard-requires the
+# directories <vc_path>/atlmfc/include and <vc_path>/atlmfc/lib/<msarch> to
+# EXIST (plain os.path.isdir checks — it does not read their contents at
+# configure time). Create empty stubs so configure proceeds; this is a PROBE:
+# if any translation unit actually `#include`s an ATL header we'll get a clear
+# "atlbase.h not found" compile error and must then source real ATL (msvc-wine).
+mkdir -p "$XWIN_ROOT/crt/atlmfc/include"
+for a in x64 x86 arm64 arm; do
+    mkdir -p "$XWIN_ROOT/crt/atlmfc/lib/$a"
+done
 
 # xwin already symlinks the common case variants, but Firefox's SDK includes
 # reference a few headers with casings xwin's heuristic can miss. Belt-and-suspenders:

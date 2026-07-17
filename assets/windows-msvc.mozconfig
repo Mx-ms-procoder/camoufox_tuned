@@ -26,12 +26,15 @@
 # is selected by CAMOU_WIN_TOOLCHAIN=msvc, which makes _mixin.get_moz_target()
 # return {arch}-pc-windows-msvc and patch.py append THIS file + the matching
 # `ac_add_options --target=` line. So do NOT add --target here (would duplicate).
+# XWIN_ARCH uses MS notation (x64/x86) to match `xwin splat
+# --preserve-ms-arch-notation` output AND Firefox's own <vc_path>/lib/<arch>
+# lookup (windows.configure maps target x86_64 -> "x64").
 if [ "$BUILD_TARGET" = "windows,i686" ]; then
     CLANG_TARGET=i686-pc-windows-msvc
     XWIN_ARCH=x86
 else
     CLANG_TARGET=x86_64-pc-windows-msvc
-    XWIN_ARCH=x86_64
+    XWIN_ARCH=x64
 fi
 
 # --- xwin sysroot layout ------------------------------------------------------
@@ -48,23 +51,26 @@ export CC="clang-cl --target=$CLANG_TARGET"
 export CXX="clang-cl --target=$CLANG_TARGET"
 export AR=llvm-lib
 export LINKER=lld-link
-# Mozilla's toolchain configure keys the Windows link off these.
+# Point clang-cl at the MSVC CRT + Windows SDK via its OWN toolchain-detection
+# flags (NOT manual -imsvc). This is the decisive iteration-2 fix: Firefox's
+# windows.configure derives `vc_path` (the VC install it validates for ATL) from
+# what the compiler reports, and only -vctoolsdir/-winsdkdir make clang-cl report
+# a VC install. Manual -imsvc left vc_path=None -> "Cannot find a Visual C++
+# install for e.g. ATL headers" (iteration 1).
+_xwin_tc="-vctoolsdir $XWIN_ROOT/crt -winsdkdir $XWIN_ROOT/sdk"
+export CFLAGS="$CFLAGS -Wno-unused-command-line-argument $_xwin_tc"
+export CXXFLAGS="$CXXFLAGS -Wno-unused-command-line-argument $_xwin_tc"
+
+# Belt-and-suspenders for Firefox's env-based VC detection: some windows.configure
+# paths read these instead of / in addition to the compiler. Point them at the
+# xwin VC install root (its `crt` dir plays the VC/Tools/MSVC/<ver> role here).
 export WINDOWSSDKDIR="$XWIN_ROOT/sdk"
+export VCINSTALLDIR="$XWIN_ROOT/crt"
+export VCToolsInstallDir="$XWIN_ROOT/crt"
 export DIA_SDK_PATH=""   # crashreporter disabled -> DIA not required
 
-# Feed the MSVC + SDK include trees to clang-cl. -imsvc marks them as system
-# includes (suppresses warnings, correct search order after user includes).
-_xwin_inc="-imsvc $XWIN_ROOT/crt/include \
--imsvc $XWIN_ROOT/sdk/include/ucrt \
--imsvc $XWIN_ROOT/sdk/include/um \
--imsvc $XWIN_ROOT/sdk/include/shared \
--imsvc $XWIN_ROOT/sdk/include/winrt"
-export CFLAGS="$CFLAGS -Wno-unused-command-line-argument $_xwin_inc"
-export CXXFLAGS="$CXXFLAGS -Wno-unused-command-line-argument $_xwin_inc"
-export HOST_CFLAGS="$HOST_CFLAGS"
-export HOST_CXXFLAGS="$HOST_CXXFLAGS"
-
-# Library search paths for lld-link (MSVC-style /libpath:).
+# Explicit link search paths (MS-notation dirs), in case the -winsdkdir-derived
+# defaults miss any. Firefox's lib_path also adds <vc_path>/lib/<arch> itself.
 _xwin_lib="-libpath:$XWIN_ROOT/crt/lib/$XWIN_ARCH \
 -libpath:$XWIN_ROOT/sdk/lib/ucrt/$XWIN_ARCH \
 -libpath:$XWIN_ROOT/sdk/lib/um/$XWIN_ARCH"
