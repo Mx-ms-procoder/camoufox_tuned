@@ -116,6 +116,42 @@ else
     _camou_lld_glob='__camou_no_lld_match__'
 fi
 
+# mozjemalloc DllMain self-deadlock fix. The global -femulated-tls set below
+# (lines ~70-71, required so ANGLE/libGLESv2 + xul's mingw-libstdc++
+# std::call_once thread_locals resolve against their emutls control vars) routes
+# EVERY thread_local through libgcc's __emutls_get_address, which calloc()s the
+# per-thread block on first access. mozjemalloc reads its OWN thread_local (tsd)
+# while it holds its non-recursive SRW init lock during mozglue.dll's DllMain;
+# that calloc re-enters jemalloc init -> re-acquires the same SRW lock on the
+# same thread -> hard self-deadlock. Result: camoufox.exe wedges in the loader
+# with only mozglue mapped, xul.dll never loads, and Playwright/`--version`
+# hang forever (diagnosed 2026-07-17 via gdb: AcquireSRWLockExclusive appears
+# twice on the main-thread stack under LdrInitializeThunk).
+#
+# Fix: compile memory/build + mozglue with NATIVE TLS (-fno-emulated-tls). Native
+# TLS is a loader-resolved TEB-slot read with no malloc, so jemalloc's init can't
+# re-enter. This is safe because the built mozglue.dll's ONLY thread_locals are
+# its 6 own jemalloc tsd vars with ZERO libstdc++ thread_local references
+# (verified on the shipped binary: 6 emutls control objects vs xul.dll's 6727
+# call sites) -- so nothing in mozglue needs emutls to link, and jemalloc's tsd
+# is internal (never referenced with emutls from another TU), so no ABI mismatch.
+# emutls stays the global default everywhere else. Scope by cwd (mach compiles
+# per-directory) with a source-path fallback for non-recursive backends;
+# -fno-emulated-tls is appended AFTER "$@" so clang's last-flag-wins beats the
+# global -femulated-tls carried in CFLAGS/CXXFLAGS.
+_camou_tls_scan='_camou_tls=
+case "$(pwd)" in
+  */memory/build*|*/mozglue*) _camou_tls=-fno-emulated-tls ;;
+esac
+if [ -z "$_camou_tls" ]; then
+  for a in "$@"; do
+    case "$a" in
+      */memory/build/*.c|*/memory/build/*.cc|*/memory/build/*.cpp|*/mozglue/*.c|*/mozglue/*.cc|*/mozglue/*.cpp)
+        _camou_tls=-fno-emulated-tls ;;
+    esac
+  done
+fi'
+
 cat > "$_camou_wrap/cc" <<EOF
 #!/bin/sh
 n=\$#
@@ -132,7 +168,8 @@ for a in "\$@"; do
     $_camou_lld_glob) _camou_ld=-fuse-ld=lld ;;
   esac
 done
-clang --target=$MINGW_TRIPLE \$_camou_ld "\$@"
+$_camou_tls_scan
+clang --target=$MINGW_TRIPLE \$_camou_ld "\$@" \$_camou_tls
 rc=\$?
 if [ \$rc -ne 0 ]; then
   for a in "\$@"; do
@@ -170,7 +207,8 @@ for a in "\$@"; do
     $_camou_lld_glob) _camou_ld=-fuse-ld=lld ;;
   esac
 done
-clang++ --target=$MINGW_TRIPLE \$_camou_ld "\$@"
+$_camou_tls_scan
+clang++ --target=$MINGW_TRIPLE \$_camou_ld "\$@" \$_camou_tls
 rc=\$?
 if [ \$rc -ne 0 ]; then
   for a in "\$@"; do
