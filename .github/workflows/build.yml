@@ -12,6 +12,13 @@ on:
           - linux
           - windows
           - macos
+      win_toolchain:
+        description: "Windows toolchain: 'mingw' (default, *-windows-gnu) or 'msvc' (experimental clang-cl cross via xwin). Only affects windows legs."
+        type: choice
+        default: mingw
+        options:
+          - mingw
+          - msvc
   push:
     tags:
       - "*"
@@ -211,6 +218,13 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
 
+    env:
+      # Windows toolchain selector. 'mingw' (default, and the value for every
+      # non-dispatch event since inputs.win_toolchain is empty then) keeps the
+      # *-windows-gnu path untouched; 'msvc' routes windows legs through the
+      # clang-cl cross-build (assets/windows-msvc.mozconfig + scripts/setup_xwin.sh).
+      CAMOU_WIN_TOOLCHAIN: ${{ (github.event_name == 'workflow_dispatch' && inputs.win_toolchain) || 'mingw' }}
+
     steps:
       - name: Maximize build space
         # Pinned to the immutable commit SHA of tag v4.1 (supply-chain
@@ -308,7 +322,22 @@ jobs:
           if [ "${{ matrix.target }}" = "windows" ]; then
             sudo apt-get install -y --no-install-recommends wine wine64 zstd
           fi
-          if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
+          if [ "${{ matrix.target }}" = "windows" ] && [ "$CAMOU_WIN_TOOLCHAIN" = "msvc" ]; then
+            # clang-cl cross toolchain: MSVC CRT + Windows SDK via xwin, plus the
+            # llvm-ml MASM-compatible assembler. clang-cl/lld-link/llvm-lib already
+            # come from the "Set up LLVM" step (llvm-18). Replaces the entire mingw
+            # apt block below. See assets/windows-msvc.mozconfig + setup_xwin.sh.
+            sudo apt-get install -y --no-install-recommends curl
+            # llvm-ml (MASM-compatible assembler) ships in the llvm-18 install as
+            # /usr/bin/llvm-ml-18; expose it under the plain name too. If absent,
+            # windows-msvc.mozconfig's detection falls through and configure will
+            # report the missing assembler (ITERATE).
+            if [ -x /usr/bin/llvm-ml-18 ]; then
+              sudo update-alternatives --install /usr/bin/llvm-ml llvm-ml /usr/bin/llvm-ml-18 100 || true
+            fi
+            bash scripts/setup_xwin.sh
+          fi
+          if [ "${{ matrix.target }}" = "windows" ] && [ "$CAMOU_WIN_TOOLCHAIN" != "msvc" ] && [ "${{ matrix.arch }}" = "x86_64" ]; then
             # Install the posix-threads variant explicitly: clang links the
             # static libstdc++ from the mingw GCC install, and only the posix
             # runtime defines the gthr-posix TLS globals std::__once_call /
@@ -321,7 +350,7 @@ jobs:
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-mingw32-windres
             sudo ln -sf /usr/bin/x86_64-w64-mingw32-windres /usr/local/bin/x86_64-pc-mingw32-windres
           fi
-          if [ "${{ matrix.target }}" = "windows" ] && [ "${{ matrix.arch }}" = "i686" ]; then
+          if [ "${{ matrix.target }}" = "windows" ] && [ "$CAMOU_WIN_TOOLCHAIN" != "msvc" ] && [ "${{ matrix.arch }}" = "i686" ]; then
             # posix-threads variant (see x86_64 note above): provides the
             # libstdc++ that defines std::__once_call / std::__once_callable.
             sudo apt-get install -y gcc-mingw-w64-i686 g++-mingw-w64-i686 binutils-mingw-w64-i686 \
@@ -330,7 +359,7 @@ jobs:
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-mingw32-windres
             sudo ln -sf /usr/bin/i686-w64-mingw32-windres /usr/local/bin/i686-pc-mingw32-windres
           fi
-          if [ "${{ matrix.target }}" = "windows" ]; then
+          if [ "${{ matrix.target }}" = "windows" ] && [ "$CAMOU_WIN_TOOLCHAIN" != "msvc" ]; then
             # Generate a libbcryptprimitives.a import library. Rust's std links
             # bcryptprimitives.dll (ProcessPrng, the Win10 CSPRNG) via raw-dylib,
             # which doesn't work on MinGW, so toolkit/library/moz.build adds
@@ -702,8 +731,8 @@ jobs:
           # arm64 runner) need no extra target install.
           case "${{ matrix.target }}-${{ matrix.arch }}" in
             linux-i686)     rustup target add i686-unknown-linux-gnu ;;
-            windows-x86_64) rustup target add x86_64-pc-windows-gnu ;;
-            windows-i686)   rustup target add i686-pc-windows-gnu ;;
+            windows-x86_64) if [ "$CAMOU_WIN_TOOLCHAIN" = "msvc" ]; then rustup target add x86_64-pc-windows-msvc; else rustup target add x86_64-pc-windows-gnu; fi ;;
+            windows-i686)   if [ "$CAMOU_WIN_TOOLCHAIN" = "msvc" ]; then rustup target add i686-pc-windows-msvc; else rustup target add i686-pc-windows-gnu; fi ;;
             macos-x86_64)   rustup target add x86_64-apple-darwin ;;
             macos-arm64)    rustup target add aarch64-apple-darwin ;;
           esac

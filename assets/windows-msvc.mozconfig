@@ -22,19 +22,17 @@
 # =============================================================================
 
 # --- Arch / target triple -----------------------------------------------------
-# BUILD_TARGET is exported by multibuild.py as "windows-msvc,<arch>". _mixin.py
-# get_moz_target() must map this to {arch}-pc-windows-msvc (see plan doc).
-if [ "$BUILD_TARGET" = "windows-msvc,i686" ]; then
-    MSVC_ARCH=x86
+# The target stays "windows" (BUILD_TARGET="windows,<arch>"); the clang-cl path
+# is selected by CAMOU_WIN_TOOLCHAIN=msvc, which makes _mixin.get_moz_target()
+# return {arch}-pc-windows-msvc and patch.py append THIS file + the matching
+# `ac_add_options --target=` line. So do NOT add --target here (would duplicate).
+if [ "$BUILD_TARGET" = "windows,i686" ]; then
     CLANG_TARGET=i686-pc-windows-msvc
     XWIN_ARCH=x86
 else
-    MSVC_ARCH=x64
     CLANG_TARGET=x86_64-pc-windows-msvc
     XWIN_ARCH=x86_64
 fi
-
-ac_add_options --target=$CLANG_TARGET
 
 # --- xwin sysroot layout ------------------------------------------------------
 # `xwin splat --output "$XWIN_ROOT"` produces:

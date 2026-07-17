@@ -114,6 +114,11 @@ def get_moz_target(target, arch):
     if target == "linux":
         return "aarch64-unknown-linux-gnu" if arch == "arm64" else f"{arch}-pc-linux-gnu"
     if target == "windows":
+        # CAMOU_WIN_TOOLCHAIN=msvc selects the experimental clang-cl cross-build
+        # (assets/windows-msvc.mozconfig); default/unset keeps the mingw
+        # *-windows-gnu path. See WINDOWS_CLANG_CL_MIGRATION.md.
+        if os.environ.get("CAMOU_WIN_TOOLCHAIN") == "msvc":
+            return f"{arch}-pc-windows-msvc"
         return f"{arch}-pc-windows-gnu"
     if target == "macos":
         return "aarch64-apple-darwin" if arch == "arm64" else f"{arch}-apple-darwin"

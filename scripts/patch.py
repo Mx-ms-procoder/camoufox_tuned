@@ -155,8 +155,13 @@ class Patcher:
         # Add target option
         content += f"\nac_add_options --target={self.moz_target}\n"
 
-        # Add target-specific mozconfig if it exists
-        target_mozconfig = os.path.join("..", "assets", f"{self.target}.mozconfig")
+        # Add target-specific mozconfig if it exists. CAMOU_WIN_TOOLCHAIN=msvc
+        # swaps the windows toolchain file to the clang-cl one, leaving the mingw
+        # windows.mozconfig (the default/fallback) untouched.
+        mozconfig_basename = self.target
+        if self.target == "windows" and os.environ.get("CAMOU_WIN_TOOLCHAIN") == "msvc":
+            mozconfig_basename = "windows-msvc"
+        target_mozconfig = os.path.join("..", "assets", f"{mozconfig_basename}.mozconfig")
         if os.path.exists(target_mozconfig):
             with open(target_mozconfig, 'r', encoding='utf-8') as f:
                 content += f.read()
@@ -205,7 +210,10 @@ def _update_rustup(target):
     if target == "linux":
         add_rustup("x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu", "i686-unknown-linux-gnu")
     elif target == "windows":
-        add_rustup("x86_64-pc-windows-gnu", "i686-pc-windows-gnu")
+        if os.environ.get("CAMOU_WIN_TOOLCHAIN") == "msvc":
+            add_rustup("x86_64-pc-windows-msvc", "i686-pc-windows-msvc")
+        else:
+            add_rustup("x86_64-pc-windows-gnu", "i686-pc-windows-gnu")
     elif target == "macos":
         add_rustup("x86_64-apple-darwin", "aarch64-apple-darwin")
 
