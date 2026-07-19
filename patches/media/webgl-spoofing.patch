@@ -231,7 +231,7 @@ index c7721c36a8..f439a8cbe6 100644
 +      }
 +    }
 +  } else if (mOffscreenCanvas) {
-+    if (nsIGlobalObject* global = mOffscreenCanvas->GetOwnerGlobal()) {
++    if (nsIGlobalObject* global = mOffscreenCanvas->GetParentObject()) {
 +      nsCOMPtr<nsPIDOMWindowInner> win = do_QueryInterface(global);
 +      if (win) {
 +        if (BrowsingContext* bc = win->GetBrowsingContext()) {
