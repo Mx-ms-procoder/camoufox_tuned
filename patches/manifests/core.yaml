@@ -3,13 +3,15 @@ description: "Core runtime and browser-shell patches"
 patches:
   - core/chromeutil.patch
   - core/config.patch
-  # Lower mac_sdk_min_version 26.2 -> 26.1: FF150 demands SDK >= 26.2 but the
-  # public joseluisq macOS SDK mirror tops out at 26.1. The macOS cross-build
-  # provides 26.1 via --with-macos-sdk and compiles it with Mozilla's
-  # bootstrapped clang (new enough to parse the SDK's visionOS availability
-  # tokens that host clang-18 choked on). See assets/macos.mozconfig.
-  - core/macos-sdk-min-version.patch
+  # (core/macos-sdk-min-version.patch removed 2026-07-19: it lowered
+  # mac_sdk_min_version 26.4 -> 26.1 for the joseluisq mirror, but FF152's
+  # WebAuthn prf usage needs the real 26.5 SDK now fetched via unpack-sdk.py
+  # (build.yml). 26.5 >= native 26.4, so no lowering is required.)
   - core/disable-remote-subframes.patch
+  # FF152 i686 (32-bit) build fix: VkImage/VkDeviceMemory are uint64_t on 32-bit,
+  # so FFmpegVulkanVideoDecoder.cpp's `= nullptr` doesn't compile. Assign
+  # VK_NULL_HANDLE instead (no-op on 64-bit). See patch header.
+  - core/ffmpeg-vulkan-nullhandle.patch
   - core/global-style-sheets.patch
   - core/macos-sandbox-crash-fix.patch
   - core/windows-theming-bug-modified.patch

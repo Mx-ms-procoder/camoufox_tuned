@@ -393,26 +393,29 @@ jobs:
           cd "$src_dir"
           MOZBUILD_STATE_PATH="$HOME/.mozbuild" ./mach --no-interactive bootstrap --application-choice=browser
 
-      - name: Fetch macOS SDK (public mirror)
-        # Mozilla's bootstrapped macOS SDK is private (the in-build auto-fetch
-        # returns HTTP 403 externally). Supply the public MacOSX26.1 SDK and
-        # point --with-macos-sdk at it (assets/macos.mozconfig). FF150 wants
-        # >= 26.2; core/macos-sdk-min-version.patch lowers that to 26.1 because
-        # the joseluisq mirror tops out at 26.1. SHA-pinned to the value the
-        # release also publishes; a corrupted/swapped tarball would otherwise
-        # surface as confusing clang/link errors deep in the cross build.
+      - name: Fetch macOS SDK (Apple CDN, 26.5)
+        # Mirror upstream camoufox: download Apple's official macOS 26.5 SDK via
+        # Mozilla's unpack-sdk.py. The joseluisq mirror tops out at 26.1, which
+        # LACKS the WebAuthn `prf` property FF152's dom/webauthn/
+        # MacOSWebAuthnService.mm requires (build fails at ~52min: "property
+        # 'prf' not found on ASAuthorizationSecurityKeyPublicKeyCredential*").
+        # 26.5 also satisfies FF152's native mac_sdk_min_version=26.4, so the
+        # former core/macos-sdk-min-version.patch (26.4->26.1) is dropped. Runs
+        # after "Setup source" + bootstrap (mach + build venv available);
+        # unpack-sdk.py SHA512-verifies the download itself.
         if: matrix.target == 'macos'
-        env:
-          MACOS_SDK_VERSION: "26.1"
-          MACOS_SDK_SHA256: "beee7212d265a6d2867d0236cc069314b38d5fb3486a6515734e76fa210c784c"
         run: |
           set -eux
-          mkdir -p "$HOME/.mozbuild"
-          url="https://github.com/joseluisq/macosx-sdks/releases/download/${MACOS_SDK_VERSION}/MacOSX${MACOS_SDK_VERSION}.sdk.tar.xz"
-          curl -fsSL --retry 5 --retry-all-errors "$url" -o /tmp/macsdk.tar.xz
-          echo "${MACOS_SDK_SHA256}  /tmp/macsdk.tar.xz" | sha256sum -c -
-          tar -xJf /tmp/macsdk.tar.xz -C "$HOME/.mozbuild"
-          sdk_dir="$HOME/.mozbuild/MacOSX${MACOS_SDK_VERSION}.sdk"
+          src_dir="$(ls -d camoufox-*/ | head -n1)"
+          sdk_dir="$HOME/.mozbuild/MacOSX26.5.sdk"
+          if [ ! -f "$sdk_dir/SDKSettings.plist" ]; then
+            ( cd "$src_dir" && env -u MOZ_AUTOMATION ./mach --no-interactive python --virtualenv build \
+                taskcluster/scripts/misc/unpack-sdk.py \
+                https://swcdn.apple.com/content/downloads/09/08/047-91568-A_Y1CFZWQCD4/4xekpyz43i26dbp4enxfro8eb1q7wiujh5/CLTools_macOSNMOS_SDK.pkg \
+                5db8b5a06a489a7d3ec587ebb7e01be55163128029923fc24edcad47faecd67830193c0d91e2643ee0e92f2ccca37adf20e4c42cf8de5784666f8663638b5cc5 \
+                Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk \
+                "$sdk_dir" )
+          fi
           test -d "$sdk_dir"
           echo "MACOS_SDK_DIR=$sdk_dir" >> "$GITHUB_ENV"
 
