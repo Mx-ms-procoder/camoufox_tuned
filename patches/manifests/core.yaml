@@ -15,3 +15,11 @@ patches:
   - core/windows-theming-bug-modified.patch
   - core/cross-process-storage.patch
   - core/browser-init.patch
+  # Guard maybeDontRestoreTabs against windows SessionStore never registered
+  # (window.open popups with window features open as separate chrome windows
+  # that skip onLoad tracking). globalOverlay.js calls it unconditionally on
+  # window close; an untracked window left this._windows[__SSi] undefined and
+  # the bare property set threw, crashing Browser.removeBrowserContext and
+  # killing the juggler channel. Upstream 152 bugfix; directly serves "the
+  # browser must start AND run" — a popup close otherwise takes down automation.
+  - core/sessionstore-popup-close-crash.patch

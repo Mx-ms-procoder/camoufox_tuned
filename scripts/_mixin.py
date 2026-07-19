@@ -97,29 +97,22 @@ def get_moz_target(target, arch):
         Mozilla configure       Rust target (rustup)
         --------------------    ----------------------
         i686-pc-linux-gnu       i686-unknown-linux-gnu
-        x86_64-pc-windows-gnu   x86_64-pc-windows-gnu
-        i686-pc-windows-gnu     i686-pc-windows-gnu
+        x86_64-pc-windows-msvc  x86_64-pc-windows-msvc
+        i686-pc-windows-msvc    i686-pc-windows-msvc
         *-apple-darwin          *-apple-darwin           (identical)
 
-    Firefox 150 REMOVED the legacy ``*-pc-mingw32`` configure triple
-    (``Target x86_64-pc-mingw32 is no longer supported, try
-    x86_64-pc-windows-gnu or x86_64-pc-windows-msvc instead``). This fork
-    cross-compiles Windows from Linux with the MinGW/clang toolchain, so it
-    uses the GNU/MinGW ABI triple ``*-pc-windows-gnu`` (upstream camoufox
-    builds on real Windows runners and uses ``*-pc-windows-msvc`` instead).
-    The MinGW-specific mozconfig logic in ``assets/windows.mozconfig`` keys
-    off ``$BUILD_TARGET`` and the ``$MINGW_TRIPLE`` (``*-w64-mingw32``)
-    toolchain triple, NOT off this configure triple, so the rename is safe.
+    Windows uses the MSVC ABI triple ``*-pc-windows-msvc`` — Mozilla's
+    first-class Windows target, cross-compiled from Linux with clang-cl +
+    lld-link against the Visual Studio / Windows SDK that ``mach bootstrap``
+    downloads to ``~/.mozbuild/vs`` (base.mozconfig sets ``--enable-bootstrap``
+    for windows). This replaced the former MinGW ``*-pc-windows-gnu`` cross:
+    its dozen toolchain workarounds and the mozjemalloc DllMain TLS deadlock
+    are all gone on the MSVC ABI, where native TLS works in DllMain.
     """
     if target == "linux":
         return "aarch64-unknown-linux-gnu" if arch == "arm64" else f"{arch}-pc-linux-gnu"
     if target == "windows":
-        # CAMOU_WIN_TOOLCHAIN=msvc selects the experimental clang-cl cross-build
-        # (assets/windows-msvc.mozconfig); default/unset keeps the mingw
-        # *-windows-gnu path. See WINDOWS_CLANG_CL_MIGRATION.md.
-        if os.environ.get("CAMOU_WIN_TOOLCHAIN") == "msvc":
-            return f"{arch}-pc-windows-msvc"
-        return f"{arch}-pc-windows-gnu"
+        return f"{arch}-pc-windows-msvc"
     if target == "macos":
         return "aarch64-apple-darwin" if arch == "arm64" else f"{arch}-apple-darwin"
     raise ValueError(f"Unsupported target: {target}")

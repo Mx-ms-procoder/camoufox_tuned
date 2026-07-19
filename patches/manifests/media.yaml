@@ -15,3 +15,14 @@ patches:
   - media/audio-context-spoofing.patch
   - media/audio-fingerprint-manager.patch
   - media/media-device-spoofing.patch
+  # Config-driven speech-synthesis voice spoofing. Wires MaskConfig::MVoices()
+  # (already present in additions/camoucfg but previously unused) into
+  # nsSynthVoiceRegistry: loads the per-OS voice list from config, blocks
+  # undeclared voices, and fake-completes utterances so no real host TTS engine
+  # is enumerable. Adopted from upstream 152; REPLACES the fork's former
+  # security/speech-voices-spoofing.patch, whose only map-populator
+  # (window.setSpeechVoices) was stripped by zzz-remove-inert-setters.patch,
+  # leaving that patch dead. This approach has no window.set* runtime tell,
+  # matching the Option-B audit. Python side emits config['voices'] from
+  # voices.json (pythonlib).
+  - media/voice-spoofing.patch

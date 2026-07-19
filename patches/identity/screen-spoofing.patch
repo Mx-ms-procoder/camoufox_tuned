@@ -309,16 +309,18 @@ index 8ebb3e575a..f157ff7da8 100644
                                    "screen.availWidth", "screen.availHeight");
    if (rect.has_value()) {
 diff --git a/gfx/src/moz.build b/gfx/src/moz.build
-index d1e1cdf387..54fbb8ad08 100644
 --- a/gfx/src/moz.build
 +++ b/gfx/src/moz.build
-@@ -93,3 +93,6 @@ FINAL_LIBRARY = "xul"
- if CONFIG["MOZ_WIDGET_TOOLKIT"] == "gtk":
+@@ -95,6 +95,9 @@
      CXXFLAGS += CONFIG["MOZ_GTK3_CFLAGS"]
      CXXFLAGS += CONFIG["MOZ_PANGO_CFLAGS"]
-+
+ 
 +# DOM Mask
 +LOCAL_INCLUDES += ["/camoucfg"]
++
+ if CONFIG["TARGET_CPU"] == "aarch64":
+     DEFINES["USE_NEON"] = True
+     LOCAL_INCLUDES += ["/third_party/xsimd/include"]
 diff --git a/gfx/src/nsDeviceContext.cpp b/gfx/src/nsDeviceContext.cpp
 index 06b86c6c75..9641c8457c 100644
 --- a/gfx/src/nsDeviceContext.cpp

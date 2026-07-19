@@ -1,10 +1,9 @@
 diff --git a/browser/base/content/browser-init.js b/browser/base/content/browser-init.js
-index b64d2f52ed..543bb50593 100644
 --- a/browser/base/content/browser-init.js
 +++ b/browser/base/content/browser-init.js
-@@ -183,6 +183,22 @@ var gBrowserInit = {
+@@ -237,6 +237,22 @@
+     // correctly.
      window.TabBarVisibility.update();
-     CustomTitlebar.init();
  
 +    // If a list of languages were passed, use them.
 +    let camouLocale = ChromeUtils.camouGetString("locale:all")
@@ -22,9 +21,9 @@ index b64d2f52ed..543bb50593 100644
 +    if (camouLocale)
 +      Services.prefs.setCharPref("intl.accept_languages", camouLocale);
 +
-     new LightweightThemeConsumer(document);
- 
      if (
+       Services.prefs.getBoolPref(
+         "toolkit.legacyUserProfileCustomizations.windowIcon",
 diff --git a/intl/components/moz.build b/intl/components/moz.build
 index eb6673cb34..e7456492ee 100644
 --- a/intl/components/moz.build

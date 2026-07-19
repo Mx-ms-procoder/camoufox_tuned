@@ -65,7 +65,7 @@ index 74caa590c0..7627535068 100644
      return nullptr;
    }
  
--  mImpl->Load(aRv);
+-  mImpl->Load();
 +  nsAutoCString fontFamily;
 +  GetFamily(fontFamily);
 +

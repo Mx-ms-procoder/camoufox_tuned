@@ -1578,17 +1578,16 @@ index 2f7f261445..c5fc28182c 100644
  
  mozilla::ipc::IPCResult BrowserChild::RecvNormalPriorityRealMouseButtonEvent(
 diff --git a/dom/ipc/CoalescedMouseData.cpp b/dom/ipc/CoalescedMouseData.cpp
-index f71812b8e0..6286e45533 100644
---- a/dom/ipc/CoalescedMouseData.cpp
-+++ b/dom/ipc/CoalescedMouseData.cpp
-@@ -71,6 +71,9 @@ bool CoalescedMouseData::CanCoalesce(const WidgetMouseEvent& aEvent,
-       mCoalescedInputEvent->pointerId != aEvent.pointerId ||
-       mCoalescedInputEvent->mButton != aEvent.mButton ||
-       mCoalescedInputEvent->mButtons != aEvent.mButtons || mGuid != aGuid ||
+--- before/dom/ipc/CoalescedMouseData.cpp
++++ after/dom/ipc/CoalescedMouseData.cpp
+@@ -93,6 +93,9 @@
+       mCoalescedInputEvent->mButton != aMouseMoveEvent.mButton ||
+       mCoalescedInputEvent->mButtons != aMouseMoveEvent.mButtons ||
+       mCoalescedInputEvent->mMovement != aMouseMoveEvent.mMovement ||
 +      // `mJugglerEventId` is 0 for non-juggler events and a unique number for
 +      // juggler-emitted events.
-+      mCoalescedInputEvent->mJugglerEventId != aEvent.mJugglerEventId ||
-       mInputBlockId != aInputBlockId) {
++      mCoalescedInputEvent->mJugglerEventId != aMouseMoveEvent.mJugglerEventId ||
+       mGuid != aGuid || mInputBlockId != aInputBlockId) {
      return false;
    }
 diff --git a/dom/media/systemservices/video_engine/desktop_capture_impl.cc b/dom/media/systemservices/video_engine/desktop_capture_impl.cc
@@ -2496,23 +2495,9 @@ index cd6f670479..0e5652a49d 100644
  mozilla::StylePrefersContrast Gecko_MediaFeatures_PrefersContrast(
      const mozilla::dom::Document*);
 diff --git a/layout/style/nsMediaFeatures.cpp b/layout/style/nsMediaFeatures.cpp
-index 93eafd4b98..800bd0c502 100644
---- a/layout/style/nsMediaFeatures.cpp
-+++ b/layout/style/nsMediaFeatures.cpp
-@@ -274,11 +274,7 @@ bool Gecko_MediaFeatures_MatchesPlatform(StylePlatform aPlatform) {
- }
- 
- bool Gecko_MediaFeatures_PrefersReducedMotion(const Document* aDocument) {
--  if (aDocument->ShouldResistFingerprinting(
--          RFPTarget::CSSPrefersReducedMotion)) {
--    return false;
--  }
--  return LookAndFeel::GetInt(LookAndFeel::IntID::PrefersReducedMotion, 0) == 1;
-+  return aDocument->PrefersReducedMotion();
- }
- 
- bool Gecko_MediaFeatures_PrefersReducedTransparency(const Document* aDocument) {
-@@ -308,6 +304,20 @@ bool Gecko_MediaFeatures_MacRTL(const Document* aDocument) {
+--- before/layout/style/nsMediaFeatures.cpp
++++ after/layout/style/nsMediaFeatures.cpp
+@@ -322,6 +322,20 @@
  // as a signal.
  StylePrefersContrast Gecko_MediaFeatures_PrefersContrast(
      const Document* aDocument) {
@@ -2705,10 +2690,9 @@ index 74a4d086e0..445b4ec3b3 100644
     *  InterceptionTimeStamps is used to record the time stamps of the
     *  interception.
 diff --git a/netwerk/protocol/http/nsHttpChannel.cpp b/netwerk/protocol/http/nsHttpChannel.cpp
-index 5041de0a9e..05951a5945 100644
---- a/netwerk/protocol/http/nsHttpChannel.cpp
-+++ b/netwerk/protocol/http/nsHttpChannel.cpp
-@@ -916,11 +916,9 @@ nsresult nsHttpChannel::OnBeforeConnect() {
+--- before/netwerk/protocol/http/nsHttpChannel.cpp
++++ after/netwerk/protocol/http/nsHttpChannel.cpp
+@@ -941,11 +941,9 @@
    // SecurityInfo.sys.mjs
    mLoadInfo->SetHstsStatus(isSecureURI);
  
@@ -2721,7 +2705,7 @@ index 5041de0a9e..05951a5945 100644
        BYPASS_LOCAL_CACHE(mLoadFlags, LoadPreferCacheLoadOverBypass())) {
      return NS_ERROR_OFFLINE;
    }
-@@ -1033,9 +1031,7 @@ nsresult nsHttpChannel::MaybeUseHTTPSRRForUpgrade(bool aShouldUpgrade,
+@@ -1058,9 +1056,7 @@
      return aStatus;
    }
  
@@ -2732,7 +2716,7 @@ index 5041de0a9e..05951a5945 100644
  
    if (mURI->SchemeIs("https") || aShouldUpgrade || !LoadUseHTTPSSVC() ||
        forceOffline) {
-@@ -1516,15 +1512,14 @@ nsresult nsHttpChannel::ContinueConnect() {
+@@ -1523,15 +1519,14 @@
                       "CORS preflight must have been finished by the time we "
                       "do the rest of ContinueConnect");
  
@@ -2750,7 +2734,7 @@ index 5041de0a9e..05951a5945 100644
            BYPASS_LOCAL_CACHE(mLoadFlags, LoadPreferCacheLoadOverBypass())) {
          return NS_ERROR_OFFLINE;
        }
-@@ -1566,7 +1561,7 @@ nsresult nsHttpChannel::ContinueConnect() {
+@@ -1573,7 +1568,7 @@
    }
  
    // We're about to hit the network. Don't if we're forced offline.
@@ -2759,7 +2743,7 @@ index 5041de0a9e..05951a5945 100644
      return NS_ERROR_OFFLINE;
    }
  
-@@ -1674,12 +1669,9 @@ void nsHttpChannel::SpeculativeConnect() {
+@@ -1681,12 +1676,9 @@
    // don't speculate if we are offline, when doing http upgrade (i.e.
    // websockets bootstrap), or if we can't do keep-alive (because then we
    // couldn't reuse the speculative connection anyhow).
@@ -2773,17 +2757,7 @@ index 5041de0a9e..05951a5945 100644
      return;
    }
  
-@@ -5011,9 +5003,6 @@ nsresult nsHttpChannel::OpenCacheEntryInternal(bool isHttps) {
-   uint32_t cacheEntryOpenFlags;
-   bool offline = gIOService->IsOffline();
- 
--  RefPtr<mozilla::dom::BrowsingContext> bc;
--  mLoadInfo->GetBrowsingContext(getter_AddRefs(bc));
--
-   bool maybeRCWN = false;
- 
-   nsAutoCString cacheControlRequestHeader;
-@@ -5024,7 +5013,7 @@ nsresult nsHttpChannel::OpenCacheEntryInternal(bool isHttps) {
+@@ -4962,7 +4954,7 @@
      return NS_OK;
    }
  
@@ -2792,7 +2766,7 @@ index 5041de0a9e..05951a5945 100644
    if (offline || (mLoadFlags & INHIBIT_CACHING) || forceOffline) {
      if (BYPASS_LOCAL_CACHE(mLoadFlags, LoadPreferCacheLoadOverBypass()) &&
          !offline && !forceOffline) {
-@@ -8401,6 +8390,20 @@ void nsHttpChannel::MaybeStartDNSPrefetch() {
+@@ -8196,6 +8188,20 @@
    }
  }
  
@@ -3527,25 +3501,24 @@ index ca31e584b7..1dff8fd40c 100644
    ~HeadlessWidget();
    bool mEnabled;
 diff --git a/widget/nsGUIEventIPC.h b/widget/nsGUIEventIPC.h
-index 908a3d8a4a..9b6fbdb9ae 100644
---- a/widget/nsGUIEventIPC.h
-+++ b/widget/nsGUIEventIPC.h
-@@ -297,6 +297,7 @@ struct ParamTraits<mozilla::WidgetMouseEvent> {
+--- before/widget/nsGUIEventIPC.h
++++ after/widget/nsGUIEventIPC.h
+@@ -357,6 +357,7 @@
      WriteParam(aWriter, aParam.mContextMenuTrigger);
      WriteParam(aWriter, aParam.mExitFrom);
      WriteParam(aWriter, aParam.mClickCount);
 +    WriteParam(aWriter, aParam.mJugglerEventId);
      WriteParam(aWriter, aParam.mCallbackId);
+     WriteParam(aWriter, aParam.mMovement);
  
-     // Mark the event as stopped to notify callback.
-@@ -314,6 +315,7 @@ struct ParamTraits<mozilla::WidgetMouseEvent> {
+@@ -381,6 +382,7 @@
             ReadParam(aReader, &aResult->mContextMenuTrigger) &&
             ReadParam(aReader, &aResult->mExitFrom) &&
             ReadParam(aReader, &aResult->mClickCount) &&
 +           ReadParam(aReader, &aResult->mJugglerEventId) &&
-            ReadParam(aReader, &aResult->mCallbackId);
+            ReadParam(aReader, &aResult->mCallbackId) &&
+            ReadParam(aReader, &aResult->mMovement);
    }
- };
 diff --git a/xpcom/reflect/xptinfo/xptinfo.h b/xpcom/reflect/xptinfo/xptinfo.h
 index 2888ffaf43..cd4cce73f6 100644
 --- a/xpcom/reflect/xptinfo/xptinfo.h

@@ -74,13 +74,9 @@ expected:
 # is still the K-7 consolidation (single composite Window patch) that makes
 # this section unnecessary.
 ordered_hunk_overlaps:
-  - file: dom/base/nsGlobalWindowInner.h
-    before: identity/font-list-spoofing.patch
-    after: security/speech-voices-spoofing.patch
-    reason: >-
-      speech-voices declares SetSpeechVoices immediately after font-list's
-      SetFontList; its hunk context includes the font-list lines, so it
-      only applies once font-list has run.
+  # (speech-voices-spoofing.patch entry removed 2026-07-19 — that patch was
+  # replaced by the config-driven media/voice-spoofing.patch, which touches
+  # only nsSynthVoiceRegistry.cpp and overlaps nothing.)
   - file: dom/base/nsGlobalWindowInner.h
     before: identity/screen-spoofing.patch
     after: media/audio-fingerprint-manager.patch

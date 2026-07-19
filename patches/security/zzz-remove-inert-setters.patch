@@ -3,21 +3,24 @@
 # Option B removed the WebIDL `partial interface Window { set* }` declarations
 # and the manager Is...EnabledForWebIDL gates, so these nsGlobalWindowInner
 # setter methods (setWebGLRenderer/Vendor, setNavigator*, setAudioFingerprintSeed,
-# setWebRTCIPv4/6, setFontSpacingSeed, setFontList, setSpeechVoices, setTimezone,
+# setWebRTCIPv4/6, setFontSpacingSeed, setFontList, setTimezone,
 # setScreenDimensions/ColorDepth) are unreachable dead code — no WebIDL binding
 # and no other caller references them. They could not be excised in-place from
 # their originating patches because those patches chain across nsGlobalWindowInner.cpp
 # (each hunk's context is the previously-inserted setter). This patch instead runs
 # LAST (basename sorts after every feature patch, matching scripts/patch.py's
 # basename apply order) and deletes the whole island against the fully-patched tree.
-# Verified: applies with no fuzz/rejects after the full chain on real FF150.0.2;
+# Verified: applies with no fuzz/rejects after the full chain on real FF152.0.4;
 # leaves 0 setter defs/decls; getters and manager Get* (config-driven spoofing)
 # are untouched.
-diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
-index e526e8c..8d37243 100644
+#
+# 2026-07-19 (152 rebase): dropped setSpeechVoices from the removal set — the
+# speech-voices-spoofing.patch that added it was replaced by the config-driven
+# media/voice-spoofing.patch (MaskConfig::MVoices, no window.set* surface), so
+# SetSpeechVoices no longer exists to remove. Hunks regenerated against FF152.
 --- a/dom/base/nsGlobalWindowInner.cpp
 +++ b/dom/base/nsGlobalWindowInner.cpp
-@@ -7715,52 +7715,6 @@ nsISerialEventTarget* nsGlobalWindowInner::SerialEventTarget() const {
+@@ -7735,52 +7735,6 @@
    return GetMainThreadSerialEventTarget();
  }
  
@@ -70,7 +73,7 @@ index e526e8c..8d37243 100644
  Worklet* nsGlobalWindowInner::GetPaintWorklet(ErrorResult& aRv) {
    if (!mPaintWorklet) {
      nsIPrincipal* principal = GetPrincipal();
-@@ -7794,103 +7748,6 @@ IntlUtils* nsGlobalWindowInner::GetIntlUtils(ErrorResult& aError) {
+@@ -7814,103 +7768,6 @@
    return mIntlUtils;
  }
  
@@ -174,7 +177,7 @@ index e526e8c..8d37243 100644
  void nsGlobalWindowInner::StoreSharedWorker(SharedWorker* aSharedWorker) {
    MOZ_ASSERT(aSharedWorker);
    MOZ_ASSERT(!mSharedWorkers.Contains(aSharedWorker));
-@@ -7905,198 +7762,6 @@ void nsGlobalWindowInner::ForgetSharedWorker(SharedWorker* aSharedWorker) {
+@@ -7925,179 +7782,6 @@
    mSharedWorkers.RemoveElement(aSharedWorker);
  }
  
@@ -306,25 +309,6 @@ index e526e8c..8d37243 100644
 -  }
 -}
 -
--void nsGlobalWindowInner::SetSpeechVoices(const nsAString& aVoices,
--                                           ErrorResult& aRv) {
--  uint32_t userContextId = 0;
--  if (BrowsingContext* bc = GetBrowsingContext()) {
--    userContextId = bc->OriginAttributesRef().mUserContextId;
--  }
--  SpeechVoicesManager::SetVoices(userContextId, aVoices);
--  SpeechVoicesManager::DisableFunction(userContextId);
--  // Self-destruct: set to undefined first to bust IC/shape caches on ARM64.
--  if (JSContext* cx = nsContentUtils::GetCurrentJSContext()) {
--    JS::Rooted<JSObject*> global(cx, JS::CurrentGlobalOrNull(cx));
--    if (global) {
--      JS::Rooted<JS::Value> undef(cx, JS::UndefinedValue());
--      JS_SetProperty(cx, global, "setSpeechVoices", undef);
--      JS_DeleteProperty(cx, global, "setSpeechVoices");
--    }
--  }
--}
--
 -
 -void nsGlobalWindowInner::SetWebGLVendor(const nsAString& vendor,
 -                                          ErrorResult& aRv) {
@@ -373,11 +357,9 @@ index e526e8c..8d37243 100644
  RefPtr<GenericPromise> nsGlobalWindowInner::StorageAccessPermissionChanged(
      bool aGranted) {
    // Invalidate cached StorageAllowed field so that calls to GetLocalStorage
-diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
-index 1e4d62e..43b3ef9 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
-@@ -674,47 +674,14 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+@@ -676,44 +676,14 @@
  
    mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
  
@@ -414,9 +396,6 @@ index 1e4d62e..43b3ef9 100644
 -  void SetNavigatorHardwareConcurrency(uint32_t cores,
 -                                       mozilla::ErrorResult& aRv);
 -  void SetNavigatorUserAgent(const nsAString& ua, mozilla::ErrorResult& aRv);
--
--  // Per-context speech voices
--  void SetSpeechVoices(const nsAString& aVoices, mozilla::ErrorResult& aRv);
 -
 -  // Per-context WebGL parameter spoofing
 -  void SetWebGLVendor(const nsAString& vendor, mozilla::ErrorResult& aRv);

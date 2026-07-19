@@ -5,5 +5,4 @@ patches:
   - librewolf/ui-patches/handlers.patch
   - librewolf/ui-patches/hide-default-browser.patch
   - librewolf/ui-patches/remove-branding-urlbar.patch
-  - librewolf/ui-patches/remove-cfrprefs.patch
   - librewolf/ui-patches/remove-organization-policy-banner.patch

@@ -3,7 +3,9 @@ description: "Privacy hardening, addon policies, and DOM compatibility shims"
 patches:
   - security/no-css-animations.patch
   - security/shadow-root-bypass.patch
-  - security/speech-voices-spoofing.patch
+  # speech-voices-spoofing.patch removed 2026-07-19: its window.setSpeechVoices
+  # map-populator was stripped by zzz-remove-inert-setters.patch, leaving the
+  # per-context filter dead. Replaced by the config-driven media/voice-spoofing.patch.
   - security/all-addons-private-mode.patch
   - security/disable-extension-newtab.patch
   - security/no-search-engines.patch

@@ -22,4 +22,19 @@ patches:
   # manifest.
   - identity/canvas-noise.patch
   - identity/font-hijacker.patch
+  # CSS2 system-font keyword spoofing (caption/icon/menu/message-box/
+  # small-caption/status-bar). Upstream 152 sibling of system-ui-font-spoofing:
+  # that patch covers the `system-ui` generic; this covers the older CSS2
+  # shorthand keywords CreepJS also probes (headless/getSystemFonts.ts), which
+  # otherwise leak the host GTK system font ("Sans:Linux") through
+  # getComputedStyle().fontFamily regardless of navigator.platform. Hooks both
+  # the LookAndFeel::GetFont (RFP-off) and GetSpoofedSystemFontForRFP (RFP-on)
+  # resolver paths + the Mac gfxMacPlatformFontList::LookupSystemFont path.
+  # Adopted from upstream camoufox 152 (daijro/camoufox#598); no fork
+  # equivalent existed. Shares gfx/thebes/moz.build with font-hijacker and
+  # layout/base/nsLayoutUtils.cpp with anti-font-fingerprinting; the fork's
+  # basename apply order (font-h... < font-s...) runs font-hijacker first, so
+  # the "/camoucfg" LOCAL_INCLUDES block this patch's gfx/thebes hunk expects
+  # already exists when it applies.
+  - identity/font-system-fonts-css2.patch
   - identity/force-default-pointer.patch

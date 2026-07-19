@@ -48,6 +48,7 @@ from .device_profiles import DeviceProfile, build_font_list, sample_device_profi
 from .device_profiles.coherence import validate_coherence
 from .network_profile import NetworkProfile
 from .tls_profiles import get_tls_profile
+from .voices import generate_voices
 
 if TYPE_CHECKING:
     from browserforge.fingerprints import Fingerprint
@@ -246,6 +247,17 @@ class IdentityCoherenceEngine:
             digest[14:22], "big"
         )
         compiled_config["window.history.length"] = 1 + (digest[13] % 5)
+        # Speech-synthesis voices: register a coherent per-OS voice set via
+        # config so the browser side (MaskConfig::MVoices, consumed by
+        # patches/media/voice-spoofing.patch) never enumerates the host
+        # machine's real TTS voices. Seeded by the same generator as every
+        # other surface and keyed to the spoofed navigator.language so the
+        # default voice lines up with Intl locale (avoids voiceLangMismatch).
+        compiled_config["voices"] = generate_voices(
+            target_os,
+            compiled_config.get("navigator.language"),
+            rng=generator,
+        )
         self._apply_header_defaults(compiled_config)
         self._disable_webgl_null_blocking(compiled_config)
 
