@@ -1,0 +1,15 @@
+# FF152 i686 build fix: DenormalDisabler.h uses uint8_t/uint32_t in its SSE
+# fxsave struct but only includes <float.h>/<cmath>/<cstring>. On x86_64 those
+# fixed-width types arrive transitively; on i686 the unified-build grouping
+# differs and the TU fails with "unknown type name 'uint8_t'". Add the explicit
+# <cstdint> include. Stock-Firefox fix, no-op where the type was already visible.
+--- a/dom/media/webaudio/blink/DenormalDisabler.h
++++ b/dom/media/webaudio/blink/DenormalDisabler.h
+@@ -29,6 +29,7 @@
+ 
+ #include <cmath>
+ #include <cstring>
++#include <cstdint>
+ 
+ namespace WebCore {
+ 

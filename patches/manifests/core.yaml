@@ -12,6 +12,9 @@ patches:
   # so FFmpegVulkanVideoDecoder.cpp's `= nullptr` doesn't compile. Assign
   # VK_NULL_HANDLE instead (no-op on 64-bit). See patch header.
   - core/ffmpeg-vulkan-nullhandle.patch
+  # FF152 i686 build fix: DenormalDisabler.h uses uint8_t/uint32_t without
+  # including <cstdint> (arrives transitively on x86_64, not on i686). See header.
+  - core/denormaldisabler-cstdint.patch
   - core/global-style-sheets.patch
   - core/macos-sandbox-crash-fix.patch
   - core/windows-theming-bug-modified.patch
