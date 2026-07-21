@@ -115,6 +115,14 @@ export class TargetRegistry {
     this._userContextIdToBrowserContext = new Map();
     this._browserToTarget = new Map();
     this._browserIdToTarget = new Map();
+    // Firefox 152+: a window.open() popup's content-process WindowGlobal actor
+    // (JugglerFrameParent.actorCreated) can be created BEFORE the chrome-side
+    // `TabOpen` fires and the PageTarget is registered. The old self-binding
+    // actor then found no target and bailed with no retry, so the page channel
+    // never became ready -> `Page.ready` never reached the client -> newPage
+    // hung. Track actors here so binding happens whenever either side appears,
+    // in either order (matches upstream Playwright).
+    this._browserIdToActor = new Map();
 
     this._proxiesWithClashingAuthCacheKeys = new Set();
     this._browserProxy = null;
@@ -201,6 +209,19 @@ export class TargetRegistry {
         await helper.awaitEvent(domWindow, 'DOMContentLoaded');
       }
 
+      // Firefox 150+: chrome window may report readyState=complete before
+      // gBrowser is populated. Wait for it if missing.
+      if (!domWindow.gBrowser) {
+        await new Promise((resolve, reject) => {
+          const start = Date.now();
+          const tick = () => {
+            if (domWindow.gBrowser) return resolve();
+            if (Date.now() - start > 15000) return reject(new Error('gBrowser never populated'));
+            domWindow.setTimeout(tick, 50);
+          };
+          tick();
+        });
+      }
       if (!domWindow.gBrowser)
         return;
       const tabContainer = domWindow.gBrowser.tabContainer;
@@ -370,6 +391,38 @@ export class TargetRegistry {
   targetForBrowserId(browserId) {
     return this._browserIdToTarget.get(browserId);
   }
+
+  // Called from JugglerFrameParent.actorCreated for every main-frame
+  // WindowGlobalParent. Records the actor and binds it to its PageTarget if the
+  // target already exists; if not, PageTarget's constructor will bind it later.
+  onActorCreated(actor) {
+    // Only interested in main frames for now.
+    if (actor.browsingContext.parent)
+      return;
+    const browserId = actor.browsingContext.browserId;
+    this._browserIdToActor.set(browserId, actor);
+    const target = this._browserIdToTarget.get(browserId);
+    target?.setActor(actor);
+  }
+
+  onActorDestroyed(actor) {
+    // browsingContext can be null once the WindowGlobal is fully torn down.
+    const browserId = actor.browsingContext?.browserId;
+    if (browserId === undefined) {
+      // Fall back to clearing whichever entry points at this actor.
+      for (const [id, a] of this._browserIdToActor) {
+        if (a === actor) {
+          this._browserIdToTarget.get(id)?.removeActor(actor);
+          this._browserIdToActor.delete(id);
+        }
+      }
+      return;
+    }
+    const target = this._browserIdToTarget.get(browserId);
+    target?.removeActor(actor);
+    if (this._browserIdToActor.get(browserId) === actor)
+      this._browserIdToActor.delete(browserId);
+  }
 }
 
 export class PageTarget {
@@ -426,13 +479,21 @@ export class PageTarget {
     this._disposed = false;
     browserContext.pages.add(this);
     this._registry._browserToTarget.set(this._linkedBrowser, this);
-    this._registry._browserIdToTarget.set(this._linkedBrowser.browsingContext.browserId, this);
+    const browserId = this._linkedBrowser.browsingContext.browserId;
+    this._registry._browserIdToTarget.set(browserId, this);
+    // Firefox 152+: the content-process actor may already exist (it can be
+    // created before TabOpen). Bind it now so the page channel becomes ready
+    // and `Page.ready` reaches the client. See _browserIdToActor.
+    const actor = this._registry._browserIdToActor.get(browserId);
+    if (actor)
+      this.setActor(actor);
 
     this._registry.emit(TargetRegistry.Events.TargetCreated, this);
   }
 
   async activateAndRun(callback = () => {}, { muteNotificationsPopup = false } = {}) {
-    const ownerWindow = this._tab.linkedBrowser.ownerGlobal;
+    // Firefox 152 renamed `ownerGlobal` to `documentGlobal` on nodes.
+    const ownerWindow = this._tab.linkedBrowser.documentGlobal || this._tab.linkedBrowser.ownerGlobal;
     const tabBrowser = ownerWindow.gBrowser;
     // Serialize all tab-switching commands per tabbed browser
     // to disallow concurrent tab switching.
@@ -465,6 +526,10 @@ export class PageTarget {
 
   setActor(actor) {
     this._actor = actor;
+    // Name the actor here (target-side) rather than in JugglerFrameParent so it
+    // is set no matter which side binds first. SimpleChannel.bindToActor reads
+    // actor.actorName for its debug channel name.
+    actor.actorName = `browser::page[${this.id()}]/${actor.browsingContext.browserId}/${actor.browsingContext.id}/${this.nextActorSequenceNumber()}`;
     this._channel.bindToActor(actor);
   }
 
@@ -742,7 +807,8 @@ export class PageTarget {
     if (width < 10 || width > 10000 || height < 10 || height > 10000)
       throw new Error("Invalid size");
 
-    const docShell = this._gBrowser.ownerGlobal.docShell;
+    // Firefox 152 renamed `ownerGlobal` to `documentGlobal` on nodes.
+    const docShell = (this._gBrowser.documentGlobal || this._gBrowser.ownerGlobal).docShell;
     // Exclude address bar and navigation control from the video.
     const rect = this.linkedBrowser().getBoundingClientRect();
     const devicePixelRatio = this._window.devicePixelRatio;
@@ -782,7 +848,8 @@ export class PageTarget {
     if (width < 10 || width > 10000 || height < 10 || height > 10000)
       throw new Error("Invalid size");
 
-    const docShell = this._gBrowser.ownerGlobal.docShell;
+    // Firefox 152 renamed `ownerGlobal` to `documentGlobal` on nodes.
+    const docShell = (this._gBrowser.documentGlobal || this._gBrowser.ownerGlobal).docShell;
     // Exclude address bar and navigation control from the video.
     const rect = this.linkedBrowser().getBoundingClientRect();
     const devicePixelRatio = this._window.devicePixelRatio;

@@ -57,11 +57,32 @@ Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
 | `navigator.vendor`/`productSub`/`buildID` | `""` / `20100101` / `20181001000000` (RFP-Wert, korrekt) |
 
 ### 🔴 Gefundene Schwachstellen → in dieser Session GEFIXT
-1. **Juggler-Automation kaputt** — `chrome://juggler/content/JugglerFrameChild.sys.mjs`
-   „Missing chrome URL". Ursache: `additions/juggler/jar.mn` Zeile 22 hatte
-   **doppeltes `content/content/`** (Fork wich von Upstream ab), Datei landete
-   unter falscher URL. **Fix:** auf `content/JugglerFrameChild.sys.mjs`
-   korrigiert (matcht Upstream + das funktionierende Parent-Muster).
+1. **Juggler-Automation komplett kaputt (Playwright hängt bei `new_page`)** —
+   Root-Cause: der **gesamte Juggler des Forks war ein alter Hand-Rebase
+   (17.–25. Mai, FF146-Ära)**, dem eine Reihe FF152-Fixes fehlte, die Upstream
+   (`daijro/camoufox` v152.0.4-beta.27) längst hat. Die Juli-FF152-Rebase
+   aktualisierte die `patches/`, resyncte aber die alten `additions/juggler/`
+   nie mit Upstreams FF152-Juggler. Fünf Fixes (alle gegen Upstream verglichen,
+   **lokal am gebauten Binary via omni.ja-Patch verifiziert** — `new_page` +
+   `goto` + `evaluate` + DOM-Query + `webdriver=false` laufen):
+   - `jar.mn`: doppeltes `content/content/` → `content/JugglerFrameChild.sys.mjs`.
+   - `TargetRegistry.js` **gBrowser-Wait**: FF150+ meldet `readyState=complete`
+     bevor `gBrowser` befüllt ist → `onOpenWindow` bailte → kein PageTarget.
+   - `TargetRegistry.js` **Actor-Race**: `_browserIdToActor`/`onActorCreated`/
+     `onActorDestroyed` + PageTarget-Konsum + `setActor`-Naming (FF152: Content-
+     Actor entsteht vor `TabOpen`); `JugglerFrameParent` delegiert jetzt.
+   - `FrameTree.onWindowEvent` + `PageAgent` (wholesale von Upstream, 0 Camou):
+     **`ownerGlobal` ist auf FF152 null** bei `DOMDocElementInserted`/`load` →
+     Fallback `ownerGlobal || defaultView`; dazu FF152 `synthesizeTouchEvent`
+     (altes `windowUtils.sendTouchEvent` entfernt). **Das** war der letzte
+     Blocker: ohne den Fallback feuerte `NavigationCommitted`/`pageready` nie →
+     `Page.ready` erreichte den Client nie → `new_page`/`goto` hingen.
+   - `documentGlobal || ownerGlobal` an activateAndRun + 2× Screencast +
+     `PageHandler.topChromeWindow` (FF152 `ownerGlobal`-Entfernung).
+
+   Die [TUNED]-Camou-Grafts (God-mode-Master-Sandbox in FrameTree, humanize/
+   Maus-Trajektorie in PageHandler, Config-Reads) sind dabei **erhalten**
+   geblieben (3-Wege-Merge, nicht Wholesale-Swap wo Camou drin war).
 2. **Voice-Spoofing leakte die Host-Voices** — eine Windows-Maschine exponierte
    `„Microsoft Hedda - German (Germany)"` über `speechSynthesis.getVoices()`,
    was eine gespoofte macOS/en-US-Identität sofort verrät. Ursache: die
@@ -114,7 +135,7 @@ LAN-IP verborgen) — das ist auch **ohne** Stock-Baseline sofort wertvoll.
 
 | Prio | Item | Status |
 | ---- | ---- | ------ |
-| — | Juggler jar.mn-Fix | ✅ gefixt (Rebuild validiert) |
+| — | Juggler-Automation (5 FF152-Fixes, s. §2.1) | ✅ gefixt (lokal am Binary verifiziert) |
 | — | Voice Host-Leak (`blockIfNotDefined`) | ✅ gefixt |
 | 1 | Voice-Registrierung (0 Voices) post-Rebuild klären | offen |
 | 2 | Invarianten-Smoke-Test in CI (§2-Harness) | offen, hoher Wert |
