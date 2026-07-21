@@ -258,6 +258,13 @@ class IdentityCoherenceEngine:
             compiled_config.get("navigator.language"),
             rng=generator,
         )
+        # Suppress the HOST machine's real TTS voices (measured leak: a Windows
+        # host otherwise exposes "Microsoft Hedda - German" etc. through
+        # speechSynthesis.getVoices(), contradicting a spoofed macOS/en-US
+        # identity). With this set, nsSynthVoiceRegistry::AddVoice short-circuits
+        # every platform-service voice, so only the config `voices` above are
+        # ever enumerable. See patches/media/voice-spoofing.patch.
+        compiled_config["voices:blockIfNotDefined"] = True
         self._apply_header_defaults(compiled_config)
         self._disable_webgl_null_blocking(compiled_config)
 
