@@ -207,6 +207,11 @@ jobs:
     # green legs. Tag pushes and PRs always get the full 7-leg matrix.
     needs: [test-python, build-utls-proxy, apply-check, setup-matrix]
     runs-on: ${{ matrix.runner }}
+    # Needed so each build leg can upload its binary DIRECTLY to the GitHub
+    # Release (on tag pushes). Release assets don't count against the 0.5 GB
+    # Actions-artifact storage quota that a single 530 MB build blows.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.setup-matrix.outputs.matrix) }}
@@ -511,13 +516,32 @@ jobs:
           name: BuildLog-${{ matrix.target }}-${{ matrix.arch }}
           path: build-logs/*
           if-no-files-found: ignore
+          # Logs are tiny but auto-expire fast so they never accumulate against
+          # the 0.5 GB Actions-artifact quota.
+          retention-days: 1
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload binaries to release (tag pushes only)
+        # The binaries go DIRECTLY to the GitHub Release, not to Actions-artifact
+        # storage. A single build is ~530 MB — larger than the entire 0.5 GB
+        # free Actions-artifact quota — so uploading 7 legs there fills the quota
+        # and GitHub then cancels running jobs with a "runner received a shutdown
+        # signal" (that is what repeatedly killed windows-x86_64). Release assets
+        # are separate storage (generous for public repos) and cost nothing.
+        # On non-tag runs (validation dispatches) there is no release, so this is
+        # skipped and no binary is stored anywhere — the compile result is the
+        # signal. softprops upserts the draft release: the first leg to finish
+        # creates it, the rest append their (uniquely named) files. The pushed
+        # tag already exists, so drafts are matched by tag (no duplicate drafts).
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          name: CamoufoxBuilds-${{ matrix.target }}-${{ matrix.arch }}
-          path: dist/*
-          if-no-files-found: error
+          tag_name: ${{ github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
+          draft: true
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     needs: build
@@ -532,18 +556,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create Release
+      - name: Finalize release notes
+        # Binaries were already uploaded directly by each build leg (see "Upload
+        # binaries to release"), so there is nothing to download — the old multi-
+        # GB download-artifact + re-upload roundtrip is gone (it required storing
+        # all 7 binaries in the 0.5 GB Actions quota, which is impossible). This
+        # step only generates the release notes on the existing draft.
         # Pinned to the immutable commit SHA of tag v2.6.2 (supply-chain
         # hardening). softprops/action-gh-release runs with contents:write,
         # so a hijacked tag could tamper with published release assets.
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          files: artifacts/**/*
+          tag_name: ${{ github.ref_name }}
           generate_release_notes: true
           draft: true
           prerelease: false
