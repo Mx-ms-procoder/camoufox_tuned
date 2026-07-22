@@ -13,6 +13,28 @@ from typing_extensions import Literal
 from camoufox.virtdisplay import VirtualDisplay
 
 from .utils import async_attach_vd, launch_options
+from ._tzhelper import config_timezone as _config_timezone
+
+
+def _inject_context_timezone(browser: Browser, tz: str) -> None:
+    """Default the timezone of implicitly-created contexts to the spoofed tz.
+
+    Wraps the async new_page()/new_context() so `timezone_id` is supplied
+    unless the caller passed one of their own.
+    """
+    orig_new_page = browser.new_page
+    orig_new_context = browser.new_context
+
+    async def new_page(**kwargs: Any) -> Any:
+        kwargs.setdefault("timezone_id", tz)
+        return await orig_new_page(**kwargs)
+
+    async def new_context(**kwargs: Any) -> Any:
+        kwargs.setdefault("timezone_id", tz)
+        return await orig_new_context(**kwargs)
+
+    browser.new_page = new_page  # type: ignore[method-assign]
+    browser.new_context = new_context  # type: ignore[method-assign]
 
 
 class AsyncCamoufox(PlaywrightContextManager):
@@ -92,13 +114,22 @@ async def AsyncNewBrowser(
                 partial(launch_options, headless=headless, debug=debug, **kwargs),
             )
 
+        # Forward the spoofed timezone to the Playwright context so the juggler
+        # applies it reliably (the MaskConfig-only per-realm override can leak
+        # the host tz through the window-creation path).
+        tz = _config_timezone(from_options)
+
         # Persistent context
         if persistent_context:
+            if tz:
+                from_options.setdefault("timezone_id", tz)
             context = await playwright.firefox.launch_persistent_context(**from_options)
             return await async_attach_vd(context, virtual_display)
 
         # Browser
         browser = await playwright.firefox.launch(**from_options)
+        if tz:
+            _inject_context_timezone(browser, tz)
         return await async_attach_vd(browser, virtual_display)
     except Exception:
         if virtual_display:

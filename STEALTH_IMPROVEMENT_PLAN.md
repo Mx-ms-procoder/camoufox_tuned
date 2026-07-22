@@ -90,8 +90,78 @@ Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
    registrierte die echten Plattform-Voices zusätzlich. **Fix:** identity.py
    setzt jetzt `voices:blockIfNotDefined=true` (verifiziert: Host-Voices → 0).
 
+### ✅ NEU gefunden (2026-07-22, via Proxy+Turnstile-Test) — GEFIXT (2026-07-22)
+0. **Timezone-Spoof leakte die ECHTE Zeitzone im Playwright/Juggler-Pfad.**
+   **GEFIXT (belt+suspenders, beide vom User bestätigt):** (a) **#657-Root-Cause**
+   in `timezone-spoofing.patch` übernommen (DateTimeInfo-Override-Ctor seedt jetzt
+   `utcToLocalStandardOffsetSeconds_ = SecondsPerDay; resetState()` — greift beim
+   nächsten Build); (b) **pythonlib-Workaround** (sofort, ohne Rebuild lokal
+   verifiziert **6/6 Asia/Seoul**, vorher 8/8 Berlin): `sync_api`/`async_api`
+   reichen die Config-`timezone` als Playwright-`timezone_id` an den Kontext durch
+   (`_tzhelper.config_timezone` + `_inject_context_timezone` wrappt `new_page`/
+   `new_context`; persistent_context bekommt `timezone_id` direkt). Nutzt den
+   zuverlässigen Juggler-Kontext-TZ-Pfad. Original-Beschreibung unten. ⚠️ Der
+   `TZ`-Env-Weg wurde verworfen (Windows ignoriert POSIX-`TZ`).
+   Mit `Camoufox(proxy=…, geoip=True)` + südkoreanischem Proxy erzeugt die
+   pythonlib **deterministisch** die korrekte Config (`timezone=Asia/Seoul`,
+   `locale=ko/KR`, `webrtc:ipv4`=Proxy-IP — 4/4 verifiziert). **Alle** anderen
+   Spoofs greifen im Playwright-Launch zuverlässig und variieren pro Identität
+   (WebGL Apple M1/NVIDIA/Intel, Screen, platform MacIntel/Win32, canvas,
+   `navigator.language=ko-KR`, WebRTC leakt die echte IP **nicht** mehr → Item 5
+   mit Proxy **gelöst**). **Nur `Intl.DateTimeFormat().resolvedOptions().timeZone`
+   leakt `Europe/Berlin` (echte Maschinen-TZ, offset −120) statt Asia/Seoul —
+   8/8 auf der externen Seite reproduziert.** Netto-Fingerprint: koreanische IP +
+   koreanische Sprache + **deutsche Zeitzone** = sofortiger Kohärenz-Tell genau
+   auf externen Seiten. **Isoliert:** im *rohen* Launch (kein Juggler, Config per
+   `CAMOU_CONFIG_FILE` direkt) greift die TZ korrekt (`Asia/Seoul`, −540, „한국
+   표준시"). Also **kein** kaputter TZ-Patch und **kein** Config-Read-Ausfall
+   (WebGL etc. lesen MaskConfig ja), sondern eine **Playwright/Juggler↔MaskConfig-
+   TZ-Interaktion**: die pythonlib reicht die TZ **nicht** an den Playwright-
+   Kontext (`timezone_id`) durch, und der MaskConfig-TZ-Override greift über den
+   Juggler-Page-Erstellungspfad (`ww.openWindow`→neues Fenster/Content-Prozess)
+   nicht rechtzeitig. **Fix-Richtung:** entweder `launch_options` setzt zusätzlich
+   die Playwright-Kontext-`timezone_id` aus der Config, oder der TZ-Override wird
+   im Juggler-Pfad vor dem ersten JS erzwungen (analog `hasFailedToOverrideTimezone`).
+   **Hohe Priorität** — betrifft den Haupt-Nutzungsweg (pythonlib/Playwright).
+
+### 🟡 Upstream-Vergleich (2026-07-22) — Anti-Detect-Patches sind ein ALTER Snapshot
+Wie schon der Juggler ist auch der **Anti-Detect-Patch-Satz des Forks älter als
+Upstream `v152.0.4-beta.27`** und fehlt Fixes. Basename-Diff (nach FF152-Rebase,
+also inkl. Kontext-Rauschen): webrtc-ip 598, screen 344, anti-font 267, webgl 110,
+navigator 92, audio 55, **timezone 51**. **Empirisch verifiziert (nicht jeder Drift
+ist eine echte Lücke):**
+
+- 🔴 **Timezone (#657):** Upstreams `timezone-spoofing.patch` hat in
+  `js/src/vm/DateTime.cpp` einen Fix, den wir NICHT haben: *"Without this the
+  RangeCache members are read uninitialized and getTimezoneOffset() intermittently
+  returns 0 or garbage. (issue #657)"* → `utcToLocalStandardOffsetSeconds_ =
+  SecondsPerDay; resetState();` im DateTimeInfo-Override-Ctor. **Das ist die
+  Wurzel des oben (Item 0) empirisch gefundenen intermittierenden TZ-Leaks.**
+- 🟡 **Self-disabling WebIDL-Setter:** Upstream exponiert `window.setTimezone()/
+  setWebGLVendor()/setNavigatorPlatform()/setAudioFingerprintSeed()/…` **`[Func=
+  IsFunctionEnabledForWebIDL]`-gated** → sichtbar nur bis zum ersten Aufruf, dann
+  weg. Unser Fork hat sie per **Option B** (2026-07-03) ganz entfernt (permanent-
+  exponiert = Tell). Upstreams Variante = Stealth UND zuverlässige per-Realm-
+  Anwendung; unsere MaskConfig-only-Lösung racet (→ TZ-Leak). **Neubewertung von
+  Option B nötig** — evtl. war das Wegnehmen zu aggressiv.
+- ✅ **CSS `device-width` (screen-spoofing):** Upstream ergänzt RFP-CSSDeviceSize-
+  Spoofing — aber **empirisch folgt unser `@media (device-width)` dem gespooften
+  `screen.width` (5/5 seeds, 2560→2560, 1920→1920)** → bei uns **kein** Leak
+  (anders gelöst). Patch-Diff war hier ein False-Positive.
+- ⚪ **WebRTC fabricated-candidate-priorities/getStats:** relevant nur bei SOCKS5-
+  Spoof-IP; bei HTTP-Proxy fällt STUN aus (kein Leak). Kein bestätigter Vuln.
+
+**Lektion (wie Juggler):** Anti-Detect-Patches gegen den passenden Upstream-Tag
+re-syncen — aber **jeden Drift empirisch prüfen** (CSS-device-size zeigt: nicht
+alles ist eine echte Lücke). Prio: das **#657-TZ-Fix** übernehmen.
+
 ### 🟠 Offen / beobachten (kein Quick-Fix)
-3. **Voice-Registrierung** — mit `blockIfNotDefined` verschwinden die Host-
+3. **prefers-color-scheme fest auf DARK** — `prefersDark=true` bei ALLEN
+   Identitäten (juggler `TargetRegistry.updateColorSchemeOverride = colorScheme ||
+   'dark'`; Upstream: `|| browserContext.colorScheme || 'none'`). 100% Dark über
+   alle Sessions = statistischer Tell + nicht identitäts-kohärent. **Fix:** auf
+   `'none'` (Upstream) angleichen oder identitäts-gekoppelt randomisieren.
+4. **Voice-Registrierung** — mit `blockIfNotDefined` verschwinden die Host-
    Voices (gut), aber die **Config-Voices erschienen lokal nicht** (0 statt der
    ~53). D. h. `MVoices()::AddVoiceImpl(nullptr,…)` registriert im gebauten
    Binary aktuell nicht enumerierbar. Netto: **0 Voices** (kein Leak, aber
@@ -137,10 +207,15 @@ LAN-IP verborgen) — das ist auch **ohne** Stock-Baseline sofort wertvoll.
 | ---- | ---- | ------ |
 | — | Juggler-Automation (5 FF152-Fixes, s. §2.1) | ✅ gefixt (lokal am Binary verifiziert) |
 | — | Voice Host-Leak (`blockIfNotDefined`) | ✅ gefixt |
+| — | WebRTC-IP mit Proxy+geoip (echte IP weg) | ✅ verifiziert (Item 5, mit Proxy) |
+| — | Timezone-Leak (§2 Item 0) | ✅ gefixt (#657-Patch + pythonlib, 6/6 verifiziert) |
+| — | prefers-color-scheme forced-dark (§2 Item 3) | ✅ gefixt (juggler → `'none'`) |
 | 1 | Voice-Registrierung (0 Voices) post-Rebuild klären | offen |
 | 2 | Invarianten-Smoke-Test in CI (§2-Harness) | offen, hoher Wert |
 | 3 | UA-Skew 150→152 (Fingerprint-DB) | offen |
-| 4 | WebRTC default-block ohne Proxy | offen, optional |
+| 4 | Anti-Detect-Patches gg. Upstream re-syncen (empirisch) | offen, mittel |
+| 5 | Option-B-Setter-Entfernung neu bewerten | offen |
+| 6 | WebRTC default-block ohne Proxy | offen, optional |
 | 5 | Stock-FF152-Baseline + probes.html WebRTC/Font | offen, braucht Workstation |
 | 6 | P2.1 Rest-Pins auditieren | offen, niedrig |
 
