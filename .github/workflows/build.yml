@@ -463,8 +463,14 @@ jobs:
         run: python3 -m compileall pythonlib/camoufox scripts
 
       - name: Create swap space
+        # 30G (was 16G): the windows-x86_64 leg — the longest build (~2h20m) —
+        # repeatedly went unresponsive for ~12 min mid-compile and was then
+        # terminated by GitHub with "runner received a shutdown signal" (a
+        # health-check kill of a thrashing runner, not a code error: rounds 5/6
+        # were green). More swap gives memory-pressure spikes room to resolve
+        # instead of hanging the VM. Disk has ~114 GB free, so 30G is safe.
         run: |
-          sudo fallocate -l 16G /swapfile
+          sudo fallocate -l 30G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile

@@ -1,2 +1,10 @@
 ac_add_options --disable-maintenance-service
 ac_add_options --disable-update-agent
+
+# Cap build parallelism to -j3 (default is -j4 on the 4-core runner). The
+# windows-x86_64 cross-build peaked hard enough to make the hosted runner
+# unresponsive mid-compile (12-min stall -> GitHub health-check kill). One
+# fewer parallel clang-cl shaves the RAM peak; the ~30 min it adds keeps the
+# leg far under the 335-min step timeout. Windows-only so the already-green
+# non-windows legs keep -j4.
+mk_add_options MOZ_MAKE_FLAGS="-j3"
