@@ -624,6 +624,28 @@ def _resolve_persistent_seed(user_data_dir: Union[str, Path]) -> str:
         return 'camoufox-profile:' + str(user_data_dir)
 
 
+def _ff_version_from_executable(executable_path: Optional[Union[str, Path]]) -> Optional[str]:
+    """Read the marketing major version from the launched binary's application.ini.
+
+    Firefox ships an ``application.ini`` next to the executable with a
+    ``Version=<major>.<minor>...`` line. Reading it makes the spoofed UA track
+    the ACTUAL engine version of the binary the caller runs (via
+    ``executable_path``), instead of the pythonlib's possibly-stale managed
+    install. Returns the major (e.g. ``"152"``) or ``None`` if unreadable.
+    """
+    if not executable_path:
+        return None
+    try:
+        ini = Path(executable_path).parent / "application.ini"
+        for line in ini.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith("Version="):
+                major = line.split("=", 1)[1].strip().split(".", 1)[0]
+                return major if major.isdigit() else None
+    except Exception:
+        return None
+    return None
+
+
 def launch_options(
     *,
     config: Optional[Dict[str, Any]] = None,
@@ -809,7 +831,17 @@ def launch_options(
         ff_version_str = str(ff_version)
         LeakWarning.warn('ff_version', i_know_what_im_doing)
     else:
-        ff_version_str = installed_verstr().split('.', 1)[0]
+        # Derive the marketing version from the ACTUAL binary being launched.
+        # When a caller passes `executable_path` (a build that may differ from
+        # the pythonlib's managed install), reading `installed_verstr()` can
+        # return a stale version and produce a UA/engine mismatch (e.g. UA says
+        # Firefox/150 while the engine is 152 — a coherence tell). The binary's
+        # sibling application.ini carries the true `Version=`; prefer it, then
+        # fall back to the managed install.
+        ff_version_str = (
+            _ff_version_from_executable(executable_path)
+            or installed_verstr().split('.', 1)[0]
+        )
 
     # Generate a fingerprint
     if fingerprint is None:

@@ -210,6 +210,9 @@ LAN-IP verborgen) — das ist auch **ohne** Stock-Baseline sofort wertvoll.
 | — | WebRTC-IP mit Proxy+geoip (echte IP weg) | ✅ verifiziert (Item 5, mit Proxy) |
 | — | Timezone-Leak (§2 Item 0) | ✅ gefixt (#657-Patch + pythonlib, 6/6 verifiziert) |
 | — | prefers-color-scheme forced-dark (§2 Item 3) | ✅ gefixt (juggler → `'none'`) |
+| — | UA-Skew rv:150→152 | ✅ gefixt (`ff_version` aus binary `application.ini`, UA=152 verifiziert) |
+| — | Neuere Vektoren (WebGPU-strings/Battery/Connection/Client-Hints/USB/HID/Serial) | ✅ auditiert, sauber (Firefox maskiert/absent) |
+| 1 | WebGPU adapter **limits/features** (headful, echte GPU) spoofen | 🔴 NEU offen — über Upstream hinaus, Wurzel-Härtung |
 | 1 | Voice-Registrierung (0 Voices) post-Rebuild klären | offen |
 | 2 | Invarianten-Smoke-Test in CI (§2-Harness) | offen, hoher Wert |
 | 3 | UA-Skew 150→152 (Fingerprint-DB) | offen |
