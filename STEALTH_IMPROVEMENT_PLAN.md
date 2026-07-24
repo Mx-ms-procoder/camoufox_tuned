@@ -38,6 +38,37 @@ gelöst:
 
 ---
 
+## 1.5 — Externe Validierung (2026-07-24, am echten build-0.14-Binary)
+
+Erstmals gegen echte externe Detection-Referenzen getestet, nicht nur
+Eigen-Probes:
+
+- **CreepJS** (`abrahamjuliot.github.io/creepjs`): **`0% headless`, `0% stealth`,
+  `6% like headless`** — CreepJS flaggt uns **nicht** als Automation/Bot. FP-
+  Konsistenz `confidence: high` (lang/timezone/GPU/worker kohärent). UA korrekt
+  als `Firefox 152` geparst. `ua parsed: Firefox 152` (UA-Skew-Fix wirkt extern).
+- **WebGPU — getestet, KEIN Leak (bewiesen, nicht angenommen):** Default meldet
+  CreepJS `webgpu: unsupported` (Firefox-eigene gfxInfo-Blocklist → `navigator.gpu`
+  undefined; kohärent, häufiger Real-Zustand — Camoufox spooft oft ältere GPUs,
+  die WebGPU eh nicht könnten). **Selbst mit erzwungenem Blocklist-Bypass**
+  (`gfx.webgpu.ignore-blocklist`, `dom.webgpu.allow-in-parent`) auf einer
+  Maschine mit **echter RTX 4070** gibt `requestAdapter()` **null** — stderr:
+  *"Failed to find D3D12 adapter with the same LUID that the compositor is
+  using!"*. Ursache: Camoufox' **Software-Compositor (SWGL)** hat keine D3D12-
+  LUID → WebGPU kann keine Hardware-GPU enumerieren → **die echte GPU leakt NIE
+  über WebGPU**, auch nicht bei Zwangs-Aktivierung. Der WebGL-Spoof wird nicht
+  durch WebGPU unterlaufen.
+- **WebRTC über SOCKS5:** 6 freie SOCKS5-Proxys getestet → **0 ICE-Candidates,
+  kein IP-Leak** (freie SOCKS5 unterstützen kein UDP-ASSOCIATE, daher STUN aus →
+  die „fabricated priority"-Konsistenz (Upstream-Feature) blieb ungetestet, aber
+  es leakt nichts).
+- **Voices — Selbstkorrektur:** CreepJS zeigte **131 lokale Stimmen**. Der frühere
+  „voices==0"-Befund war ein **Test-Methodik-Fehler** meinerseits: `getVoices()`
+  lädt in JEDEM Gecko async (MDN) — ein sofortiger Call gibt überall 0; mit
+  `onvoiceschanged`/Retry: **105–131 Stimmen, korrekt.** Kein echter Bug. Der
+  `call_once`-Config-Read-Retry (`c401984`) bleibt sinnvolle Robustheit, war aber
+  nicht der Voice-Fix, für den ich ihn hielt.
+
 ## 2 — Empirisches Stealth-Audit am FF152-Build (2026-07-21)
 
 Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
