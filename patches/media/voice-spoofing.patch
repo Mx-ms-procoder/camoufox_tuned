@@ -42,7 +42,33 @@ index e5a1353d6b..4a4a5b080b 100644
      }
    }
  
-@@ -305,6 +320,8 @@ nsSynthVoiceRegistry::AddVoice(nsISpeechService* aService,
+@@ -181,6 +196,25 @@ bool nsSynthVoiceRegistry::SendInitialVoicesAndState(
+     SpeechSynthesisParent* aParent) {
+   MOZ_ASSERT(XRE_IsParentProcess());
+ 
++  // Camoufox: guarantee the config voices are registered before we hand the
++  // initial voice list to a content process. The GetInstance()-time
++  // registration can run before CAMOU_CONFIG is readable (or before any
++  // content connects), leaving mVoices empty so getVoices() returns 0.
++  // Registering here (lazily, when a content process asks for voices)
++  // guarantees the config is available and every content process gets the
++  // full list. AddVoiceImpl rejects duplicate URIs, so calls are idempotent.
++  if (auto configVoices = MaskConfig::MVoices()) {
++    for (const auto& [lang, name, uri, isDefault, isLocal] :
++         configVoices.value()) {
++      AddVoiceImpl(nullptr, NS_ConvertUTF8toUTF16(uri),
++                   NS_ConvertUTF8toUTF16(name), NS_ConvertUTF8toUTF16(lang),
++                   isLocal, false);
++      if (isDefault) {
++        SetDefaultVoice(NS_ConvertUTF8toUTF16(uri), true);
++      }
++    }
++  }
++
+   nsTArray<RemoteVoice> voices;
+   nsTArray<nsString> defaults;
+ 
+@@ -305,6 +339,8 @@ nsSynthVoiceRegistry::AddVoice(nsISpeechService* aService,
      return NS_ERROR_NOT_AVAILABLE;
    }
  
@@ -51,7 +77,7 @@ index e5a1353d6b..4a4a5b080b 100644
    return AddVoiceImpl(aService, aUri, aName, aLang, aLocalService,
                        aQueuesUtterances);
  }
-@@ -779,6 +796,35 @@ void nsSynthVoiceRegistry::SpeakImpl(VoiceData* aVoice, nsSpeechTask* aTask,
+@@ -779,6 +815,35 @@ void nsSynthVoiceRegistry::SpeakImpl(VoiceData* aVoice, nsSpeechTask* aTask,
         NS_ConvertUTF16toUTF8(aText).get(),
         NS_ConvertUTF16toUTF8(aVoice->mUri).get(), aRate, aPitch));
  

@@ -14,6 +14,8 @@ Written by daijro.
 #include <cstdlib>
 #include <cstdio>
 #include <mutex>
+#include <thread>
+#include <chrono>
 #include <variant>
 #include <cstddef>
 #include <vector>
@@ -193,12 +195,27 @@ inline const nlohmann::json& GetJson() {
     // the launcher must keep the file alive for the lifetime of the
     // browser session and remove it on shutdown.
     if (auto pathOpt = get_env_utf8("CAMOU_CONFIG_FILE"); pathOpt) {
-      if (auto fileContents = read_file_utf8(*pathOpt); fileContents) {
+      // The launcher writes this file just before spawning the browser, but a
+      // process can occasionally reach GetJson() during a brief window where the
+      // file is not yet readable to it. Because this result is memoised via
+      // std::call_once, a single transient failure used to be cached for the
+      // whole process lifetime — silently disabling EVERY parent-side MaskConfig
+      // feature (e.g. speech-synth voice registration, so getVoices() == 0).
+      // Retry briefly (bounded, ~200ms worst case; zero delay on the common
+      // path where the first read succeeds) so a transient not-yet-readable
+      // window resolves instead of poisoning the process.
+      std::optional<std::string> fileContents;
+      for (int attempt = 0; attempt < 8; ++attempt) {
+        fileContents = read_file_utf8(*pathOpt);
+        if (fileContents) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+      }
+      if (fileContents) {
         jsonString = *fileContents;
       } else {
-        // Fatal: the operator explicitly asked for file-based transport
-        // but the file is unreadable. Surface this loudly — silently
-        // falling back to env vars would mask a misconfiguration.
+        // Still unreadable after retries: the operator explicitly asked for
+        // file-based transport but the file is unreadable. Surface this loudly —
+        // silently falling back to env vars would mask a misconfiguration.
         printf_stderr(
             "ERROR: CAMOU_CONFIG_FILE set but could not read '%s'.\n",
             pathOpt->c_str());
