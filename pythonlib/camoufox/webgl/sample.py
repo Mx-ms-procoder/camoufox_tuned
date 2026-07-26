@@ -10,6 +10,27 @@ from camoufox.pkgman import OS_ARCH_MATRIX
 # Get database path relative to this file
 DB_PATH = Path(__file__).parent / 'webgl_data.db'
 
+# Renderers that mean "no GPU": software rasterisers and the Windows
+# no-driver fallback. They occur in the wild — inside VMs, over RDP and in
+# containers — which is exactly why the telemetry-derived table carries them,
+# and exactly why they must not be handed to a random identity: reporting one
+# tells a platform that this session is a virtual machine or a headless
+# container, the population anti-bot systems score as high risk. An
+# explicitly requested vendor/renderer pair is still honoured.
+_SOFTWARE_RENDERER_MARKERS = (
+    'swiftshader',
+    'llvmpipe',
+    'softpipe',
+    'microsoft basic render',
+    'mesa offscreen',
+    'software rasterizer',
+)
+
+
+def _is_software_renderer(renderer: str) -> bool:
+    lowered = (renderer or '').lower()
+    return any(marker in lowered for marker in _SOFTWARE_RENDERER_MARKERS)
+
 
 def sample_webgl(
     os: str,
@@ -78,6 +99,13 @@ def sample_webgl(
 
     if not results:
         raise ValueError(f'No WebGL data found for OS: {os}')
+
+    # Drop no-GPU renderers from the random pool (see
+    # _SOFTWARE_RENDERER_MARKERS). Keep the unfiltered pool if that would
+    # leave nothing to sample, so a future data set can never make this raise.
+    hardware = [row for row in results if not _is_software_renderer(row[1])]
+    if hardware:
+        results = hardware
 
     # Split into separate arrays
     _, _, data_strs, probs = map(list, zip(*results))

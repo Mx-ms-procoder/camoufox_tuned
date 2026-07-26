@@ -57,6 +57,17 @@ http2_profile_inert: >-
     Http2Session.cpp patch wired to IdentityStateProvider — see
     AUDIT_2026-05-18.md.
 
+humanize_disabled: >-
+    `humanize` is off, so input is delivered the way automation delivers it:
+    keystrokes with no inter-key delay, the pointer jumping straight to its
+    target instead of travelling there, and mouse-down/up in the same
+    millisecond. Camoufox implements human-like keystroke timing, pointer
+    trajectories and click hold times, but only when `humanize` is enabled.
+    Login and checkout forms are exactly where platforms instrument
+    `mousemove` / `keydown` timing, so pass `humanize=True` (or a float for
+    the maximum per-step time) for any flow that submits credentials.
+    Purely navigational scraping does not need it.
+
 unpinned_fingerprint_seed: >-
     No `fingerprint_seed` was set, so a fresh identity (device profile,
     canvas/audio noise seeds, window metrics) is generated on every launch.

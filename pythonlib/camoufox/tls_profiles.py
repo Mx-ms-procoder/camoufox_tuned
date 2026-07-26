@@ -326,7 +326,7 @@ _verify_ff150_http2_matches_source(FIREFOX_150_HTTP2)
 # Firefox majors with a registered network profile. Firefox 135 has a
 # captured template; newer versions use the browser's native NSS/HTTP2
 # runtime defaults instead of applying stale 135 overrides.
-SUPPORTED_FIREFOX_VERSIONS = (133, 134, 135, 140, 146, 150)
+SUPPORTED_FIREFOX_VERSIONS = (133, 134, 135, 140, 146, 150, 152)
 
 
 def _build_firefox_profile(major_version: int) -> NetworkProfile:
@@ -404,6 +404,26 @@ def get_tls_profile(browser_family: str, major_version: int) -> Optional[Network
         NetworkProfile or None if the version is not known.
     """
     return TLS_PROFILES.get(f"{browser_family}{major_version}")
+
+
+def get_firefox_profile_for_version(major_version: int) -> NetworkProfile:
+    """Always return a *version-correct* Firefox profile.
+
+    Registered versions come from TLS_PROFILES; anything else is built on the
+    spot, which yields the native-NSS profile (no CAMOU_TLS_* overrides, no
+    HTTP/2 template) carrying its own major version.
+
+    This exists so callers never have to fall back to the Firefox 135 capture
+    for an unregistered version. That fallback is what happened after the
+    FF152 rebase — 152 was simply missing from SUPPORTED_FIREFOX_VERSIONS —
+    and it re-introduced exactly what _build_firefox_profile's docstring
+    forbids: a captured Firefox 135 ClientHello and HTTP/2 SETTINGS pushed
+    onto a Firefox 152 engine, while every other surface (UA, engine) said
+    152. Building natively instead degrades safely for FF153 and beyond.
+    """
+    return TLS_PROFILES.get(
+        f"firefox{major_version}"
+    ) or _build_firefox_profile(major_version)
 
 
 def get_tls_profile_strict(browser_family: str, major_version: int) -> NetworkProfile:

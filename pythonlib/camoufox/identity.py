@@ -47,7 +47,7 @@ def _derive_seed_material(seed_input: Union[str, int, bytes, bytearray, memoryvi
 from .device_profiles import DeviceProfile, build_font_list, sample_device_profile
 from .device_profiles.coherence import validate_coherence
 from .network_profile import NetworkProfile
-from .tls_profiles import get_tls_profile
+from .tls_profiles import get_firefox_profile_for_version
 from .voices import generate_voices
 
 if TYPE_CHECKING:
@@ -296,9 +296,11 @@ class IdentityCoherenceEngine:
         except ValueError:
             major_version = 135
 
-        network_profile = get_tls_profile(family_key, major_version)
-        if not network_profile:
-            network_profile = get_tls_profile("firefox", 135)  # Fallback
+        # Never fall back to the Firefox 135 capture: an unregistered version
+        # gets a native-NSS profile for its OWN version instead, so the engine
+        # keeps its real handshake rather than wearing a three-generation-old
+        # one while the UA advertises the new number.
+        network_profile = get_firefox_profile_for_version(major_version)
 
         # T1.3: device-profile coherence + cross-surface header/navigator
         # checks. The latter catches operators who set headers.User-Agent

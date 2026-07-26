@@ -22,60 +22,103 @@ logger = logging.getLogger("camoufox.device_profiles")
 
 _FONTS_PATH = Path(__file__).resolve().parents[1] / "fonts.json"
 
+# Every entry is (CSS width, CSS height, devicePixelRatio, colour depth).
+# screen.width/height are CSS pixels, so `CSS x dpr` is the implied physical
+# panel and must be one that actually ships — see _panel_exists in
+# coherence.py, which enforces exactly that. The tables used to mix the two
+# spaces: Windows listed (1536, 864, 1.0) although 1536x864 is what a 1080p
+# panel reports at 125% (so dpr is 1.25, and dpr 1.0 claims a non-existent
+# native 1536x864 panel), and (3840, 2160, 1.5) implied a 5760x3240 display.
+#
+# The tables are also deliberately WIDE. With the old four-entries-per-tier
+# lists, 150 independently seeded profiles collapsed onto 13 screen configs
+# and 39 full device profiles, with a single profile taking 17% of the whole
+# population. For mass-login use that is the giveaway: many accounts sharing
+# very few devices is what platform-side clustering looks for.
 _SCREEN_PROFILES = {
     "win": {
+        # 1080p at 150% / 125% / 100%, 1366x768 and 1440x900 panels.
         "low": [
-            (1366, 768, 1.0, 24),
-            (1536, 864, 1.0, 24),
-            (1600, 900, 1.0, 24),
-            (1920, 1080, 1.0, 24),
+            (1280, 720, 1.5, 24),    # 1920x1080 @150%
+            (1280, 800, 1.5, 24),    # 1920x1200 @150%
+            (1366, 768, 1.0, 24),    # 1366x768  @100%
+            (1440, 900, 1.0, 24),    # 1440x900  @100%
+            (1536, 864, 1.25, 24),   # 1920x1080 @125%  (most common on Windows)
+            (1536, 960, 1.25, 24),   # 1920x1200 @125%
+            (1600, 900, 1.0, 24),    # 1600x900  @100%
         ],
         "mid": [
-            (1920, 1080, 1.0, 24),
-            (1920, 1080, 1.25, 24),
-            (2560, 1440, 1.0, 24),
-            (2560, 1080, 1.0, 24),
-            (2560, 1440, 1.25, 24),
+            (1680, 1050, 1.0, 24),   # 1680x1050 @100%
+            (1920, 1080, 1.0, 24),   # 1920x1080 @100%
+            (1920, 1200, 1.0, 24),   # 1920x1200 @100%
+            (2048, 1152, 1.25, 24),  # 2560x1440 @125%
+            (2048, 1280, 1.25, 24),  # 2560x1600 @125%
+            (2304, 1296, 1.25, 24),  # 2880x1620 @125%
+            (2560, 1080, 1.0, 24),   # 2560x1080 ultrawide @100%
+            (2560, 1440, 1.0, 24),   # 2560x1440 @100%
         ],
         "high": [
-            (2560, 1440, 1.25, 24),
-            (3440, 1440, 1.0, 24),
-            (3840, 2160, 1.5, 24),
-            (3840, 2160, 1.25, 24),
+            (1920, 1080, 2.0, 24),   # 3840x2160 @200%
+            (2560, 1440, 1.25, 24),  # 3200x1800 @125%
+            (2560, 1440, 1.5, 24),   # 3840x2160 @150%
+            (2560, 1600, 1.0, 24),   # 2560x1600 @100%
+            (3072, 1728, 1.25, 24),  # 3840x2160 @125%
+            (3440, 1440, 1.0, 24),   # 3440x1440 ultrawide @100%
+            (3840, 2160, 1.0, 24),   # 3840x2160 @100%
         ],
     },
+    # macOS entries are CSS-pixel resolutions, which is what screen.width /
+    # screen.height report — NOT the panel's native pixel count. At dpr 2.0
+    # the panel is implied to be twice these numbers, so an entry is only
+    # valid if that product is a display Apple actually ships. The previous
+    # table listed the panel resolutions of the 13"/14"/16" MacBooks
+    # (2560x1600, 3024x1964, 3456x2234) as if they were CSS sizes, which
+    # implied 5120x3200 / 6048x3928 / 6912x4468 panels — no such hardware
+    # exists, so roughly a third of all macOS identities carried an
+    # impossible-display tell. Kept dpr 2.0 / depth 30: macOS caps reported
+    # pixel depth at 30 (widget/cocoa/ScreenHelperCocoa.mm) and Retina is
+    # the norm.
     "mac": {
         "low": [
-            (1280, 800, 2.0, 30),
-            (1440, 900, 2.0, 30),
-            (1680, 1050, 2.0, 30),
+            (1280, 800, 2.0, 30),    # 13" MacBook Air/Pro       -> 2560x1600
+            (1440, 900, 2.0, 30),    # 15" MacBook Pro Retina    -> 2880x1800
+            (1920, 1080, 1.0, 24),   # non-Retina 1080p external
         ],
         "mid": [
-            (1680, 1050, 2.0, 30),
-            (1920, 1080, 2.0, 30),
-            (2560, 1440, 2.0, 30),
-            (2560, 1600, 2.0, 30),
+            (1440, 900, 2.0, 30),    # 15" Retina                -> 2880x1800
+            (1440, 932, 2.0, 30),    # 15" MacBook Air           -> 2880x1864
+            (1512, 982, 2.0, 30),    # 14" MacBook Pro           -> 3024x1964
+            (1680, 1050, 2.0, 30),   # 15" scaled ("more space") -> 3360x2100
+            (1920, 1080, 2.0, 30),   # 4K external at 2x         -> 3840x2160
+            (2560, 1440, 1.0, 24),   # non-Retina 1440p external
         ],
         "high": [
-            (2560, 1600, 2.0, 30),
-            (3024, 1964, 2.0, 30),
-            (3456, 2234, 2.0, 30),
+            (1728, 1117, 2.0, 30),   # 16" MacBook Pro           -> 3456x2234
+            (2240, 1260, 2.0, 30),   # 24" iMac 4.5K             -> 4480x2520
+            (2560, 1440, 2.0, 30),   # 27" 5K iMac / Studio      -> 5120x2880
+            (3008, 1692, 2.0, 30),   # Pro Display XDR           -> 6016x3384
         ],
     },
+    # Linux desktops rarely use fractional scaling; GNOME ships 100% or 200%.
     "lin": {
         "low": [
             (1280, 720, 1.0, 24),
+            (1280, 800, 1.0, 24),
             (1366, 768, 1.0, 24),
+            (1440, 900, 1.0, 24),
             (1600, 900, 1.0, 24),
         ],
         "mid": [
-            (1600, 900, 1.0, 24),
+            (1680, 1050, 1.0, 24),
             (1920, 1080, 1.0, 24),
             (1920, 1200, 1.0, 24),
+            (2560, 1080, 1.0, 24),
             (2560, 1440, 1.0, 24),
         ],
         "high": [
+            (1920, 1080, 2.0, 24),   # 3840x2160 @200%
             (2560, 1440, 1.0, 24),
+            (2560, 1600, 1.0, 24),
             (3440, 1440, 1.0, 24),
             (3840, 2160, 1.0, 24),
         ],

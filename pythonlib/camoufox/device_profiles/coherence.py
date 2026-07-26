@@ -109,6 +109,48 @@ def _screen_resolution_plausible(p: 'DeviceProfile') -> bool:
     return True
 
 
+# Physical panels that actually ship. `screen.width`/`screen.height` are CSS
+# pixels, so the panel a profile implies is `CSS x devicePixelRatio`.
+_PC_PANELS = (
+    (1280, 720), (1280, 800), (1366, 768), (1440, 900), (1600, 900),
+    (1680, 1050), (1920, 1080), (1920, 1200), (2560, 1080), (2560, 1440),
+    (2560, 1600), (2880, 1620), (3200, 1800), (3440, 1440), (3840, 2160),
+)
+
+_MAC_PANELS = (
+    (2560, 1600),  # 13" MacBook Air / Pro
+    (2880, 1800),  # 15" MacBook Pro Retina
+    (2880, 1864),  # 15" MacBook Air
+    (3024, 1964),  # 14" MacBook Pro
+    (3360, 2100),  # 15" scaled "more space"
+    (3456, 2234),  # 16" MacBook Pro
+    (3840, 2160),  # 4K external at 2x
+    (4480, 2520),  # 24" iMac 4.5K
+    (5120, 2880),  # 27" 5K iMac / Studio Display
+    (6016, 3384),  # Pro Display XDR
+    (1920, 1080),  # non-Retina external at dpr 1
+    (2560, 1440),  # 1440p external at dpr 1
+)
+
+
+def _panel_exists(p: 'DeviceProfile') -> bool:
+    """CSS resolution x dpr must be a display that actually ships.
+
+    Listing a panel's *native* size as the CSS size is the recurring mistake
+    this guards: 2560x1600 at dpr 2 claims a 5120x3200 Mac (no such hardware),
+    and 1536x864 at dpr 1 claims a native 1536x864 PC panel when 1536x864 is
+    simply what a 1920x1080 display reports at 125% scaling. Either one is a
+    single division away for any detector. The tolerance absorbs rounding in
+    fractional scaling modes.
+    """
+    panel_w = p.screen_width * p.device_pixel_ratio
+    panel_h = p.screen_height * p.device_pixel_ratio
+    known = _MAC_PANELS if p.os_family == "mac" else _PC_PANELS
+    return any(
+        abs(panel_w - w) <= 4 and abs(panel_h - h) <= 4 for w, h in known
+    )
+
+
 def _screen_aspect_ratio(p: 'DeviceProfile') -> bool:
     """Aspect ratio plausibility.
 
@@ -269,6 +311,7 @@ COHERENCE_RULES: List[Tuple[str, Callable[['DeviceProfile'], bool]]] = [
     ("Non-Retina DPR on macOS", _dpr_os),
     ("Invalid color depth for OS", _color_depth_os),
     ("Screen resolution out of range", _screen_resolution_plausible),
+    ("Implied physical panel is not real hardware", _panel_exists),
     ("Implausible aspect ratio", _screen_aspect_ratio),
 
     # Hardware

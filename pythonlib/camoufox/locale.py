@@ -300,6 +300,54 @@ def _as_float(element: ET.Element, attr: str) -> float:
     return float(element.get(attr, 0))
 
 
+# Language subtags Firefox actually ships a localisation for, taken from
+# browser/locales/shipped-locales (FF152) with region/variant suffixes
+# stripped.
+#
+# CLDR's territoryInfo lists every language *spoken* in a territory, including
+# ones that exist only as a spoken dialect. Sampling that list unfiltered gave
+# Germany `nds-DE` (Low German) or `bar-DE` (Bavarian) for 11% of identities,
+# Great Britain `sco`, Poland `szl`. There is no Firefox build in Low German,
+# so a real Firefox can never report `navigator.language = "nds-DE"` — it is a
+# fingerprint no human produces, and a very distinctive one to cluster on.
+# Filtering against what Firefox ships keeps the genuinely shipped minority
+# locales (sco, szl, oc, hsb all have real builds) and drops only the
+# impossible ones.
+FIREFOX_UI_LANGUAGES = frozenset((
+    'ach', 'af', 'an', 'ar', 'ast', 'az', 'be', 'bg', 'bn', 'br', 'bs', 'ca',
+    'cak', 'cs', 'cy', 'da', 'de', 'dsb', 'el', 'en', 'eo', 'es', 'et', 'eu',
+    'fa', 'ff', 'fi', 'fr', 'fur', 'fy', 'ga', 'gd', 'gl', 'gn', 'gu', 'he',
+    'hi', 'hr', 'hsb', 'hu', 'hy', 'ia', 'id', 'is', 'it', 'ja', 'ka', 'kab',
+    'kk', 'km', 'kn', 'ko', 'lij', 'lt', 'lv', 'mk', 'mr', 'ms', 'my', 'nb',
+    'ne', 'nl', 'nn', 'oc', 'pa', 'pl', 'pt', 'rm', 'ro', 'ru', 'sat', 'sc',
+    'sco', 'si', 'sk', 'skr', 'sl', 'son', 'sq', 'sr', 'sv', 'szl', 'ta',
+    'te', 'tg', 'th', 'tl', 'tr', 'trs', 'uk', 'ur', 'uz', 'vi', 'xh', 'zh',
+))
+
+
+# Regions Firefox actually ships an English build for. Its accept-language
+# table (intl/locale/rust/locale_service_glue/src/lib.rs) special-cases "en":
+# CA, GB and ZA keep their region, and *every other region falls back to
+# en-US*. So a real Firefox on a German machine with an English UI reports
+# `en-US`, never `en-DE`.
+_FIREFOX_EN_REGIONS = frozenset(('CA', 'GB', 'ZA', 'US'))
+
+
+def _firefox_region_for(language: str, region: str) -> str:
+    """Map an IP-derived region onto one Firefox would actually pair with.
+
+    Composing `<language>-<IP country>` unconditionally produced tags no
+    Firefox build emits — `en-DE`, `en-PL`, `en-FR` — and English is the most
+    common second language everywhere, so this hit roughly a third of the
+    identities generated for non-English countries. Only English is remapped:
+    for other languages Firefox's generic branch really does emit
+    `<lang>-<region>, <lang>`, so `de-DE` or `fr-BE` stay as they are.
+    """
+    if language.split('-')[0].lower() == 'en' and region.upper() not in _FIREFOX_EN_REGIONS:
+        return 'US'
+    return region
+
+
 class StatisticalLocaleSelector:
     """
     Selects a random locale based on statistical data.
@@ -321,6 +369,18 @@ class StatisticalLocaleSelector:
         lang_populations = territory.findall('languagePopulation')
         if not lang_populations:
             raise ValueError(f"No language data found for region: {iso_code}")
+
+        # Keep only languages Firefox can actually present as its UI, so the
+        # draw cannot produce a navigator.language no real Firefox emits
+        # (see FIREFOX_UI_LANGUAGES). Fall back to the raw list if a
+        # territory has no shipped language at all, so exotic regions still
+        # resolve instead of raising.
+        shippable = [
+            lang for lang in lang_populations
+            if (lang.get('type') or '').split('_')[0].lower() in FIREFOX_UI_LANGUAGES
+        ]
+        if shippable:
+            lang_populations = shippable
 
         languages = np.array([lang.get('type') for lang in lang_populations])
         percentages = np.array([_as_float(lang, 'populationPercent') for lang in lang_populations])
@@ -377,7 +437,7 @@ class StatisticalLocaleSelector:
         """
         languages, probabilities = self._load_territory_data(region)
         language = np.random.choice(languages, p=probabilities).replace('_', '-')
-        return normalize_locale(f"{language}-{region}")
+        return normalize_locale(f"{language}-{_firefox_region_for(language, region)}")
 
     def from_language(self, language: str) -> Locale:
         """

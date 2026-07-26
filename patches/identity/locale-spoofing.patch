@@ -1,7 +1,7 @@
 diff --git a/browser/base/content/browser-init.js b/browser/base/content/browser-init.js
 --- a/browser/base/content/browser-init.js
 +++ b/browser/base/content/browser-init.js
-@@ -237,6 +237,22 @@
+@@ -237,6 +237,34 @@
      // correctly.
      window.TabBarVisibility.update();
  
@@ -15,6 +15,18 @@ diff --git a/browser/base/content/browser-init.js b/browser/base/content/browser
 +      let region = ChromeUtils.camouGetString("locale:region");
 +      if (language && region) {
 +        camouLocale = language + "-" + region + ", " + language;
++        // Mirror Firefox's own default. locale_service_default_accept_languages
++        // (intl/locale/rust/locale_service_glue/src/lib.rs) appends "en-US, en"
++        // for every app locale except a short list, so a German build ships
++        // "de, en-US, en" and sends "de,en-US;q=0.9,en;q=0.8". Emitting only
++        // "de-DE, de" gave every non-English identity an Accept-Language header
++        // no real Firefox produces — a per-request tell, on every request.
++        const CAMOU_NO_EN_FALLBACK = [
++          "en", "lt", "my", "ro", "sco", "sl", "szl",
++        ];
++        if (!CAMOU_NO_EN_FALLBACK.includes(language)) {
++          camouLocale += ", en-US, en";
++        }
 +      }
 +    }
 +    // Set the locale if it was found.

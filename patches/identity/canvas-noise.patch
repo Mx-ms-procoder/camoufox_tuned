@@ -1,5 +1,5 @@
 diff --git a/dom/canvas/CanvasRenderingContext2D.cpp b/dom/canvas/CanvasRenderingContext2D.cpp
-index c1d3f13..61ffb6f 100644
+index dd79a43..61fe450 100644
 --- a/dom/canvas/CanvasRenderingContext2D.cpp
 +++ b/dom/canvas/CanvasRenderingContext2D.cpp
 @@ -8,6 +8,9 @@
@@ -12,7 +12,30 @@ index c1d3f13..61ffb6f 100644
  #include "GeckoBindings.h"
  #include "ImageEncoder.h"
  #include "ImageRegion.h"
-@@ -6648,6 +6651,18 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
+@@ -2295,6 +2298,22 @@ UniquePtr<uint8_t[]> CanvasRenderingContext2D::GetImageBuffer(
+           out_imageSize->width * out_imageSize->height * 4,
+           SurfaceFormat::A8R8G8B8_UINT32);
+     }
++    // Camoufox: this is the toDataURL() / toBlob() encode path. Without it
++    // only the getImageData() readback below was noised, so the two APIs
++    // disagreed on the same canvas — a zero-false-positive Camoufox
++    // detector — and toDataURL(), the value fingerprinters actually hash,
++    // returned the REAL host rendering, identical across every profile on
++    // the machine. `ret` is packed BGRA (stride == width*4), the same
++    // layout and byte order the readback path perturbs, and
++    // ApplyCanvasNoise is a pure function of (seed, x, y, pixel), so both
++    // paths produce byte-identical output for one identity.
++    if (auto camouCanvasSeed = MaskConfig::GetUint64("canvas:noiseSeed")) {
++      if (aExtractionBehavior != CanvasUtils::ImageExtraction::Placeholder) {
++        camoufox::ApplyCanvasNoise(ret.get(), out_imageSize->width * 4,
++                                   out_imageSize->width, out_imageSize->height,
++                                   camouCanvasSeed.value());
++      }
++    }
+   }
+ 
+   return ret;
+@@ -6701,6 +6720,18 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
      }
    }
  
@@ -31,7 +54,7 @@ index c1d3f13..61ffb6f 100644
    DataSourceSurface::MappedSurface rawData;
    if (!readback || !readback->Map(DataSourceSurface::READ, &rawData)) {
      return NS_ERROR_OUT_OF_MEMORY;
-@@ -6674,6 +6689,14 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
+@@ -6727,6 +6758,14 @@ nsresult CanvasRenderingContext2D::GetImageDataArray(
                                      size.height * size.width * 4,
                                      SurfaceFormat::A8R8G8B8_UINT32);
      }

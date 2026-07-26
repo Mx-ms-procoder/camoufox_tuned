@@ -1,12 +1,15 @@
 import atexit
+import hashlib
 import os
+import random
 import secrets
 import tempfile
 import time
+from contextlib import contextmanager
 from os.path import abspath
 from pathlib import Path
 from pprint import pprint
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union, cast
 
 import numpy as np
 import orjson
@@ -25,7 +28,7 @@ from .exceptions import (
     UnknownProperty,
 )
 from .fingerprints import generate_fingerprint
-from .identity import IdentityCoherenceEngine
+from .identity import IdentityCoherenceEngine, _derive_seed_material
 from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6
 from .locale import geoip_allowed, get_geolocation, handle_locales
 from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
@@ -396,6 +399,16 @@ def determine_ua_os(user_agent: str) -> Literal['mac', 'win', 'lin']:
         return "win"
     if parsed_ua.startswith("Linux"):
         return "lin"
+    # ua_parser reports the *distribution* for X11 desktop strings, so a
+    # perfectly ordinary Firefox UA like
+    # "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:152.0) ..." parses as
+    # "Ubuntu" and used to abort the launch outright — browserforge emits
+    # those, so a pinned seed that landed on one produced a permanently
+    # unusable profile. Match on the X11 desktop marker instead of chasing
+    # the distro list; Android UAs say "Linux" but never "X11", so they
+    # still fall through to the error below.
+    if "X11" in user_agent and "Linux" in user_agent:
+        return "lin"
     raise ValueError(f"Unsupported OS family in user agent: {parsed_ua}")
 
 
@@ -624,6 +637,56 @@ def _resolve_persistent_seed(user_data_dir: Union[str, Path]) -> str:
         return 'camoufox-profile:' + str(user_data_dir)
 
 
+# Domain-separation tag for the RNG draws that happen outside the
+# IdentityCoherenceEngine's own seeded generator.
+_RNG_DOMAIN_TAG = b'camoufox-launch-rng-v1\x00'
+
+
+@contextmanager
+def _seeded_identity_rng(
+    fingerprint_seed: Optional[Union[str, int, bytes, bytearray, memoryview]],
+    domain: bytes,
+) -> Iterator[None]:
+    """
+    Pin the global RNGs that an identity draw touches to ``fingerprint_seed``.
+
+    ``fingerprint_seed`` only ever reached the IdentityCoherenceEngine, which
+    derives the *device profile* from it. Three draws stayed outside that seed
+    and ran on process-global RNG state instead:
+
+      * Browserforge's fingerprint pick (``random.random`` in its Bayesian
+        network) — this chooses the user agent, and with it the whole target
+        OS.
+      * ``handle_screenXY``'s ``randrange`` for ``window.screenY``.
+      * The GeoIP locale pick (``numpy.random.choice`` in locale.py).
+
+    So the same seed — and, because seed-pinning is what backs it, the same
+    *persistent profile* — produced a macOS identity on one launch and a Linux
+    one on the next, carrying the same cookies. Same storage plus a different
+    OS every run is precisely the device-change signal platform anti-bot
+    (Meta/Google) treats as a compromised session, so it must not happen.
+
+    Both RNG states are saved and restored, so a caller's own randomness is
+    left untouched. A ``None`` seed keeps the previous per-launch randomisation.
+    """
+    if fingerprint_seed is None:
+        yield
+        return
+
+    material = hashlib.sha256(
+        _RNG_DOMAIN_TAG + domain + b'\x00' + _derive_seed_material(fingerprint_seed)
+    ).digest()
+    py_state = random.getstate()
+    np_state = np.random.get_state()
+    random.seed(material)
+    np.random.seed(int.from_bytes(material[:4], 'big'))
+    try:
+        yield
+    finally:
+        random.setstate(py_state)
+        np.random.set_state(np_state)
+
+
 def _ff_version_from_executable(executable_path: Optional[Union[str, Path]]) -> Optional[str]:
     """Read the marketing major version from the launched binary's application.ini.
 
@@ -843,13 +906,29 @@ def launch_options(
             or installed_verstr().split('.', 1)[0]
         )
 
+    # Identity stability (fix for camoufox issue #328). With no explicit
+    # fingerprint_seed the identity is randomised per launch. For a
+    # persistent profile that means the same profile presents a different
+    # fingerprint every run — an anti-bot "always first visit" signal — so we
+    # auto-pin the seed to the profile. Ephemeral launches keep the per-run
+    # behaviour but get a one-time warning nudging the operator to pin a seed.
+    # Resolved *before* the fingerprint draw: the browserforge pick below
+    # chooses the target OS, so it has to run under the seed too.
+    if fingerprint_seed is None:
+        user_data_dir = launch_options.get('user_data_dir')
+        if user_data_dir:
+            fingerprint_seed = _resolve_persistent_seed(user_data_dir)
+        else:
+            LeakWarning.warn('unpinned_fingerprint_seed', i_know_what_im_doing)
+
     # Generate a fingerprint
     if fingerprint is None:
-        fingerprint = generate_fingerprint(
-            screen=screen or get_screen_cons(headless or 'DISPLAY' in env),
-            window=window,
-            os=os,
-        )
+        with _seeded_identity_rng(fingerprint_seed, b'browserforge'):
+            fingerprint = generate_fingerprint(
+                screen=screen or get_screen_cons(headless or 'DISPLAY' in env),
+                window=window,
+                os=os,
+            )
     else:
         # Or use the one passed by the user
         if not i_know_what_im_doing:
@@ -897,7 +976,8 @@ def launch_options(
             elif valid_ipv6(geoip):
                 set_into(config, 'webrtc:ipv6', geoip)
 
-        geolocation = get_geolocation(geoip)
+        with _seeded_identity_rng(fingerprint_seed, b'geolocation'):
+            geolocation = get_geolocation(geoip)
         # Non-destructive merge: an explicit user-set `timezone` /
         # `geolocation:` / `locale:` must survive GeoIP fill-in, because
         # MaxMind's IP→timezone often disagrees with the proxy's real
@@ -929,8 +1009,16 @@ def launch_options(
     # Pass the humanize option
     if humanize:
         set_into(config, 'humanize', True)
-        if isinstance(humanize, (int, float)):
-            set_into(config, 'humanize:maxTime', humanize)
+        # `bool` is a subclass of `int`, so the plain isinstance check that
+        # used to stand here matched `humanize=True` and wrote a bool into
+        # humanize:maxTime — which validate_config rejects ("Expected double,
+        # got bool"). That made the documented way of switching the
+        # behavioural layer on raise instead of work, so human-like input
+        # timing was effectively unreachable unless a float was passed.
+        if isinstance(humanize, (int, float)) and not isinstance(humanize, bool):
+            set_into(config, 'humanize:maxTime', float(humanize))
+    else:
+        LeakWarning.warn('humanize_disabled')
 
     # Enable the main world context creation
     if main_world_eval:
@@ -954,31 +1042,19 @@ def launch_options(
         firefox_user_prefs['webgl.disabled'] = True
         LeakWarning.warn('block_webgl', i_know_what_im_doing)
 
-    # Identity stability (fix for camoufox issue #328). With no explicit
-    # fingerprint_seed the identity is randomised per launch. For a
-    # persistent profile that means the same profile presents a different
-    # fingerprint every run — an anti-bot "always first visit" signal — so we
-    # auto-pin the seed to the profile. Ephemeral launches keep the per-run
-    # behaviour but get a one-time warning nudging the operator to pin a seed.
-    if fingerprint_seed is None:
-        user_data_dir = launch_options.get('user_data_dir')
-        if user_data_dir:
-            fingerprint_seed = _resolve_persistent_seed(user_data_dir)
-        else:
-            LeakWarning.warn('unpinned_fingerprint_seed', i_know_what_im_doing)
-
-    identity_state = IdentityCoherenceEngine().build(
-        fingerprint=fingerprint,
-        ff_version=ff_version_str,
-        target_os=target_os,
-        user_config=config,
-        window=window,
-        fonts=fonts,
-        custom_fonts_only=custom_fonts_only,
-        webgl_enabled=webgl_enabled,
-        webgl_config=webgl_config,
-        fingerprint_seed=fingerprint_seed,
-    )
+    with _seeded_identity_rng(fingerprint_seed, b'engine'):
+        identity_state = IdentityCoherenceEngine().build(
+            fingerprint=fingerprint,
+            ff_version=ff_version_str,
+            target_os=target_os,
+            user_config=config,
+            window=window,
+            fonts=fonts,
+            custom_fonts_only=custom_fonts_only,
+            webgl_enabled=webgl_enabled,
+            webgl_config=webgl_config,
+            fingerprint_seed=fingerprint_seed,
+        )
     if identity_state.manual_overrides and not i_know_what_im_doing:
         raise ManualOverrideCoherenceError(
             'Manual identity overrides would bypass the central coherence engine for: '

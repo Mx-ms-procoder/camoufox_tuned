@@ -69,6 +69,72 @@ Eigen-Probes:
   `call_once`-Config-Read-Retry (`c401984`) bleibt sinnvolle Robustheit, war aber
   nicht der Voice-Fix, für den ich ihn hielt.
 
+## 1.6 — Anti-Detect-Audit 2026-07-26 (11 reale Bugs, am build-0.14-Binary)
+
+Systematisches Audit aller Vektoren, die Meta/Google 2026 abfragen. Anlass:
+frische Profile werden beim Facebook-Login mit generischem Fehler geblockt.
+**Alle Änderungen sind uncommitted** (Branch `windows-msvc-migration`).
+
+### Gefunden und behoben
+
+| # | Befund | Verifikation |
+| - | ------ | ------------ |
+| 1 | **`fingerprint_seed` steuerte UA/OS nicht.** Browserforges Ziehung (wählt UA ⇒ Betriebssystem), `handle_screenXY` und der GeoIP-Locale-Pick liefen auf globalem `random`/`numpy`. Dasselbe **persistente Profil** war Lauf 1–2 macOS, Lauf 3 Linux — bei gleichen Cookies. Genau das Device-Change-Signal, das Meta als übernommene Session wertet. Fix: `_seeded_identity_rng()` in `utils.py`, domain-separiert je Aufrufstelle, Zustand wird restauriert. | live: 4× gleicher Seed identisch, persistentes Profil 3× stabil |
+| 2 | **`toDataURL()`/`toBlob()` hatten kein Canvas-Noise** — der Patch hing nur an `getImageData`. Uniforme Fläche: Readback 390/4096 Pixel verrauscht, `toDataURL` **1 Farbe**. Damit war (a) der Wert, den Fingerprinter hashen, der **echte Host-Hash** (auf allen Profilen der Maschine gleich) und (b) die Differenz beider APIs ein Camoufox-Detektor ohne Fehlalarm. Fix: zweiter Hunk in `GetImageBuffer`. | `additions/camoucfg/CanvasNoise_test.cpp` 8/8 — u. a. „Encode- und Readback-Pfad byte-identisch trotz verschiedener Strides". **Wirkt erst nach Rebuild.** |
+| 3 | **Screen-Tabellen mischten CSS- und Panel-Auflösung.** `screen.width` ist CSS-Pixel, `CSS × dpr` ist das implizierte Panel. macOS listete `2560×1600@2` ⇒ 5120×3200 (3 von 10 Einträgen unmöglich); Windows `1536×864@1.0` (das ist 1080p@125 %, dpr müsste 1.25 sein) und `3840×2160@1.5` ⇒ 5760×3240. | alle 50 Einträge bestehen `_panel_exists`, Negativkontrolle weist die 3 historischen Fehler zurück |
+| 4 | **`X11; Ubuntu; Linux x86_64` crashte den Launch** (~1/40). `ua_parser` meldet die Distribution, nicht „Linux"; mit gepinntem Seed war das Profil dauerhaft unbrauchbar. | 60/60 Launches sauber |
+| 5 | **Software-Renderer im Zufalls-Pool** (SwiftShader, llvmpipe, Microsoft Basic Render, ~2 %) — bedeutet „VM/Container", die Population mit dem höchsten Risiko-Score. Explizite Anforderung bleibt möglich. | 0 von 900 Stichproben |
+| 6 | **TLS-Profil fiel auf ein Firefox-135-Capture zurück** — 152 fehlte in `SUPPORTED_FIREFOX_VERSIONS`, der Fallback war ausgerechnet das einzige Profil mit aktiven NSS-Overrides. Meldete `major_version:135` bei UA 152. Neu: `get_firefox_profile_for_version()` baut für unregistrierte Versionen ein natives Profil (degradiert ab FF153 sauber). | JA3/JA4/Akamai **byte-identisch** vor/nach ⇒ Overrides waren wirkungslos, Wire-FP ist echtes FF152 |
+| 7 | **`humanize=True` warf eine Exception** (`isinstance(True, int)` ⇒ Bool in `humanize:maxTime`). Die komplette Verhaltensschicht war über ihre dokumentierte API unbenutzbar. Zusätzlich `humanize_disabled`-LeakWarning. | live, 11 Tasten: **aus 58 ms / 2 mousemove — an 1505 ms / 127** |
+| 8 | **GeoIP-Locale zog `nds-DE`/`bar-DE`** (11,25 % der deutschen Identitäten) aus der vollen CLDR-Liste — Sprachen ohne Firefox-Build, also ein `navigator.language`, den echtes Firefox nie sendet. Fix: `FIREFOX_UI_LANGUAGES` aus `browser/locales/shipped-locales`; `sco`/`szl`/`oc`/`hsb` bleiben (haben echte Builds). | 0 Fehlzüge in 3.900 Ziehungen, 13 Länder |
+| 9 | **`Accept-Language` fehlte Firefox' `en-US, en`-Anhang.** `locale_service_default_accept_languages` hängt ihn bei jeder Locale außer `en, lt, my, ro, sco, sl, szl` an; echtes FF-DE sendet `de,en-US;q=0.9,en;q=0.8`, Camoufox sendete `de-DE,de;q=0.9` — bei **jeder** nicht-englischen Identität, auf **jeder** Anfrage. | live via `omni.ja`-Patch: vorher `de-DE,de;q=0.9`, nachher `de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7`. **Wirkt erst nach Rebuild.** |
+| 10 | **`en-DE`/`en-PL`/`en-FR`** — Firefox behält bei `en` nur CA/GB/ZA, alles andere wird `en-US`. Traf ~1/3 der Identitäten in nicht-englischen Ländern. | 0 unmögliche Tags in 3.000 Ziehungen, 12 Länder |
+| 11 | **Die Population clusterte.** 150 unabhängig geseedete Profile ⇒ nur 13 Screen-Configs / 39 Profile, **ein Profil = 17 %**, Top-5 = 53 % — „viele Accounts, wenige Geräte". Tabellen als reale Panel×Skalierung-Paare neu gebaut (50 Einträge). | danach 17 Configs / 44 Profile / Top-5 45 %, 0 Launch-Fehler |
+
+### Als Fehlalarm verworfen (nicht erneut aufrollen)
+
+- `", or similar"` bei WebGL-Renderern = **echtes Firefox** (`dom/canvas/SanitizeRenderer.cpp:366`).
+- `Accept-Language ... q=0.9` = **echtes Firefox**. `netwerk/base/rust-helper/src/lib.rs` wörtlich: *„Since we need to emulate chrome behavior i.e languages should get q=1.0,0.9,0.8"*. Die `q=0.5`-Annahme ist veraltet.
+- `voices == 0` = Messfehler; `getVoices()` füllt asynchron, mit Polling 53–131 Stimmen.
+- WebGPU `NO_ADAPTER` = Firefox' eigene gfxInfo-Blocklist, kohärent.
+- `permissions.query(notifications)='prompt'` vs `Notification.permission='default'` = dieselbe Schreibweise desselben Zustands.
+- `document.fonts.check()` liefert für **jeden** Namen `true` — als Font-Probe wertlos; nur Metrik-Messung zählt.
+- `hardwareConcurrency`/`mediaDevices` korrekt gespooft (Config 24 Kerne ≠ Host 16).
+- WebRTC-IPv6 leakt mit Proxy nicht (`getMaskForIP` → `::`).
+- Die 17 %-Restkollision ist **kein Bug**: `Apple M1, or similar` hat 0,819 Mac-Gewicht in `webgl_data.db`, echte Macs konzentrieren sich so. Weiter glätten tauscht Realismus gegen einen anderen Tell.
+
+### ⚠️ Falschbelege in der eigenen Test-Infrastruktur
+
+- **`cf_turnstile_test.py` beweist nichts.** Es nutzt `demo.turnstile.workers.dev`
+  mit Sitekey `1x00000000000000000000AA` — Cloudflares *always-passes*-Testkey.
+  Der gibt **jedem** Client `XXXX.DUMMY.TOKEN.XXXX`, das Skript meldet dadurch
+  immer `solved: True`. Frühere „Turnstile bestanden"-Schlüsse sind haltlos.
+- Pixelscans `/s/api/co` liefert **pro Aufruf andere Payloads**. Ein
+  `osFontsStatus:false` aus einer Einzelstichprobe wurde durch den
+  Cross-OS-Gegentest widerlegt. „Masking detected" bleibt **unzugeordnet**.
+
+### Externe Verdikte nach den Fixes
+
+CreepJS `0 % headless`, `0 % stealth`, `chromium: false`, Worker-Realm
+`confidence: high`. Pixelscan **„No automated behavior detected"**.
+facebook/instagram/google/youtube: alle HTTP 200 mit funktionierendem
+Login-Formular, kein Block-Text, keine sichtbare Challenge.
+
+### Offen
+
+1. **Endabnahme:** `login_acceptance.py` (persistentes Profil + `humanize=True`
+   + `geoip=True` + Warm-up-Browsing, dann echter Login mit Protokoll der
+   Plattform-Reaktion; Credentials nur via ENV). Braucht Proxy-Zugangsdaten und
+   Testaccount. Denselben Profilordner mit Datacenter- **und** Residential-Exit
+   laufen lassen — nur das trennt „Browser erkannt" von „IP verbrannt".
+2. **Pixelscan „Masking detected"** — Attribution nicht gelungen.
+3. **Linux-Font-Bundle**: `bundle/fonts/linux/` enthält nur Tor-Browser-Fonts
+   (Arimo/Cousine/Tinos + Noto-Skripte), **kein** DejaVu/Liberation/Ubuntu/
+   Cantarell. Bewusste Upstream-Entscheidung mit `DO NOT MODIFY`; eine reine
+   Namensliste ohne die Dateien wäre wirkungslos. Gemeldet, nicht geändert.
+
+---
+
 ## 2 — Empirisches Stealth-Audit am FF152-Build (2026-07-21)
 
 Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
@@ -76,6 +142,7 @@ Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
 `launch_options`, coherente Identität).
 
 ### ✅ Bestätigt intakt (konfiguriert)
+
 | Vektor | Ergebnis |
 | --- | --- |
 | `navigator.webdriver` | `false` |
@@ -88,6 +155,7 @@ Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
 | `navigator.vendor`/`productSub`/`buildID` | `""` / `20100101` / `20181001000000` (RFP-Wert, korrekt) |
 
 ### 🔴 Gefundene Schwachstellen → in dieser Session GEFIXT
+
 1. **Juggler-Automation komplett kaputt (Playwright hängt bei `new_page`)** —
    Root-Cause: der **gesamte Juggler des Forks war ein alter Hand-Rebase
    (17.–25. Mai, FF146-Ära)**, dem eine Reihe FF152-Fixes fehlte, die Upstream
@@ -122,6 +190,7 @@ Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
    setzt jetzt `voices:blockIfNotDefined=true` (verifiziert: Host-Voices → 0).
 
 ### ✅ NEU gefunden (2026-07-22, via Proxy+Turnstile-Test) — GEFIXT (2026-07-22)
+
 0. **Timezone-Spoof leakte die ECHTE Zeitzone im Playwright/Juggler-Pfad.**
    **GEFIXT (belt+suspenders, beide vom User bestätigt):** (a) **#657-Root-Cause**
    in `timezone-spoofing.patch` übernommen (DateTimeInfo-Override-Ctor seedt jetzt
@@ -156,6 +225,7 @@ Gemessen mit einem juggler-freien Probe-Harness (lokaler HTTP-Server + headless
    **Hohe Priorität** — betrifft den Haupt-Nutzungsweg (pythonlib/Playwright).
 
 ### 🟡 Upstream-Vergleich (2026-07-22) — Anti-Detect-Patches sind ein ALTER Snapshot
+
 Wie schon der Juggler ist auch der **Anti-Detect-Patch-Satz des Forks älter als
 Upstream `v152.0.4-beta.27`** und fehlt Fixes. Basename-Diff (nach FF152-Rebase,
 also inkl. Kontext-Rauschen): webrtc-ip 598, screen 344, anti-font 267, webgl 110,
@@ -187,6 +257,7 @@ re-syncen — aber **jeden Drift empirisch prüfen** (CSS-device-size zeigt: nic
 alles ist eine echte Lücke). Prio: das **#657-TZ-Fix** übernehmen.
 
 ### 🟠 Offen / beobachten (kein Quick-Fix)
+
 3. **prefers-color-scheme fest auf DARK** — `prefersDark=true` bei ALLEN
    Identitäten (juggler `TargetRegistry.updateColorSchemeOverride = colorScheme ||
    'dark'`; Upstream: `|| browserContext.colorScheme || 'none'`). 100% Dark über
