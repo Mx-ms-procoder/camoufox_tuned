@@ -5,6 +5,7 @@
 "use strict";
 
 const {AddonManager} = ChromeUtils.importESModule("resource://gre/modules/AddonManager.sys.mjs");
+const {XPIProvider} = ChromeUtils.importESModule("resource://gre/modules/addons/XPIProvider.sys.mjs");
 const {TargetRegistry} = ChromeUtils.importESModule("chrome://juggler/content/TargetRegistry.js");
 const {Helper} = ChromeUtils.importESModule('chrome://juggler/content/Helper.js');
 const {PageHandler} = ChromeUtils.importESModule("chrome://juggler/content/protocol/PageHandler.js");
@@ -147,6 +148,12 @@ export class BrowserHandler {
       ]);
     }
     await this._startCompletePromise;
+    // Let add-on startup settle before quitting; tearing down mid-startup
+    // leaves XPIProvider work in flight and can hang or crash the shutdown.
+    await Promise.all([
+      ...XPIProvider.startupPromises,
+      ...XPIProvider.enabledAddonsStartupPromises,
+    ]);
     this._onclose();
     Services.startup.quit(Ci.nsIAppStartup.eForceQuit);
   }
@@ -166,7 +173,12 @@ export class BrowserHandler {
   ['Browser.clearCache']() {
     // Clearing only the context cache does not work: https://bugzilla.mozilla.org/show_bug.cgi?id=1819147
     Services.cache2.clear();
-    ChromeUtils.clearStyleSheetCache();
+    // ChromeUtils.clearStyleSheetCache() no longer exists in Firefox 152
+    // (ChromeUtils.webidl only has clearResourceCache), so the old call threw
+    // and Browser.clearCache never completed.
+    ChromeUtils.clearResourceCache({
+      types: ["stylesheet"],
+    });
   }
 
   ['Browser.setHTTPCredentials']({browserContextId, credentials}) {
@@ -220,7 +232,7 @@ export class BrowserHandler {
   }
 
   async ['Browser.setContrast']({browserContextId, contrast}) {
-    return;  // TODO: Implement
+    await this._targetRegistry.browserContextForId(browserContextId).setContrast(nullToUndefined(contrast));
   }
 
   async ['Browser.setVideoRecordingOptions']({browserContextId, options}) {

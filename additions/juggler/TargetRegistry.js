@@ -22,6 +22,7 @@ const ALL_PERMISSIONS = [
 ];
 
 let globalTabAndWindowActivationChain = Promise.resolve();
+let globalNewPageChain = Promise.resolve();
 
 class DownloadInterceptor {
   constructor(registry) {
@@ -329,6 +330,15 @@ export class TargetRegistry {
   }
 
   async newPage({browserContextId}) {
+    // Serialise page creation: two concurrent newPage() calls race on the
+    // chrome window / TabOpen bookkeeping below, which is the same area that
+    // produced the actor-binding hang (see _browserIdToActor).
+    const result = globalNewPageChain.then(() => this._newPageInternal({browserContextId}));
+    globalNewPageChain = result.catch(() => { /* swallow so the chain keeps running */ });
+    return result;
+  }
+
+  async _newPageInternal({browserContextId}) {
     const browserContext = this.browserContextForId(browserContextId);
     const features = "chrome,dialog=no,all";
     // See _callWithURIToLoad in browser.js for the structure of window.arguments
@@ -447,6 +457,7 @@ export class PageTarget {
         height: ChromeUtils.camouGetInt("window.innerHeight") || 720,
       };
     }
+    this._zoom = 1;
     this._initialDPPX = this._linkedBrowser.browsingContext.overrideDPPX;
     this._url = 'about:blank';
     this._openerId = opener ? opener.id() : undefined;
@@ -571,9 +582,11 @@ export class PageTarget {
     this.updateUserAgent(browsingContext);
     this.updatePlatform(browsingContext);
     this.updateDPPXOverride(browsingContext);
+    this.updateZoom(browsingContext);
     this.updateEmulatedMedia(browsingContext);
     this.updateColorSchemeOverride(browsingContext);
     this.updateReducedMotionOverride(browsingContext);
+    this.updateContrastOverride(browsingContext);
     this.updateForcedColorsOverride(browsingContext);
     this.updateForceOffline(browsingContext);
     this.updateCacheDisabled(browsingContext);
@@ -609,7 +622,16 @@ export class PageTarget {
   }
 
   updateDPPXOverride(browsingContext = undefined) {
-    (browsingContext || this._linkedBrowser.browsingContext).overrideDPPX = this._browserContext.deviceScaleFactor || this._initialDPPX;
+    browsingContext ||= this._linkedBrowser.browsingContext;
+    const dppx = this._zoom * (this._browserContext.deviceScaleFactor || this._initialDPPX);
+    browsingContext.overrideDPPX = dppx;
+  }
+
+  async updateZoom(browsingContext = undefined) {
+    browsingContext ||= this._linkedBrowser.browsingContext;
+    // Update dpr first, and then UI zoom.
+    this.updateDPPXOverride(browsingContext);
+    browsingContext.fullZoom = this._zoom;
   }
 
   _updateModalDialogs() {
@@ -671,7 +693,7 @@ export class PageTarget {
       const toolbarTop = stackRect.y;
       this._window.resizeBy(width - this._window.innerWidth, height + toolbarTop - this._window.innerHeight);
 
-      await this._channel.connect('').send('awaitViewportDimensions', { width, height });
+      await this._channel.connect('').send('awaitViewportDimensions', { width: width / this._zoom, height: height / this._zoom });
     } else {
       this._linkedBrowser.style.removeProperty('width');
       this._linkedBrowser.style.removeProperty('height');
@@ -683,8 +705,8 @@ export class PageTarget {
 
       const actualSize = this._linkedBrowser.getBoundingClientRect();
       await this._channel.connect('').send('awaitViewportDimensions', {
-        width: actualSize.width,
-        height: actualSize.height,
+        width: actualSize.width / this._zoom,
+        height: actualSize.height / this._zoom,
       });
     }
   }
@@ -716,6 +738,15 @@ export class PageTarget {
     (browsingContext || this._linkedBrowser.browsingContext).prefersReducedMotionOverride = this.reducedMotion || this._browserContext.reducedMotion || 'none';
   }
 
+  setContrast(contrast) {
+    this.contrast = fromProtocolContrast(contrast);
+    this.updateContrastOverride();
+  }
+
+  updateContrastOverride(browsingContext = undefined) {
+    (browsingContext || this._linkedBrowser.browsingContext).prefersContrastOverride = this.contrast || this._browserContext.contrast || 'none';
+  }
+
   setForcedColors(forcedColors) {
     this.forcedColors = fromProtocolForcedColors(forcedColors);
     this.updateForcedColorsOverride();
@@ -735,6 +766,14 @@ export class PageTarget {
   async setViewportSize(viewportSize) {
     this._viewportSize = viewportSize;
     await this.updateViewportSize();
+  }
+
+  async setZoom(zoom) {
+    // This is default range from the ZoomManager.
+    if (zoom < 0.3 || zoom > 5)
+      throw new Error('Invalid zoom value, must be between 0.3 and 5');
+    this._zoom = zoom;
+    await this.updateZoom();
   }
 
   close(runBeforeUnload = false) {
@@ -945,6 +984,14 @@ function fromProtocolReducedMotion(reducedMotion) {
   throw new Error('Unknown reduced motion: ' + reducedMotion);
 }
 
+function fromProtocolContrast(contrast) {
+  if (contrast === 'more' || contrast === 'less' || contrast === 'custom' || contrast === 'no-preference')
+    return contrast;
+  if (contrast === null)
+    return undefined;
+  throw new Error('Unknown contrast: ' + contrast);
+}
+
 function fromProtocolForcedColors(forcedColors) {
   if (forcedColors === 'active' || forcedColors === 'none')
     return forcedColors;
@@ -985,6 +1032,7 @@ class BrowserContext {
     this.colorScheme = 'none';
     this.forcedColors = 'none';
     this.reducedMotion = 'none';
+    this.contrast = 'none';
     this.videoRecordingOptions = undefined;
     this.crossProcessCookie = {
       initScripts: [],
@@ -1009,6 +1057,12 @@ class BrowserContext {
     this.reducedMotion = fromProtocolReducedMotion(reducedMotion);
     for (const page of this.pages)
       page.updateReducedMotionOverride();
+  }
+
+  setContrast(contrast) {
+    this.contrast = fromProtocolContrast(contrast);
+    for (const page of this.pages)
+      page.updateContrastOverride();
   }
 
   setForcedColors(forcedColors) {
@@ -1055,9 +1109,14 @@ class BrowserContext {
     if (ignoreHTTPSErrors) {
       Preferences.set("network.stricttransportsecurity.preloadlist", false);
       Preferences.set("security.cert_pinning.enforcement_level", 0);
-      certOverrideService.setDisableAllSecurityChecksAndLetAttackersInterceptMyData(true, this.userContextId);
+      // The two-argument call went to the *global* overload, whose only
+      // parameter is the boolean (nsICertOverrideService.idl): XPConnect
+      // dropped the userContextId, so one context asking for
+      // ignoreHTTPSErrors disabled certificate checking for every context in
+      // the browser. The ForUserContext variant is the per-context one.
+      certOverrideService.setDisableAllSecurityChecksAndLetAttackersInterceptMyDataForUserContext(this.userContextId, true);
     } else {
-      certOverrideService.setDisableAllSecurityChecksAndLetAttackersInterceptMyData(false, this.userContextId);
+      certOverrideService.setDisableAllSecurityChecksAndLetAttackersInterceptMyDataForUserContext(this.userContextId, false);
     }
   }
 
@@ -1165,7 +1224,13 @@ class BrowserContext {
 
   setCookies(cookies) {
     const protocolToSameSite = {
-      [undefined]: Ci.nsICookie.SAMESITE_NONE,
+      // Mirror of sameSiteToProtocol in getCookies(): that maps UNSET -> 'None',
+      // so 'None' has to map back to UNSET or a storage_state() round-trip
+      // rewrites every cookie's SameSite. 'None' was missing entirely here, so
+      // the lookup produced undefined and Services.cookies.add() got an invalid
+      // sameSite for exactly the cookies getCookies() had just emitted.
+      [undefined]: Ci.nsICookie.SAMESITE_UNSET,
+      'None': Ci.nsICookie.SAMESITE_UNSET,
       'Lax': Ci.nsICookie.SAMESITE_LAX,
       'Strict': Ci.nsICookie.SAMESITE_STRICT,
     };
@@ -1193,7 +1258,13 @@ class BrowserContext {
         secure,
         cookie.httpOnly || false,
         cookie.expires === undefined || cookie.expires === -1 /* isSession */,
-        cookie.expires === undefined ? Date.now() + HUNDRED_YEARS : cookie.expires,
+        // nsICookie.expiry is in *milliseconds* since the epoch (nsICookie.idl),
+        // while the protocol carries Unix seconds. Without the conversion a
+        // cookie expiring in 2027 was stored as ~1970-01-21 and dropped on the
+        // spot, so add_cookies() and any restored storage_state() silently lost
+        // every persistent cookie -- i.e. long-lived sessions could not be
+        // resumed at all.
+        cookie.expires === undefined ? Date.now() + HUNDRED_YEARS : cookie.expires * 1000,
         { userContextId: this.userContextId || undefined } /* originAttributes */,
         protocolToSameSite[cookie.sameSite],
         Ci.nsICookie.SCHEME_UNSET
@@ -1208,6 +1279,14 @@ class BrowserContext {
   getCookies() {
     const result = [];
     const sameSiteToProtocol = {
+      // SAMESITE_UNSET (256) is what Firefox stores for a cookie set without a
+      // SameSite attribute at all -- i.e. most cookies, including anything set
+      // via `document.cookie = 'k=v'`. It was missing here, so the lookup
+      // yielded undefined, and Protocol.js declares `sameSite` as a required
+      // enum: context.cookies() and storage_state() both threw
+      // `Expected .cookies[0].sameSite to be one of [Strict, Lax, None]`.
+      // That broke session persistence outright.
+      [Ci.nsICookie.SAMESITE_UNSET]: 'None',
       [Ci.nsICookie.SAMESITE_NONE]: 'None',
       [Ci.nsICookie.SAMESITE_LAX]: 'Lax',
       [Ci.nsICookie.SAMESITE_STRICT]: 'Strict',
@@ -1222,7 +1301,8 @@ class BrowserContext {
         value: cookie.value,
         domain: cookie.host,
         path: cookie.path,
-        expires: cookie.isSession ? -1 : cookie.expiry,
+        // Back to Unix seconds; see the *1000 in setCookies().
+        expires: cookie.isSession ? -1 : cookie.expiry / 1000,
         size: cookie.name.length + cookie.value.length,
         httpOnly: cookie.isHttpOnly,
         secure: cookie.isSecure,

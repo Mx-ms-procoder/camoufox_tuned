@@ -161,7 +161,17 @@ class Runtime {
         }
         const errorWindow = Services.wm.getOuterWindowWithId(message.outerWindowID);
         if (message.category === 'Web Worker' && message.logLevel === Ci.nsIConsoleMessage.error) {
-          emitEvent(this.events.onErrorFromWorker, errorWindow, message.message, '' + message.stack);
+          // PageAgent's handler takes (domWindow, message, stack, location) and
+          // forwards `location` on; emitting only three arguments left it
+          // undefined. Worker errors still reached page.on('pageerror') without
+          // it (measured), so this is about the payload being complete, not a
+          // repair.
+          emitEvent(this.events.onErrorFromWorker, errorWindow, message.message,
+                    '' + message.stack, {
+            lineNumber: message.lineNumber || 0,
+            columnNumber: message.columnNumber || 0,
+            url: message.sourceName || '',
+          });
           return;
         }
         const executionContext = this._windowToExecutionContext.get(errorWindow);

@@ -38,8 +38,15 @@ screen:
   colorDepth: screen.colorDepth
   pixelDepth: screen.pixelDepth
   # devicePixelRatio is not recommended. Any value other than 1.0 is suspicious.
-  pageXOffset: screen.pageXOffset
-  pageYOffset: screen.pageYOffset
+  # pageXOffset / pageYOffset are deliberately NOT mapped. The C++ side
+  # (nsGlobalWindowInner::GetScrollX/GetScrollY) returns the configured value
+  # *instead of* the live scroll position, and a BrowserForge dump always
+  # carries the value the page had when it was captured — 0. The result was
+  # window.scrollY frozen at 0 for the entire session while the page really
+  # scrolled, which breaks every sticky-header / lazy-load / infinite-scroll /
+  # cookie-consent-gate that reads scrollY, and makes
+  # `scrollY === 0 && document.scrollingElement.scrollTop > 0` a one-line bot
+  # check. A scroll offset is session state, not a device characteristic.
   outerHeight: window.outerHeight
   outerWidth: window.outerWidth
   innerHeight: window.innerHeight

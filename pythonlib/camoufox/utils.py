@@ -30,7 +30,13 @@ from .exceptions import (
 from .fingerprints import generate_fingerprint
 from .identity import IdentityCoherenceEngine, _derive_seed_material
 from .ip import Proxy, public_ip, valid_ipv4, valid_ipv6
-from .locale import geoip_allowed, get_geolocation, handle_locales
+from .locale import (
+    firefox_accept_languages,
+    firefox_app_locale,
+    geoip_allowed,
+    get_geolocation,
+    handle_locales,
+)
 from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
 from .tls_profiles import get_http2_config, get_tls_env_vars
 from .virtdisplay import VirtualDisplay
@@ -1005,6 +1011,21 @@ def launch_options(
     # Set locale
     if locale:
         handle_locales(locale, config)
+
+    # Derive intl.accept_languages the way Firefox does. Without this the
+    # browser-side fallback composed `<language>-<region>, <language>, en-US,
+    # en`, so every non-English identity shipped a leading tag no Firefox build
+    # emits (`de-DE` where a real German Firefox says `de`, and the impossible
+    # `nl-DE` for a Dutch speaker on a German IP) on every single request, with
+    # navigator.language contradicting Intl's resolved locale on top. Skipped
+    # when the caller passed an explicit language list or navigator.language —
+    # those are deliberate overrides.
+    if 'locale:all' not in config and 'navigator.language' not in config:
+        _language = config.get('locale:language')
+        if _language:
+            config['locale:all'] = firefox_accept_languages(
+                firefox_app_locale(_language, config.get('locale:region'))
+            )
 
     # Pass the humanize option
     if humanize:

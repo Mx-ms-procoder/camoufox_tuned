@@ -333,6 +333,197 @@ FIREFOX_UI_LANGUAGES = frozenset((
 _FIREFOX_EN_REGIONS = frozenset(('CA', 'GB', 'ZA', 'US'))
 
 
+# browser/locales/shipped-locales (FF152), verbatim. These are the only values
+# Firefox's *app locale* can take, and the app locale is what drives
+# navigator.language / navigator.languages / Accept-Language.
+FIREFOX_SHIPPED_LOCALES = frozenset((
+    'ach', 'af', 'an', 'ar', 'ast', 'az', 'be', 'bg', 'bn', 'br', 'bs', 'ca',
+    'ca-valencia', 'cak', 'cs', 'cy', 'da', 'de', 'dsb', 'el', 'en-CA',
+    'en-GB', 'en-US', 'eo', 'es-AR', 'es-CL', 'es-ES', 'es-MX', 'et', 'eu',
+    'fa', 'ff', 'fi', 'fr', 'fur', 'fy-NL', 'ga-IE', 'gd', 'gl', 'gn',
+    'gu-IN', 'he', 'hi-IN', 'hr', 'hsb', 'hu', 'hy-AM', 'ia', 'id', 'is',
+    'it', 'ja', 'ka', 'kab', 'kk', 'km', 'kn', 'ko', 'lij', 'lt', 'lv', 'mk',
+    'mr', 'ms', 'my', 'nb-NO', 'ne-NP', 'nl', 'nn-NO', 'oc', 'pa-IN', 'pl',
+    'pt-BR', 'pt-PT', 'rm', 'ro', 'ru', 'sat', 'sc', 'sco', 'si', 'sk',
+    'skr', 'sl', 'son', 'sq', 'sr', 'sv-SE', 'szl', 'ta', 'te', 'tg', 'th',
+    'tl', 'tr', 'trs', 'uk', 'ur', 'uz', 'vi', 'xh', 'zh-CN', 'zh-TW',
+))
+
+# Languages that ship in several regional flavours, where the region the IP
+# resolves to gives no answer (a Spanish speaker in Germany still runs one of
+# the four es-* builds). Every other regional-only language ships exactly one
+# variant, so it is derived instead of listed.
+_FIREFOX_DEFAULT_REGION = {'en': 'US', 'es': 'ES', 'pt': 'PT', 'zh': 'CN'}
+
+# Verbatim port of locale_service_default_accept_languages()
+# (intl/locale/rust/locale_service_glue/src/lib.rs, FF152). Generated from that
+# file; scripts/check_accept_languages.py re-parses the Rust source and fails if
+# the two ever drift apart, so a Firefox rebase cannot silently invalidate it.
+_FIREFOX_ACCEPT_LANGUAGES = {
+    'ace': 'ace, id',
+    'ach': 'ach, en-GB',
+    'af': 'af, en-ZA, en-GB',
+    'ak': 'ak, ak-GH',
+    'an': 'an, es-ES, es, ca',
+    'ast': 'ast, es-ES, es',
+    'az': 'az-AZ, az',
+    'bo': 'bo-CN, bo-IN, bo',
+    'br': 'br, fr-FR, fr',
+    'brx': 'brx, as',
+    'bs': 'bs-BA, bs',
+    'cak': 'cak, kaq, es',
+    'crh': 'tr-TR, tr',
+    'cs': 'cs, sk',
+    'csb': 'csb, csb-PL, pl',
+    'cy': 'cy-GB, cy',
+    'dsb': 'dsb, hsb, de',
+    'el': 'el-GR, el',
+    'et': 'et, et-EE',
+    'fa': 'fa-IR, fa',
+    'ff': 'ff, fr-FR, fr, en-GB',
+    'fi': 'fi-FI, fi',
+    'fr': 'fr, fr-FR',
+    'frp': 'frp, fr-FR, fr',
+    'fur': 'fur-IT, fur, it-IT, it',
+    'fy': 'fy-NL, fy, nl',
+    'ga': 'ga-IE, ga, en-IE, en-GB',
+    'gd': 'gd-GB, gd, en-GB',
+    'gl': 'gl-ES, gl',
+    'gn': 'gn, es',
+    'gv': 'gv, en-GB',
+    'he': 'he, he-IL',
+    'hr': 'hr, hr-HR',
+    'hsb': 'hsb, dsb, de',
+    'hto': 'es-MX, es-ES, es, es-AR, es-CL',
+    'hu': 'hu-HU, hu',
+    'hye': 'hye, hy',
+    'ilo': 'ilo-PH, ilo',
+    'it': 'it-IT, it',
+    'ixl': 'ixl, es-MX, es',
+    'ja': 'ja',
+    'ka': 'ka-GE, ka',
+    'kab': 'kab-DZ, kab, fr-FR, fr',
+    'kk': 'kk, ru, ru-RU',
+    'kn': 'kn-IN, kn',
+    'ko': 'ko-KR, ko',
+    'lb': 'lb, de-DE, de',
+    'lg': 'lg, en-GB',
+    'lij': 'lij, it',
+    'lt': 'lt, en-US, en, ru, pl',
+    'ltg': 'ltg, lv',
+    'mai': 'mai, hi-IN, en',
+    'meh': 'meh, es-MX, es',
+    'mix': 'mix, es-MX, es',
+    'mk': 'mk-MK, mk',
+    'ml': 'ml-IN, ml',
+    'mr': 'mr-IN, mr',
+    'my': 'my, en-GB, en',
+    'nb': 'nb-NO, nb, no-NO, no, nn-NO, nn',
+    'nn': 'nn-NO, nn, no-NO, no, nb-NO, nb',
+    'nr': 'nr-ZA, nr, en-ZA, en-GB',
+    'nso': 'nso-ZA, nso, en-ZA, en-GB',
+    'oc': 'oc, ca, fr, es, it',
+    'pa': 'pa, pa-IN',
+    'ppl': 'ppl, es-MX, es',
+    'rm': 'rm, rm-CH, de-CH, de',
+    'ro': 'ro-RO, ro-GB, en',
+    'ru': 'ru-RU, ru',
+    'sah': 'sah, ru-RU, ru',
+    'sc': 'sc, it-IT, it',
+    'scn': 'scn, it-IT, it',
+    'sco': 'sco, en-GB, en',
+    'si': 'si-LK, si',
+    'sk': 'sk, cs',
+    'sl': 'sl, en-GB, en',
+    'son': 'son, son-ML, fr',
+    'sq': 'sq, sq-AL',
+    'sr': 'sr-RS, sr',
+    'st': 'st-ZA, st, en-ZA, en-GB',
+    'szl': 'szl, pl-PL, pl, en, de',
+    'ta': 'ta-IN, ta',
+    'te': 'te-IN, te',
+    'tl': 'tl-PH, tl',
+    'tr': 'tr-TR, tr',
+    'trs': 'trs, es-MX, es',
+    'ts': 'ts-ZA, ts, en-ZA, en-GB',
+    'uk': 'uk-UA, uk',
+    'ur': 'ur-PK, ur',
+    'uz': 'uz, ru',
+    've': 've-ZA, ve, en-ZA, en-GB',
+    'vi': 'vi-VN, vi',
+    'xcl': 'xcl, hy',
+    'xh': 'xh-ZA, xh',
+    'zam': 'zam, es-MX, es',
+}
+
+# Languages whose table entry already ends in an English fallback; Firefox sets
+# add_en_us = false for these and does not append ", en-US, en".
+_FIREFOX_NO_EN_FALLBACK = frozenset(('en', 'lt', 'my', 'ro', 'sco', 'sl', 'szl'))
+
+
+def firefox_app_locale(language: str, region: Optional[str] = None) -> str:
+    """Map a drawn language + IP region onto a locale Firefox actually ships.
+
+    Firefox only has the builds listed in shipped-locales, and most languages
+    ship without a region at all. Picking the app locale here is what keeps
+    navigator.language inside the set of values a real Firefox can report.
+    """
+    language = language.split('-')[0].lower()
+    if region:
+        tagged = f"{language}-{region.upper()}"
+        if tagged in FIREFOX_SHIPPED_LOCALES:
+            return tagged
+    if language in FIREFOX_SHIPPED_LOCALES:
+        return language
+    default_region = _FIREFOX_DEFAULT_REGION.get(language)
+    if default_region:
+        return f"{language}-{default_region}"
+    # Languages that ship exactly one regional flavour (fy-NL, sv-SE, ...):
+    # take it, whatever the IP says.
+    shipped = sorted(
+        loc for loc in FIREFOX_SHIPPED_LOCALES if loc.startswith(f"{language}-")
+    )
+    return shipped[0] if shipped else language
+
+
+def firefox_accept_languages(app_locale: str) -> str:
+    """Reproduce Firefox's default `intl.accept_languages` for an app locale.
+
+    Port of locale_service_default_accept_languages(). Camoufox previously
+    composed `<language>-<IP country>, <language>, en-US, en` itself, which put
+    a leading tag no Firefox build emits on *every request* — a German identity
+    sent `de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7` where a real German Firefox
+    sends `de,en-US;q=0.9,en;q=0.8`, and a Dutch speaker on a German IP got the
+    outright impossible `nl-DE`. navigator.language then also disagreed with
+    Intl.DateTimeFormat().resolvedOptions().locale, which is free to check.
+    """
+    parts = app_locale.split('-')
+    language = parts[0].lower()
+    region = parts[1].upper() if len(parts) > 1 and len(parts[1]) == 2 else None
+
+    if language == 'en':
+        # Firefox keeps the region only for CA/GB/ZA; everything else is en-US.
+        langs = {
+            'CA': 'en-CA, en-US, en',
+            'GB': 'en-GB, en',
+            'ZA': 'en-ZA, en-GB, en-US, en',
+        }.get(region or '', 'en-US, en')
+    elif language == 'zh' and region == 'CN':
+        langs = 'zh-CN, zh, zh-TW, zh-HK'
+    elif app_locale == 'ca-valencia':
+        langs = 'ca-valencia, ca'
+    elif language in _FIREFOX_ACCEPT_LANGUAGES:
+        langs = _FIREFOX_ACCEPT_LANGUAGES[language]
+    elif region:
+        langs = f"{language}-{region}, {language}"
+    else:
+        langs = language
+
+    if language in _FIREFOX_NO_EN_FALLBACK:
+        return langs
+    return f"{langs}, en-US, en"
+
+
 def _firefox_region_for(language: str, region: str) -> str:
     """Map an IP-derived region onto one Firefox would actually pair with.
 

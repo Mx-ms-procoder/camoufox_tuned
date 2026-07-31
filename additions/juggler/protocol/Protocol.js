@@ -801,6 +801,11 @@ const Page = {
         viewportSize: t.Nullable(pageTypes.Size),
       },
     },
+    'setZoom': {
+      params: {
+        zoom: t.Number,
+      },
+    },
     'bringToFront': {
       params: {
       },
@@ -811,6 +816,7 @@ const Page = {
         colorScheme: t.Optional(t.Enum(['dark', 'light', 'no-preference'])),
         reducedMotion: t.Optional(t.Enum(['reduce', 'no-preference'])),
         forcedColors: t.Optional(t.Enum(['active', 'none'])),
+        contrast: t.Optional(t.Enum(['less', 'more', 'custom', 'no-preference'])),
       },
     },
     'setCacheDisabled': {

@@ -50,7 +50,7 @@ diff --git a/intl/components/src/Locale.cpp b/intl/components/src/Locale.cpp
 index 718d8814d8..068d042bc7 100644
 --- a/intl/components/src/Locale.cpp
 +++ b/intl/components/src/Locale.cpp
-@@ -20,11 +20,56 @@
+@@ -20,11 +20,79 @@
  
  #include "unicode/uloc.h"
  #include "unicode/utypes.h"
@@ -63,28 +63,51 @@ index 718d8814d8..068d042bc7 100644
 +
 +// Helper methods for header file
 +
++// MaskConfig::GetString returns a std::optional<std::string> *by value*, so
++// `opt.value().c_str()` handed back a pointer into a temporary that died with
++// the return statement. The caller then ran strlen() on it — and strlen's own
++// stack frame lands exactly where the dead string was. Undefined behaviour on
++// every single Intl locale query, with two visible consequences: a garbled
++// length fed into the fixed-capacity {Language,Script,Region}Subtag buffers
++// (a memory-safety hazard that grows with session length), and a silently
++// corrupted locale — an en-GB identity resolved to plain "en" and formatted
++// dates as en-US while its own navigator.language said en-GB.
++//
++// thread_local, not a plain static: Intl runs on workers as well, so a shared
++// mutable buffer would be a data race.
 +const char* Locale::GetCamouLanguage() {
-+  if (auto lang = MaskConfig::GetString("locale:language"))
-+    return lang.value().c_str();
-+  return nullptr;
++  static thread_local std::string cached;
++  auto value = MaskConfig::GetString("locale:language");
++  if (!value)
++    return nullptr;
++  cached = value.value();
++  return cached.c_str();
 +}
 +
 +const char* Locale::GetCamouRegion() {
-+  if (auto region = MaskConfig::GetString("locale:region"))
-+    return region.value().c_str();
-+  return nullptr;
++  static thread_local std::string cached;
++  auto value = MaskConfig::GetString("locale:region");
++  if (!value)
++    return nullptr;
++  cached = value.value();
++  return cached.c_str();
 +}
 +
 +const char* Locale::GetCamouScript() {
-+  if (auto script = MaskConfig::GetString("locale:script"))
-+    return script.value().c_str();
-+  return nullptr;
++  static thread_local std::string cached;
++  auto value = MaskConfig::GetString("locale:script");
++  if (!value)
++    return nullptr;
++  cached = value.value();
++  return cached.c_str();
 +}
 +
 +// Publicly exposed methods
 +
 +const char* Locale::GetCamouLocale() {
-+  static std::string locale;
++  // thread_local for the same reason as the getters above: this is read from
++  // worker threads, and a shared mutable std::string is a data race.
++  static thread_local std::string locale;
 +
 +  if (auto lang = MaskConfig::GetString("locale:language"))
 +    if (auto region = MaskConfig::GetString("locale:region"))

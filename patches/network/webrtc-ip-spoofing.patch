@@ -344,18 +344,19 @@ index 648bcda859..c562b95f87 100644
 diff --git a/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp b/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp
 --- before/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp
 +++ after/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp
-@@ -98,6 +98,10 @@
+@@ -98,6 +98,11 @@
  #include "mozilla/glean/DomMediaWebrtcMetrics.h"
  #include "mozilla/net/DataChannelProtocol.h"
  #include "mozilla/net/WebrtcProxyConfig.h"
 +#include "MaskConfig.hpp"
++#include "SdpSanitize.hpp"
 +#include "mozilla/RustRegex.h"
 +#include "WebRTCIPManager.h"
 +#include "nsDocShell.h"
  #include "nsContentUtils.h"
  #include "nsDOMJSUtils.h"
  #include "nsGlobalWindowInner.h"
-@@ -1585,7 +1589,15 @@
+@@ -1585,7 +1590,15 @@
      }
    };
  
@@ -372,7 +373,7 @@ diff --git a/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp b/dom/media/webrtc/js
  
    SyncToJsep();
  
-@@ -1751,11 +1763,48 @@
+@@ -1751,11 +1764,48 @@
      MOZ_CRASH("Failed to create a promise!");
    }
  
@@ -423,7 +424,7 @@ diff --git a/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp b/dom/media/webrtc/js
              RefPtr<RTCStatsReport> report(new RTCStatsReport(window));
              report->Incorporate(*aReport);
              promise->MaybeResolve(std::move(report));
-@@ -3274,12 +3323,19 @@
+@@ -3274,12 +3324,19 @@
    return mName;
  }
  
@@ -444,7 +445,7 @@ diff --git a/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp b/dom/media/webrtc/js
    if (mForceIceTcp && std::string::npos != candidate.find(" UDP ")) {
      CSFLogWarn(LOGTAG, "Blocking local UDP candidate: %s", candidate.c_str());
      STAMP_TIMECARD(mTimeCard, "UDP Ice Candidate blocked");
-@@ -3342,10 +3398,182 @@
+@@ -3342,10 +3399,144 @@
      uint16_t level, const std::string& mid, const std::string& candidate,
      const std::string& ufrag) {
    STAMP_TIMECARD(mTimeCard, "Send Ice Candidate to content");
@@ -583,55 +584,17 @@ diff --git a/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp b/dom/media/webrtc/js
 +    return NS_OK;
 +  }
 +
-+  uint32_t userContextId = 0;
-+  if (mWindow) {
-+    if (BrowsingContext* bc = mWindow->GetBrowsingContext()) {
-+      userContextId = bc->OriginAttributesRef().mUserContextId;
-+    }
-+  }
-+
-+  // process the SDP line by line to handle candidate lines
-+  std::istringstream iss(sdp);
-+  std::ostringstream oss;
-+  std::string line;
-+
-+  while (std::getline(iss, line)) {
-+    // std::getline leaves the '\r' of a CRLF pair (SDP is CRLF-terminated),
-+    // so strip it and re-emit one canonical terminator below. The old code
-+    // re-emitted CRLF lines with the '\r' but no '\n', collapsing the SDP.
-+    if (!line.empty() && line.back() == '\r') {
-+      line.pop_back();
-+    }
-+    // process candidates and other lines that might contain IPs
-+    if (line.compare(0, 12, "a=candidate:") == 0) {
-+      std::string processed = SpoofCandidateIP(line);
-+      if (processed != line) {
-+        line = processed;
-+      }
-+    }
-+    // Re-emit with a canonical CRLF terminator (RFC 4566).
-+    oss << line << "\r\n";
-+  }
-+  // process the entire SDP for any remaining IP addresses
-+  std::string processedSdp = oss.str();
-+  std::string originalSdp = processedSdp;
-+  
-+  // ipv4
-+  const char* ipv4Pattern = "(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)";
-+  processedSdp = replaceIPAddresses(processedSdp, ipv4Pattern, userContextId);
-+  // ipv6 - comprehensive pattern handles all formats including compressed (::1, fe80::, etc.)
-+  const char* ipv6Pattern = "(?:(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,7}:|(?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}|(?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}|(?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}|(?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}|[0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}|:(?::[0-9A-Fa-f]{1,4}){1,7}|::)";
-+  processedSdp = replaceIPAddresses(processedSdp, ipv6Pattern, userContextId);
-+  
-+  if (processedSdp != originalSdp) {
-+    sdp = processedSdp;
-+  }
-+  
++  // Only the IP-bearing lines get rewritten -- SdpSanitize.hpp documents why
++  // the whole-blob regex that used to live here corrupted a=fingerprint and
++  // broke WebRTC entirely. SpoofCandidateIP() resolves the user context itself
++  // and applies both the ipv4 and the ipv6 replacement.
++  sdp = camoufox::SanitizeSdp(
++      sdp, [this](const std::string& line) { return SpoofCandidateIP(line); });
 +  return NS_OK;
  }
  
  void PeerConnectionImpl::IceConnectionStateChange(
-@@ -3710,11 +3938,27 @@
+@@ -3710,11 +3901,27 @@
      const std::string& defaultRtcpAddr, uint16_t defaultRtcpPort,
      const std::string& transportId) {
    CSFLogDebug(LOGTAG, "%s", __FUNCTION__);
@@ -661,7 +624,7 @@ diff --git a/dom/media/webrtc/jsapi/PeerConnectionImpl.cpp b/dom/media/webrtc/js
          transportId);
    }
  }
-@@ -4485,8 +4729,10 @@
+@@ -4485,8 +4692,10 @@
  
    uint64_t winId = mWindow->WindowID();
  

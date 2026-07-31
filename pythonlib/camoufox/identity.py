@@ -105,8 +105,20 @@ class WindowMetrics:
             "document.body.clientTop": 0,
             "document.body.clientWidth": self.client_width,
             "document.body.clientHeight": self.client_height,
-            "screen.pageXOffset": self.page_x_offset,
-            "screen.pageYOffset": self.page_y_offset,
+            # screen.pageXOffset / screen.pageYOffset are deliberately NOT
+            # emitted. nsGlobalWindowInner::GetScrollX/GetScrollY return the
+            # configured value *instead of* the live scroll position, and these
+            # fields only ever held the BrowserForge snapshot value 0.0 — so
+            # window.scrollY and window.pageYOffset stayed pinned at 0 for the
+            # whole session while the page really did scroll
+            # (document.scrollingElement.scrollTop reached 4550 in the same
+            # run). Two consequences: every site that reads scrollY for sticky
+            # headers, lazy loading, infinite scroll or a "scrolled to the
+            # bottom?" consent gate behaves as if the user never scrolled, and
+            # `scrollY === 0 && scrollingElement.scrollTop > 0` is a one-line
+            # bot check. A scroll offset is session state, not a device
+            # characteristic, so there is nothing to spoof here; the config
+            # keys stay available for anyone who sets them explicitly.
         }
 
 
@@ -246,6 +258,21 @@ class IdentityCoherenceEngine:
         compiled_config["canvas:noiseSeed"] = int.from_bytes(
             digest[14:22], "big"
         )
+        # Same dead-path failure the canvas noise had: AudioFingerprintManager
+        # ::GetSeed() reads the per-context RoverfoxStorage key first and falls
+        # back to MaskConfig "audio:seed", but nothing ever wrote either --- the
+        # runtime setter that fed the storage key was removed with the rest of
+        # the window.set* island, and the launcher never set the config key. So
+        # GetSeed() returned 0, ApplyTransformation() early-returned, and the
+        # whole audio layer was inert: measured across three identities
+        # (seeds 1111/2222/3333) the OfflineAudioContext fingerprint was
+        # byte-identical (sum 35.749972093850374) while the claimed hardware
+        # ranged from an NVIDIA Windows box to an Apple M1. That is a hard
+        # cross-profile link *and* an internal contradiction. GetUint32, so
+        # keep it in range.
+        compiled_config["audio:seed"] = (
+            int.from_bytes(digest[22:26], "big") % 0xFFFFFFFF
+        ) + 1
         compiled_config["window.history.length"] = 1 + (digest[13] % 5)
         # Speech-synthesis voices: register a coherent per-OS voice set via
         # config so the browser side (MaskConfig::MVoices, consumed by

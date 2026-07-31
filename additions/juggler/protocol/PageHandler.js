@@ -250,6 +250,10 @@ export class PageHandler {
     await this._pageTarget.setViewportSize(viewportSize === null ? undefined : viewportSize);
   }
 
+  async ['Page.setZoom']({zoom}) {
+    await this._pageTarget.setZoom(zoom);
+  }
+
   async ['Runtime.evaluate'](options) {
     return await this._contentPage.send('evaluate', options);
   }
@@ -308,10 +312,11 @@ export class PageHandler {
     return await this._contentPage.send('setFileInputFiles', options);
   }
 
-  async ['Page.setEmulatedMedia']({colorScheme, type, reducedMotion, forcedColors}) {
+  async ['Page.setEmulatedMedia']({colorScheme, type, reducedMotion, forcedColors, contrast}) {
     this._pageTarget.setColorScheme(colorScheme || null);
     this._pageTarget.setReducedMotion(reducedMotion || null);
     this._pageTarget.setForcedColors(forcedColors || null);
+    this._pageTarget.setContrast(contrast || null);
     this._pageTarget.setEmulatedMedia(type);
   }
 
@@ -464,8 +469,22 @@ export class PageHandler {
 
   async ['Page.reload']() {
     await this._pageTarget.activateAndRun(() => {
-      const doc = this._pageTarget._tab.linkedBrowser.ownerDocument;
-      doc.getElementById('Browser:Reload').doCommand();
+      const browser = this._pageTarget._tab.linkedBrowser;
+      // Camoufox: `Browser:Reload`.doCommand() is a silent no-op in this
+      // window -- the chrome command never reaches the docshell, so
+      // Page.reload resolved without navigating at all and every
+      // page.reload() sat until its timeout while goto() and an in-page
+      // location.reload() both worked. Measured identically on build015,
+      // cf014 and cfwin_new, on real URLs as well as about:blank, so this is
+      // not the about:blank-only case the command path used to special-case.
+      // Drive the docshell directly, which is what location.reload() ends up
+      // doing; the chrome command stays only as a last resort.
+      const bc = browser.browsingContext;
+      if (bc && typeof bc.reload === 'function') {
+        bc.reload(Ci.nsIWebNavigation.LOAD_FLAGS_NONE);
+        return;
+      }
+      browser.ownerDocument.getElementById('Browser:Reload').doCommand();
     });
   }
 
@@ -583,7 +602,11 @@ export class PageHandler {
       this._pageTarget.ensureContextMenuClosed();
       // If someone asks us to dispatch mouse event outside of viewport, then we normally would drop it.
       const boundingBox = this._pageTarget._linkedBrowser.getBoundingClientRect();
-      if (x < 0 || y < 0 || x > boundingBox.width || y > boundingBox.height) {
+      // Treat exact-edge coordinates as out-of-viewport: a mousemove at
+      // x == width or y == height fires as an exit event rather than
+      // eMouseMove, so `>` let a click on the last row/column of the viewport
+      // dispatch an event the page never sees as a move.
+      if (x < 0 || y < 0 || x >= boundingBox.width || y >= boundingBox.height) {
         if (type !== 'mousemove')
           return;
 

@@ -68,25 +68,44 @@ index 330a707789..241f87780b 100644
  
  #include <inttypes.h>
  #include <stdio.h>
-@@ -3439,6 +3440,8 @@ void nsGlobalWindowInner::SetName(const nsAString& aName,
+@@ -3439,6 +3440,27 @@ void nsGlobalWindowInner::SetName(const nsAString& aName,
  }
  
++// Camoufox: the spoofed viewport is expressed at 100% zoom. Real Firefox
++// reports innerWidth/innerHeight in CSS pixels, so both shrink as the user
++// zooms in and grow as they zoom out, staying equal to
++// documentElement.clientWidth/clientHeight. Returning the stored value
++// unscaled made the two diverge the moment anyone touched Ctrl+wheel
++// (measured: inner 1559 vs client 1429 after one zoom step) — a mismatch no
++// real browser produces and a cheap thing for a site to compare.
++static double CamouFullZoom(Document* aDoc) {
++  if (aDoc) {
++    if (nsPresContext* pc = aDoc->GetPresContext()) {
++      const float zoom = pc->GetFullZoom();
++      if (zoom > 0.0f) {
++        return static_cast<double>(zoom);
++      }
++    }
++  }
++  return 1.0;
++}
++
  double nsGlobalWindowInner::GetInnerWidth(ErrorResult& aError) {
 +  if (auto value = MaskConfig::GetDouble("window.innerWidth"))
-+    return value.value();
++    return value.value() / CamouFullZoom(mDoc);
    FORWARD_TO_OUTER_OR_THROW(GetInnerWidthOuter, (aError), aError, 0);
  }
  
-@@ -3450,6 +3453,8 @@ nsresult nsGlobalWindowInner::GetInnerWidth(double* aWidth) {
+@@ -3450,6 +3472,8 @@ nsresult nsGlobalWindowInner::GetInnerWidth(double* aWidth) {
  }
  
  double nsGlobalWindowInner::GetInnerHeight(ErrorResult& aError) {
 +  if (auto value = MaskConfig::GetDouble("window.innerHeight"))
-+    return value.value();
++    return value.value() / CamouFullZoom(mDoc);
    // We ignore aCallerType; we only have that argument because some other things
    // called by GetReplaceableWindowCoord need it.  If this ever changes, fix
    //   nsresult nsGlobalWindowInner::GetInnerHeight(double* aInnerWidth)
-@@ -3466,12 +3471,16 @@ nsresult nsGlobalWindowInner::GetInnerHeight(double* aHeight) {
+@@ -3466,12 +3490,16 @@ nsresult nsGlobalWindowInner::GetInnerHeight(double* aHeight) {
  
  int32_t nsGlobalWindowInner::GetOuterWidth(CallerType aCallerType,
                                             ErrorResult& aError) {
@@ -103,7 +122,7 @@ index 330a707789..241f87780b 100644
    FORWARD_TO_OUTER_OR_THROW(GetOuterHeightOuter, (aCallerType, aError), aError,
                              0);
  }
-@@ -3486,11 +3495,13 @@ double nsGlobalWindowInner::ScreenEdgeSlopY() const {
+@@ -3486,11 +3514,13 @@ double nsGlobalWindowInner::ScreenEdgeSlopY() const {
  
  int32_t nsGlobalWindowInner::GetScreenX(CallerType aCallerType,
                                          ErrorResult& aError) {
@@ -117,7 +136,7 @@ index 330a707789..241f87780b 100644
    FORWARD_TO_OUTER_OR_THROW(GetScreenYOuter, (aCallerType, aError), aError, 0);
  }
  
-@@ -3524,6 +3535,8 @@ static nsPresContext* GetPresContextForRatio(Document* aDoc) {
+@@ -3524,6 +3554,8 @@ static nsPresContext* GetPresContextForRatio(Document* aDoc) {
  double nsGlobalWindowInner::GetDevicePixelRatio(CallerType aCallerType,
                                                  ErrorResult& aError) {
    ENSURE_ACTIVE_DOCUMENT(aError, 0.0);
@@ -126,7 +145,7 @@ index 330a707789..241f87780b 100644
  
    RefPtr<nsPresContext> presContext = GetPresContextForRatio(mDoc);
    if (NS_WARN_IF(!presContext)) {
-@@ -3594,26 +3607,38 @@ already_AddRefed<MediaQueryList> nsGlobalWindowInner::MatchMedia(
+@@ -3594,26 +3626,38 @@ already_AddRefed<MediaQueryList> nsGlobalWindowInner::MatchMedia(
  }
  
  int32_t nsGlobalWindowInner::GetScrollMinX(ErrorResult& aError) {
