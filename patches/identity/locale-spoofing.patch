@@ -233,3 +233,31 @@ index b922e3890e..a856788d48 100644
    if (!mRegionalPrefsLocales.IsEmpty()) {
      aRetVal = mRegionalPrefsLocales.Clone();
      return NS_OK;
+diff --git a/js/xpconnect/src/XPCLocale.cpp b/js/xpconnect/src/XPCLocale.cpp
+--- a/js/xpconnect/src/XPCLocale.cpp
++++ b/js/xpconnect/src/XPCLocale.cpp
+@@ -15,4 +15,5 @@
+ #include "mozilla/CycleCollectedJSRuntime.h"
+ #include "mozilla/CycleCollectedJSContext.h"
+ #include "mozilla/intl/LocaleService.h"
++#include "mozilla/intl/Locale.h"
+ #include "mozilla/Preferences.h"
+@@ -124,5 +125,18 @@
+   }
+ 
++  // Camoufox: SpiderMonkey's Intl default locale is set here, not by
++  // mozilla::intl::Locale::GetDefaultLocale(). LocaleService::
++  // GetRegionalPrefsLocales() negotiates our value against the *packaged* app
++  // locale and drops the region when the two disagree, so an en-GB identity
++  // ended up with a JS default of plain "en": navigator.language said "en-GB"
++  // and Accept-Language sent "en-GB,en;q=0.9", yet toLocaleDateString()
++  // returned the en-US 3/9/2026 instead of 09/03/2026. ICU has the data — an
++  // explicit new Intl.DateTimeFormat('en-GB') formats correctly — so only the
++  // default was wrong. Set it straight from the identity.
++  if (const char* camouLocale = mozilla::intl::Locale::GetCamouLocale()) {
++    return JS_SetDefaultLocale(rt, camouLocale);
++  }
++
+   // Set the default locale from the regional prefs locales.
+   AutoTArray<nsCString, 10> rpLocales;
+   LocaleService::GetInstance()->GetRegionalPrefsLocales(rpLocales);
