@@ -104,3 +104,40 @@ def test_no_impossible_region_composition():
                              ('en', 'DE'), ('en', 'PL'), ('en', 'FR')]:
         tags = firefox_accept_languages(firefox_app_locale(language, region))
         assert f"{language}-{region}" not in tags, tags
+
+
+# --- q-value weighting -------------------------------------------------------
+#
+# The language *list* is guarded above and by scripts/check_accept_languages.py.
+# The weighting on top of it is a separate surface and was wrong independently:
+# Camoufox emitted a fixed 0.1 decrement (`de,en-US;q=0.9,en;q=0.8`), which is
+# Chrome's pattern, from a browser announcing itself as Firefox. Gecko spreads
+# the values evenly instead -- entry i of n gets 1 - i/n, rounded to one decimal
+# half away from zero, joined with "," and no space.
+#
+# The expectations below were measured on the wire against a stock Firefox 146
+# by setting intl.accept_languages and reading the request header back.
+
+QVALUE_CASES = [
+    (["en-US", "en"], "en-US,en;q=0.5"),
+    (["en-GB", "en"], "en-GB,en;q=0.5"),
+    (["de", "en-US", "en"], "de,en-US;q=0.7,en;q=0.3"),
+    (["fr", "de", "en-US", "en"], "fr,de;q=0.8,en-US;q=0.5,en;q=0.3"),
+]
+
+
+@pytest.mark.parametrize("languages,expected", QVALUE_CASES)
+def test_accept_language_qvalues_match_gecko(languages, expected):
+    from camoufox.identity import IdentityCoherenceEngine
+
+    assert IdentityCoherenceEngine._accept_language_header(languages) == expected
+
+
+def test_accept_language_never_uses_the_chrome_decrement():
+    """0.9/0.8/0.7 is Chrome. A Firefox UA carrying it is visible per request."""
+    from camoufox.identity import IdentityCoherenceEngine
+
+    for languages, _ in QVALUE_CASES:
+        header = IdentityCoherenceEngine._accept_language_header(languages)
+        assert ";q=0.9" not in header, header
+        assert ", " not in header, header  # Gecko emits no space after the comma

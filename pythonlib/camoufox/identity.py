@@ -10,6 +10,7 @@ OS-scoped device profile.
 from __future__ import annotations
 
 import hashlib
+import math
 from dataclasses import dataclass
 from random import Random
 from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
@@ -273,7 +274,27 @@ class IdentityCoherenceEngine:
         compiled_config["audio:seed"] = (
             int.from_bytes(digest[22:26], "big") % 0xFFFFFFFF
         ) + 1
-        compiled_config["window.history.length"] = 1 + (digest[13] % 5)
+        # window.history.length is deliberately NOT emitted, for the same
+        # reason screen.pageXOffset/pageYOffset are not (see WindowMetrics
+        # above). nsHistory::GetLength returns the configured value *instead
+        # of* the live entry count, so it stayed frozen at one number for the
+        # whole session: measured with fixed seeds, `history.length` read
+        # [3, 3, 3, 3] and [1, 1, 1, 1] across four consecutive navigations
+        # where a real browser counts 1, 2, 3, 4. Navigating and watching the
+        # number not move is a one-line bot check, and it is the same
+        # category error each time -- history depth is session state, not a
+        # device characteristic. With browser.sessionhistory.max_entries no
+        # longer pinned to 0 (settings/camoufox.cfg) the real counter works,
+        # so there is nothing left to fake; the config key stays available
+        # for anyone who sets it explicitly.
+        #
+        # prefers-color-scheme is handled in _tzhelper.config_color_scheme
+        # rather than here. It deliberately does NOT get its own config key:
+        # validate_config() checks every key against the properties.json
+        # shipped *inside the browser package*, so a new key would raise
+        # UnknownProperty on every launch until the next rebuild. It is
+        # derived from canvas:noiseSeed instead, which is already part of
+        # this same digest and therefore just as seed-stable.
         # Speech-synthesis voices: register a coherent per-OS voice set via
         # config so the browser side (MaskConfig::MVoices, consumed by
         # patches/media/voice-spoofing.patch) never enumerates the host
@@ -510,6 +531,9 @@ class IdentityCoherenceEngine:
                 "headers.User-Agent", compiled_config["navigator.userAgent"]
             )
 
+        # Note: in the normal launch path this runs before handle_locales()'
+        # `locale:all` is merged in, so neither branch below fires and the
+        # header is filled in by launch_options() instead (see utils.py).
         if "headers.Accept-Language" not in compiled_config:
             languages = compiled_config.get("navigator.languages")
             if isinstance(languages, (list, tuple)) and languages:
@@ -525,17 +549,39 @@ class IdentityCoherenceEngine:
 
     @staticmethod
     def _accept_language_header(languages: Sequence[Any]) -> str:
-        parts: List[str] = []
-        for index, language in enumerate(languages):
-            lang = str(language)
-            if not lang:
-                continue
-            if index == 0:
-                parts.append(lang)
-            else:
-                q = max(0.1, 1.0 - 0.3 * float(index))
-                parts.append(f"{lang};q={q:.1f}")
-        return ", ".join(parts)
+        """Build Accept-Language the way Gecko builds it.
+
+        Gecko spreads the q-values evenly over the list -- nsHttpHandler::
+        PrepareAcceptLanguages() gives entry i of n the value 1 - i/n, rounded
+        to one decimal (half away from zero). Measured against a stock
+        Firefox 146 on the wire:
+
+            de, en-US, en        -> de,en-US;q=0.7,en;q=0.3
+            fr, de, en-US, en    -> fr,de;q=0.8,en-US;q=0.5,en;q=0.3
+            en-US, en            -> en-US,en;q=0.5
+
+        Camoufox was emitting a fixed 0.1 decrement (0.9, 0.8, 0.7 ...), which
+        is Chrome's pattern, on every request from a browser announcing itself
+        as Firefox. An earlier audit cleared this by reading a
+        "emulate chrome behavior" comment in the netwerk rust helper; the
+        comparison above against a real Firefox contradicts that reading, so
+        the value is now derived rather than assumed. scripts/
+        check_accept_languages.py already guards the language *list*; this is
+        the weighting on top of it.
+        """
+        langs = [str(language) for language in languages if str(language)]
+        if not langs:
+            return ""
+        count = len(langs)
+        parts = [langs[0]]
+        for index, lang in enumerate(langs[1:], start=1):
+            # round half away from zero: Gecko emits 0.3 for 0.25, not 0.2
+            q = max(0.1, math.floor((1.0 - index / count) * 10 + 0.5) / 10)
+            parts.append(f"{lang};q={q:.1f}")
+        # No space after the comma: Gecko emits "de,en-US;q=0.7,en;q=0.3".
+        # Header whitespace is on the wire byte-for-byte, so ", " would be its
+        # own small deviation even once the weights are right.
+        return ",".join(parts)
 
     def _disable_webgl_null_blocking(self, compiled_config: Dict[str, Any]) -> None:
         """Prefer native WebGL fallbacks over nulling unknown parameters."""

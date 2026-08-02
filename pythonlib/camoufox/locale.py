@@ -116,11 +116,26 @@ def normalize_locale(locale: str) -> Locale:
 
     record = parser.language.data['record']
 
+    # Only an explicitly supplied script is meaningful. `Suppress-Script` is
+    # the IANA registry's marker for the script that is REDUNDANT for a
+    # language and must therefore be *omitted* from its tags -- for `en` it is
+    # `Latn`, which is why nobody writes `en-Latn-GB`. Emitting it as the
+    # script to apply inverted the field's meaning and built exactly that tag.
+    # ICU does not list `en-Latn-GB`, so SpiderMonkey's BestAvailableLocale
+    # truncated from the right (en-Latn-GB -> en-Latn -> en) and took the
+    # region with it: navigator.language and Accept-Language said en-GB while
+    # Intl.DateTimeFormat().resolvedOptions().locale said plain "en" and dates
+    # formatted US-style as 3/9/2026 instead of 09/03/2026. Measured per key:
+    # language+region alone resolved to en-GB, adding locale:script collapsed
+    # it to en. Languages with a genuine script choice (zh, sr, ...) carry no
+    # Suppress-Script, which is why zh-Hant-TW was the one case that worked.
+    script = parser.script.data['record']['Subtag'] if parser.script else None
+
     # Return a formatted locale object
     return Locale(
         language=record['Subtag'],
         region=parser.region.data['record']['Subtag'],
-        script=record.get('Suppress-Script'),
+        script=script,
     )
 
 

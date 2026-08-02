@@ -8,6 +8,8 @@ const {Preferences} = ChromeUtils.importESModule("resource://gre/modules/Prefere
 const {ContextualIdentityService} = ChromeUtils.importESModule("resource://gre/modules/ContextualIdentityService.sys.mjs");
 const {NetUtil} = ChromeUtils.importESModule('resource://gre/modules/NetUtil.sys.mjs');
 const {AppConstants} = ChromeUtils.importESModule("resource://gre/modules/AppConstants.sys.mjs");
+// Chrome-privileged module scope has no global setTimeout/clearTimeout.
+const {setTimeout, clearTimeout} = ChromeUtils.importESModule("resource://gre/modules/Timer.sys.mjs");
 
 const Cr = Components.results;
 
@@ -22,6 +24,24 @@ const ALL_PERMISSIONS = [
 ];
 
 let globalTabAndWindowActivationChain = Promise.resolve();
+
+// Ceiling for one activateAndRun() step. Every mouse dispatch is serialized on
+// the global chain above and each one awaits a
+// `juggler-mouse-event-hit-renderer` notification from the content process. If
+// that notification never arrives the await never settles, the chain never
+// advances, and every later input event in the process -- clicks, typing,
+// scrolling, across all contexts -- queues behind it forever. The `.catch()`
+// on the chain only recovers from *rejections*, not from a hang.
+//
+// The known way to produce a missing ack (a mousemove landing exactly on the
+// viewport edge, which fires as an exit event instead of eMouseMove) is fixed
+// at both bounds checks in PageHandler.js. This is the structural backstop:
+// with a deadline, an unacked dispatch degrades into one rejected call that
+// the caller can retry instead of killing input for the rest of the session.
+// Kept below Playwright's 30s default action timeout so the chain frees itself
+// before the caller gives up. Diagnosis by @rubenvereecken in
+// daijro/camoufox#225; upstream took the bounds fix (#680) but not this guard.
+const ACTIVATE_AND_RUN_TIMEOUT_MS = 25000;
 let globalNewPageChain = Promise.resolve();
 
 class DownloadInterceptor {
@@ -518,7 +538,19 @@ export class PageTarget {
       const notificationsPopup = muteNotificationsPopup ? this._linkedBrowser?.ownerDocument.getElementById('notification-popup') : null;
       notificationsPopup?.style.setProperty('pointer-events', 'none');
       try {
-        await callback();
+        // Race the callback against a deadline so a missing renderer ack
+        // cannot wedge the global chain (see ACTIVATE_AND_RUN_TIMEOUT_MS).
+        let timer;
+        const deadline = new Promise((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error(`activateAndRun timed out after ${ACTIVATE_AND_RUN_TIMEOUT_MS}ms`)),
+            ACTIVATE_AND_RUN_TIMEOUT_MS);
+        });
+        try {
+          await Promise.race([callback(), deadline]);
+        } finally {
+          clearTimeout(timer);
+        }
       } finally {
         notificationsPopup?.style.removeProperty('pointer-events');
       }

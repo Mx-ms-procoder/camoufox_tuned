@@ -579,8 +579,18 @@ export class PageHandler {
           for (let i = 2; i < trajectory.length - 2; i += 2) {
             let currentX = trajectory[i];
             let currentY = trajectory[i + 1];
-            // Skip movement that is out of bounds
-            if (currentX < 0 || currentY < 0 || currentX > boundingBox.width || currentY > boundingBox.height) {
+            // Skip movement that is out of bounds. Must match the endpoint
+            // guard below (>=, not >): a point at exactly x == width or
+            // y == height fires as an exit event instead of eMouseMove, so the
+            // hit-renderer ack never arrives. Dispatch happens inside
+            // activateAndRun(), which serializes on a *process-global* promise
+            // chain, so one missing ack wedges that chain and every later input
+            // event -- clicks, typing, scrolling -- hangs behind it forever.
+            // The endpoint check was fixed to >= earlier; the trajectory added
+            // its own bounds check in the old strict-> form and bypassed it.
+            // Same defect upstream, daijro/camoufox#225, fixed in
+            // v152.0.4-beta.28 (PR #680).
+            if (currentX < 0 || currentY < 0 || currentX >= boundingBox.width || currentY >= boundingBox.height) {
               continue;
             }
             await sendMouseEvent(type, currentX, currentY);

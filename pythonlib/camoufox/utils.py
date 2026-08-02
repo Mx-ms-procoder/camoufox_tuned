@@ -1103,6 +1103,33 @@ def launch_options(
     merge_into(config, identity_state.config)
     merge_into(firefox_user_prefs, identity_state.firefox_user_prefs)
 
+    # Accept-Language weighting. handle_locales() writes `locale:all` into
+    # `config` while the identity engine builds its own map, so the engine's
+    # header default never saw the language list and the key stayed unset --
+    # leaving the browser to generate the q-values itself, which it does with
+    # Chrome's fixed 0.1 decrement (`de,en-US;q=0.9,en;q=0.8`). Stock Firefox
+    # spreads them evenly (`de,en-US;q=0.7,en;q=0.3`, measured on the wire
+    # against Firefox 146), so a Firefox UA carrying Chrome weightings is
+    # visible on every single request. Setting headers.Accept-Language is the
+    # path that measurably reaches the wire; the pref alone does not.
+    if 'headers.Accept-Language' not in config:
+        _langs = config.get('locale:all')
+        if not (isinstance(_langs, str) and _langs.strip()):
+            # No locale= was passed, so handle_locales() never ran and
+            # `locale:all` is absent -- the common case. The browser then
+            # falls back to its own app locale, which these builds ship as
+            # en-US, and generates the weights itself. Measured on
+            # pixelscan.net with no locale set: "en-US en;q=0.9". Pin the
+            # same list explicitly so the weighting goes through the Gecko
+            # formula below instead.
+            _nav = config.get('navigator.language')
+            _langs = firefox_accept_languages(_nav) if _nav else 'en-US, en'
+        config['headers.Accept-Language'] = (
+            IdentityCoherenceEngine._accept_language_header(
+                [p.strip() for p in str(_langs).split(',') if p.strip()]
+            )
+        )
+
     # Cache previous pages, requests, etc (uses more memory)
     if enable_cache:
         merge_into(firefox_user_prefs, CACHE_PREFS)

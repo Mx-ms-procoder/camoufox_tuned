@@ -11,25 +11,40 @@ from typing_extensions import Literal
 from camoufox.virtdisplay import VirtualDisplay
 
 from .utils import launch_options, sync_attach_vd
+from ._tzhelper import config_color_scheme as _config_color_scheme
 from ._tzhelper import config_timezone as _config_timezone
 
 
-def _inject_context_timezone(browser: Browser, tz: str) -> None:
-    """Default the timezone of implicitly-created contexts to the spoofed tz.
+def _context_defaults(from_options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Identity values that only apply if forwarded as context options."""
+    defaults: Dict[str, Any] = {}
+    tz = _config_timezone(from_options)
+    if tz:
+        defaults["timezone_id"] = tz
+    scheme = _config_color_scheme(from_options)
+    if scheme:
+        defaults["color_scheme"] = scheme
+    return defaults
+
+
+def _inject_context_defaults(browser: Browser, defaults: Dict[str, Any]) -> None:
+    """Apply those defaults to implicitly-created contexts.
 
     A plain launch() returns a Browser whose new_page()/new_context() build
-    fresh contexts; wrap them so `timezone_id` is supplied unless the caller
+    fresh contexts; wrap them so each value is supplied unless the caller
     passed one of their own.
     """
     orig_new_page = browser.new_page
     orig_new_context = browser.new_context
 
     def new_page(**kwargs: Any) -> Any:
-        kwargs.setdefault("timezone_id", tz)
+        for key, value in defaults.items():
+            kwargs.setdefault(key, value)
         return orig_new_page(**kwargs)
 
     def new_context(**kwargs: Any) -> Any:
-        kwargs.setdefault("timezone_id", tz)
+        for key, value in defaults.items():
+            kwargs.setdefault(key, value)
         return orig_new_context(**kwargs)
 
     browser.new_page = new_page  # type: ignore[method-assign]
@@ -109,22 +124,23 @@ def NewBrowser(
         if from_options is None:
             from_options = launch_options(headless=headless, debug=debug, **kwargs)
 
-        # Forward the spoofed timezone to the Playwright context so the juggler
-        # applies it reliably (the MaskConfig-only per-realm override can leak
-        # the host tz through the window-creation path).
-        tz = _config_timezone(from_options)
+        # Forward identity values that only take effect as context options:
+        # the timezone (the MaskConfig-only per-realm override can leak the
+        # host tz through the window-creation path) and prefers-color-scheme
+        # (no other path moves it — see _tzhelper.config_color_scheme).
+        defaults = _context_defaults(from_options)
 
         # Persistent context
         if persistent_context:
-            if tz:
-                from_options.setdefault("timezone_id", tz)
+            for key, value in defaults.items():
+                from_options.setdefault(key, value)
             context = playwright.firefox.launch_persistent_context(**from_options)
             return sync_attach_vd(context, virtual_display)
 
         # Browser
         browser = playwright.firefox.launch(**from_options)
-        if tz:
-            _inject_context_timezone(browser, tz)
+        if defaults:
+            _inject_context_defaults(browser, defaults)
         return sync_attach_vd(browser, virtual_display)
     except Exception:
         if virtual_display:
