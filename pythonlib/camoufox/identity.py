@@ -246,6 +246,20 @@ class IdentityCoherenceEngine:
         compiled_config["fonts:spacing_seed"] = (
             int.from_bytes(digest[8:12], "big") % 1_073_741_823
         )
+        # NOTE: canvas:aaOffset currently has no effect on rendering. The C++
+        # side reads it (IdentityStateProvider::GetCanvasState -> GetInt32) but
+        # the only caller of GetCanvasState() is the diagnostic identity blob;
+        # canvas-noise.patch, which does the actual pixel work, reads
+        # canvas:noiseSeed and nothing else. Measured with the identity pinned
+        # and only this key varied: aaOffset -20/0/7/24 all produced the same
+        # pixel hash and the same toDataURL, while the control (noiseSeed
+        # 111 vs 222) did differ -- so the measurement was sound and the key is
+        # inert. Kept because it is part of the documented config surface and
+        # the coherence check pairs it with noiseSeed; do not assume it
+        # contributes entropy. This also answers upstream daijro/camoufox#421,
+        # which asks for float instead of int: the type is irrelevant while
+        # nothing consumes the value. scripts/check_seed_liveness.py carries a
+        # probe so this surfaces if it is ever wired up.
         compiled_config["canvas:aaOffset"] = int(
             max(-24, min(24, round(generator.gauss(0.0, 8.0))))
         )

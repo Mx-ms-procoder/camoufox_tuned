@@ -168,6 +168,18 @@ LOW_CARDINALITY = {
     "webgl.renderer",                 # small pool of plausible GPUs
 }
 
+# Config keys that are written by the launcher and read by C++, but whose
+# effect on the page is checked separately by holding the identity fixed and
+# varying only that key. A seed sweep cannot see these because several keys
+# move at once. Each entry is (config key, values to try, probe name).
+SINGLE_KEY_PROBES = [
+    # daijro/camoufox#421 asks for float instead of int here. Measured inert:
+    # with the identity pinned, -20/0/7/24 all give the same canvas output,
+    # while varying canvas:noiseSeed does change it. GetCanvasState() is only
+    # consumed by the diagnostic blob; canvas-noise.patch reads noiseSeed only.
+    ("canvas:aaOffset", [-20, 0, 7, 24], "canvas.getImageData"),
+]
+
 
 def measure(seed, headless, verbose):
     """Read every probe under one identity."""
@@ -217,6 +229,23 @@ def main():
     print(f"  re-measuring seed {seeds[0]!r} for stability ...")
     repeat = measure(seeds[0], headless, args.verbose)
 
+    # Single-key sweeps: identity pinned, one config key varied.
+    single_key = []
+    for key, values, probe in SINGLE_KEY_PROBES:
+        seen = set()
+        for value in values:
+            with Camoufox(headless=headless, fingerprint_seed=seeds[0],
+                          i_know_what_im_doing=True, config={key: value}) as browser:
+                page = browser.new_page()
+                page.goto("data:text/html,<body>seed-liveness</body>")
+                try:
+                    seen.add(str(page.evaluate(PROBES[probe])))
+                except Exception as exc:
+                    seen.add(f"ERROR:{type(exc).__name__}")
+        single_key.append((key, probe, len(values), len(seen)))
+        print(f"  single-key {key}: {len(seen)} distinct {probe} over "
+              f"{len(values)} values")
+
     dead, unstable, errored, ok = [], [], [], []
     for name, values in by_probe.items():
         if values[0].startswith("ERROR:") or values[0] in ("NO_WEBGL", "NO_EXT"):
@@ -240,8 +269,15 @@ def main():
     for name in sorted(unstable):
         print(f"  UNSTABLE {name}: same seed produced a different value")
 
+    for key, probe, n_values, n_distinct in single_key:
+        if n_distinct <= 1:
+            print(f"  INERT    {key}: {n_values} different values, one {probe} result")
+        else:
+            print(f"  OK       {key}: affects {probe}")
+
     print(f"\n{len(ok)} ok, {len(dead)} dead, {len(unstable)} unstable, "
-          f"{len(errored)} skipped")
+          f"{len(errored)} skipped, "
+          f"{sum(1 for _k, _p, _v, d in single_key if d <= 1)} inert key(s)")
 
     if dead or unstable:
         print("\nA DEAD surface means the spoof is not reaching the page -- the "
