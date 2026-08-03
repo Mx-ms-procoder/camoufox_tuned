@@ -30,12 +30,22 @@ scripts/ check rather than a unit test.
 
 Run it against a browser built from THIS tree. Several surfaces are spoofed by
 C++ patches, so pointing it at an upstream or older package reports those as
-DEAD when the only thing missing is the patch -- e.g. speech.voices comes back
-empty on stock 152.0.4-beta.27, which ships without media/voice-spoofing.patch.
-Confirm any DEAD result by checking whether the config carries the key
-(launch_options -> CAMOU_CONFIG_FILE): config written + page empty is a real
-dead path, config missing is a launcher bug, and neither is a browser bug if
-the consuming patch is not in the build under test.
+DEAD when the only thing missing is the patch.
+
+Before believing any DEAD result, rule out the measurement -- that has been the
+answer more often than the browser:
+
+1. Re-read the surface after a delay, by polling. Asynchronously-populated APIs
+   (speechSynthesis.getVoices is the known one) return empty on first call, and
+   waiting on their change event is not reliable either.
+2. Re-check over https, not a data: URL. data: is not a secure context, so
+   ClipboardItem, navigator.gpu and navigator.clipboard read as absent there.
+3. Read from a page-injected <script>, not the evaluate callback, when the
+   value comes from globalThis or a TypedArray -- Playwright's isolated world
+   shows ~71 globals instead of ~977 and refuses TypedArray access over Xrays.
+4. Confirm the config actually carries the key (launch_options ->
+   CAMOU_CONFIG_FILE). Config written + page empty is a real dead path; config
+   missing is a launcher bug.
 
 Usage:
     python scripts/check_seed_liveness.py [--seeds N] [--headful] [-v]
@@ -140,20 +150,21 @@ PROBES = {
         }
         return out.join(',');
     }""",
-    # getVoices() is populated asynchronously and returns [] before the list
-    # lands -- an earlier audit already chased that empty array as a leak and
-    # found it was the measurement, not the browser. Wait for voiceschanged.
+    # getVoices() fills asynchronously and returns [] until the registry has
+    # published. POLL -- do not wait on `voiceschanged`. Waiting on the event
+    # read back an empty array even though the list arrives about 500ms in on a
+    # data: URL, and that is how this probe twice reported a dead path that was
+    # only ever the measurement. An earlier audit had already cleared the same
+    # empty array once; measured on build-0.18 the counts track the config
+    # exactly (seed v1 -> 53, seed v2 -> 100).
     "speech.voices": """async () => {
-        let v = speechSynthesis.getVoices();
-        if (!v.length) {
-            await new Promise(resolve => {
-                const done = () => resolve();
-                speechSynthesis.addEventListener('voiceschanged', done, {once: true});
-                setTimeout(done, 3000);
-            });
-            v = speechSynthesis.getVoices();
+        for (let i = 0; i < 40; i++) {
+            const v = speechSynthesis.getVoices();
+            if (v.length)
+                return v.map(o => o.name + ':' + o.lang).sort().join('|');
+            await new Promise(r => setTimeout(r, 250));
         }
-        return v.length ? v.map(o => o.name + ':' + o.lang).sort().join('|') : 'EMPTY';
+        return 'EMPTY';
     }""",
     "prefersColorScheme": "() => matchMedia('(prefers-color-scheme: dark)').matches "
                           "? 'dark' : 'light'",
