@@ -635,8 +635,27 @@ export class PageTarget {
 
   updateCacheDisabled(browsingContext = this._linkedBrowser.browsingContext) {
     const enableFlags = Ci.nsIRequest.LOAD_NORMAL;
-    const disableFlags = Ci.nsIRequest.LOAD_BYPASS_CACHE |
-                  Ci.nsIRequest.INHIBIT_CACHING;
+    // INHIBIT_CACHING only -- deliberately without LOAD_BYPASS_CACHE.
+    //
+    // BYPASS_CACHE is the RFC-compliant "revalidate" flag, so Gecko puts
+    // `Pragma: no-cache` and `Cache-Control: no-cache` on the wire for it. A
+    // browser announcing itself as Firefox does not send those on an ordinary
+    // navigation, and Playwright turns cache-disabling on as soon as request
+    // interception is installed -- so merely calling page.route() changed what
+    // the server saw: those two headers appeared on every request, document
+    // and subresource, and `connection` moved to the end of the header list.
+    // Header order and header set are exactly what PerimeterX and DataDome
+    // fingerprint, which is what daijro/camoufox#271 reports. Measured on this
+    // host, a stock Playwright Firefox does the same, so the leak is inherited
+    // rather than ours -- but the target state is known precisely (the header
+    // list of the same browser without a route), which makes it fixable here.
+    //
+    // INHIBIT_CACHING alone still keeps responses out of the cache, so
+    // interception continues to see every request on a cold profile. The
+    // trade-off is a warm cache from before the route was installed, which can
+    // still be served locally; that is a far smaller cost than a per-request
+    // tell.
+    const disableFlags = Ci.nsIRequest.INHIBIT_CACHING;
 
     browsingContext.defaultLoadFlags = (this._browserContext.disableCache || this.disableCache) ? disableFlags : enableFlags;
   }
