@@ -260,6 +260,14 @@ class IdentityCoherenceEngine:
         # which asks for float instead of int: the type is irrelevant while
         # nothing consumes the value. scripts/check_seed_liveness.py carries a
         # probe so this surfaces if it is ever wired up.
+        #
+        # Deliberately still generated rather than dropped: the gauss() call
+        # below draws from the shared identity generator, so removing it would
+        # shift every subsequent draw and hand a different fingerprint to every
+        # existing seed. A profile pinned to a seed would silently change
+        # device -- the exact failure this engine exists to prevent. An inert
+        # key costs nothing; a reshuffled identity space costs every stored
+        # profile.
         compiled_config["canvas:aaOffset"] = int(
             max(-24, min(24, round(generator.gauss(0.0, 8.0))))
         )
