@@ -32,6 +32,25 @@ def _is_software_renderer(renderer: str) -> bool:
     return any(marker in lowered for marker in _SOFTWARE_RENDERER_MARKERS)
 
 
+# Renderer substrings that only ever occur on one platform. ANGLE is Chrome's
+# GL-over-Direct3D translator and Direct3D is a Windows API, so either token
+# under a macOS or Linux user agent is a contradiction a page can check in one
+# line -- and the data set does contain such rows: of six macOS entries, two
+# are `ANGLE (NVIDIA, ... Direct3D11 ...)` carrying a mac weight of 0.004
+# against a win weight of 0.22, i.e. almost certainly a misparsed user agent
+# upstream. That was enough to give roughly one in fifteen macOS identities a
+# Windows GPU string.
+_WINDOWS_ONLY_RENDERER_MARKERS = ('angle (', 'direct3d', 'd3d11')
+
+
+def _is_os_foreign_renderer(os: str, renderer: str) -> bool:
+    """True if this renderer cannot occur on the given OS."""
+    if os == 'win':
+        return False
+    lowered = (renderer or '').lower()
+    return any(marker in lowered for marker in _WINDOWS_ONLY_RENDERER_MARKERS)
+
+
 def sample_webgl(
     os: str,
     vendor: Optional[str] = None,
@@ -106,6 +125,12 @@ def sample_webgl(
     hardware = [row for row in results if not _is_software_renderer(row[1])]
     if hardware:
         results = hardware
+
+    # Drop renderers that cannot exist on this OS (see
+    # _is_os_foreign_renderer). Same guard: never filter the pool to empty.
+    native = [row for row in results if not _is_os_foreign_renderer(os, row[1])]
+    if native:
+        results = native
 
     # Split into separate arrays
     _, _, data_strs, probs = map(list, zip(*results))
