@@ -463,41 +463,50 @@ jobs:
         run: python3 -m compileall pythonlib/camoufox scripts
 
       - name: Create swap space
-        # Size the swapfile from what is ACTUALLY free, keeping a reserve for
-        # the build itself.
+        # Size the swapfile from what is actually free, but never leave the leg
+        # with no swap at all.
         #
-        # This used to be a hardcoded 30G, justified as "Disk has ~114 GB free,
-        # so 30G is safe" — 30G (up from 16G) is what stopped the windows-x86_64
-        # leg going unresponsive mid-compile and being killed by GitHub's
-        # health check with "runner received a shutdown signal".
+        # History, because both halves of this were re-learned the hard way.
+        # It began as a hardcoded 30G justified by "Disk has ~114 GB free, so
+        # 30G is safe". Between build-0.19 (2026-08-03, 7/7 green) and
+        # 2026-08-26 GitHub rebuilt the ubuntu-24.04 runner smaller in BOTH
+        # dimensions:
         #
-        # That premise expired. Between 2026-08-03 (build-0.19, 7/7 green) and
-        # 2026-08-26 GitHub halved the ubuntu-24.04 runner disk from 145G to
-        # 72G, which is 41G free after cleanup instead of 114G. The unchanged
-        # 30G swapfile then left ~11G and every x86_64 leg died with
-        # "No space left on device" — windows while get_vs.py extracted the
-        # MSVC toolchain, macOS while rustc wrote libstyle.rlib. No commit
-        # caused it and nothing in the repo changed; the constant simply rotted
-        # under the runner image.
+        #   disk  145G -> 72G   (114G free after cleanup -> 41G)
+        #   RAM    16G ->  8G   (measured: `Mem: 7.8Gi`)
         #
-        # So derive it. The next image resize then adjusts itself instead of
-        # failing hours into a build, and the 30G cap keeps the old behaviour
-        # whenever the disk is big enough to afford it. The df output below is
-        # the budget record for the next time this gets tight.
+        # With 30G still going to swap, every x86_64 leg died of "No space left
+        # on device" (run 32942816526). Reserving 32G for the build instead
+        # inverted the failure: legs that reached this step with 32-33G free got
+        # a zero-size swapfile, and macos-arm64 then wedged compiling
+        # media/libaom on 8G of RAM with no swap and was killed 42 minutes later
+        # with "The runner has received a shutdown signal" (run 32947239873).
+        #
+        # Both constraints bind now, so this reserves disk for the build AND
+        # keeps a floor under swap. The floor is 8G because that is what
+        # linux-arm64 completed a full build on in that same run -- the one leg
+        # that got any swap at all. Prefer the floor when the two compete: a
+        # thrashed runner is killed with no log after ~40 idle minutes, while
+        # running out of disk fails fast and says so.
         run: |
           set -eu
           # Only `make setup` needs the tarball and it has already run.
           rm -f firefox-*.source.tar.xz
-          reserve_gb=32
+          reserve_gb=24
+          floor_gb=8
+          cap_gb=12
           avail_gb=$(df -BG --output=avail / | tail -1 | tr -dc '0-9')
           swap_gb=$(( avail_gb - reserve_gb ))
-          # Not `[ ... ] && swap_gb=30`: under `set -e` that aborts the step
+          # Not `[ ... ] && swap_gb=N`: under `set -e` that aborts the step
           # whenever the test is false, which is the common case.
-          if [ "$swap_gb" -gt 30 ]; then swap_gb=30; fi
+          if [ "$swap_gb" -gt "$cap_gb" ]; then swap_gb=$cap_gb; fi
+          if [ "$swap_gb" -lt "$floor_gb" ] && [ "$avail_gb" -ge 20 ]; then
+            swap_gb=$floor_gb
+          fi
           if [ "$swap_gb" -lt 4 ]; then
-            echo "::warning::Only ${avail_gb}G free; after reserving ${reserve_gb}G for the build there is no room for a swapfile. Building without swap."
+            echo "::warning::Only ${avail_gb}G free -- too little to carve out a swapfile. Building on RAM alone; expect a health-check kill if this leg links anything large."
           else
-            echo "${avail_gb}G free, reserving ${reserve_gb}G for the build -> ${swap_gb}G swapfile"
+            echo "${avail_gb}G free -> ${swap_gb}G swapfile, $(( avail_gb - swap_gb ))G left for the build"
             sudo fallocate -l ${swap_gb}G /swapfile
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile
@@ -541,6 +550,17 @@ jobs:
           # complete up to the kill -- without it script block-buffers and the
           # last (hanging) command is lost. stdbuf forces line buffering too.
           script -f -q -e -c "stdbuf -oL -eL python3 ./multibuild.py --target ${{ matrix.target }} --arch ${{ matrix.arch }}" "build-logs/build-${{ matrix.target }}-${{ matrix.arch }}.log"
+
+      - name: Report resource headroom
+        # Whatever is left here is what the build did NOT need, so this is the
+        # only honest input for tuning the swap/disk split above. Both budgets
+        # were guessed twice and wrong twice; from now on the numbers are in the
+        # log. always(), so a killed or failed leg still reports.
+        if: always()
+        run: |
+          df -h /
+          free -h
+          echo "peak swap used (kB):"; grep -E "^(SwapTotal|SwapFree)" /proc/meminfo || true
 
       - name: Upload build log on failure
         # always() (not failure()): a Build-step timeout is reported as a
