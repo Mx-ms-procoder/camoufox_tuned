@@ -1,3 +1,22 @@
+# Bundled fonts.
+#
+# MOZ_BUNDLED_FONTS is what compiles in CoreTextFontList::ActivateBundledFonts(),
+# the only caller of ActivateFontsFromDir() -- which is what registers
+# <GRE>/fonts with CoreText via CTFontManagerRegisterFontURLs(). Without the
+# define that whole path is compiled out, so the fonts we ship under
+# Contents/Resources/fonts (Makefile passes `--fonts windows linux` for macOS)
+# are never loaded and a spoofed font list resolves against the *host's* fonts
+# instead of ours -- i.e. a macOS host answering a Windows font list with the
+# 13 families both happen to have, which contradicts the claimed OS rather than
+# merely weakening it.
+#
+# Upstream's default is `target.os == "WINNT" or target.kernel == "Linux"`
+# (toolkit/moz.configure), so Linux and Windows get this for free and macOS does
+# not. settings/camoufox.cfg already sets gfx.bundled-fonts.activate=1, i.e. the
+# pref side was on all along -- only the build flag was missing.
+# Adopted from upstream v152.0.4-beta.29 (daijro/camoufox#706).
+ac_add_options --enable-bundled-fonts
+
 ac_add_options --disable-update-agent
 
 # macOS is cross-compiled from the Linux runner using Mozilla's bootstrapped

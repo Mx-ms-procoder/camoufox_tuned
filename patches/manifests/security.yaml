@@ -6,6 +6,17 @@ patches:
   # speech-voices-spoofing.patch removed 2026-07-19: its window.setSpeechVoices
   # map-populator was stripped by zzz-remove-inert-setters.patch, leaving the
   # per-context filter dead. Replaced by the config-driven media/voice-spoofing.patch.
+  # Adopted from upstream v152.0.4-beta.29 (daijro/camoufox PR #707), 2026-08-26.
+  # Adds Debugger.invisibleToContent so an attached Juggler stops behaving like
+  # open DevTools (async stack capture, throw-site capture, deoptimized
+  # asm.js/wasm, Promise.then retval treated as used). Runtime.js and
+  # WorkerMain.js set the flag.
+  - security/debugger-invisible-to-content.patch
+  # Adopted from upstream v152.0.4-beta.29 (daijro/camoufox PR #707), 2026-08-26.
+  # select_option / date+colour fill / set_input_files mutated the DOM and fired
+  # isTrusted:false events in the wrong order; now they match a real widget
+  # event-for-event and set the user-interacted flag :user-valid selects on.
+  - security/trusted-automation-events.patch
   - security/all-addons-private-mode.patch
   - security/disable-extension-newtab.patch
   - security/no-search-engines.patch

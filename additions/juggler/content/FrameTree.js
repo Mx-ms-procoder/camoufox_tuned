@@ -588,6 +588,13 @@ class Frame {
     for (const context of this._worldNameToContext.values())
       this._runtime.destroyExecutionContext(context);
     this._worldNameToContext.clear();
+    // Camoufox: drop the master sandbox with the document it was created for.
+    // It is cached on the Frame, which outlives a navigation, so without this
+    // it is the only world that survives one: its sandboxPrototype still points
+    // at the *previous* domWindow, and state written by evaluate() on one page
+    // is still readable on the next. Every other world starts empty per
+    // document. (forceScopeAccess only; getMasterSandbox() rebuilds it lazily.)
+    this.masterSandbox = undefined;
     // Camoufox: Scope the initial execution context to prevent leaks
     this._createIsolatedContext('', true);
     for (const [name, world] of this._frameTree._isolatedWorlds) {

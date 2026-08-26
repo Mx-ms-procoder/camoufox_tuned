@@ -54,6 +54,13 @@ expected:
   - file: dom/webidl/Window.webidl
     manifests: [media, security]
     reason: WebIDL surface for the navigator/media/security properties that the .cpp overlaps implement.
+  - file: js/src/vm/Realm.cpp
+    manifests: [identity, security]
+    reason: >-
+      Different, non-adjacent regions of the same file. identity/timezone-spoofing
+      edits Realm::setLocaleOverride (~L568); security/debugger-invisible-to-content
+      adds updateAllDebuggersInvisibleToContent (~L439) and flips
+      shouldCaptureStackForThrow (~L653). Adopted from upstream v152.0.4-beta.29.
 
 
 # === Ordered hunk compositions (R9) ===

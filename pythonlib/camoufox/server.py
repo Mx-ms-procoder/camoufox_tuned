@@ -19,7 +19,9 @@ def camel_case(snake_str: str) -> str:
     if len(snake_str) < 2:
         return snake_str
     camel_case_str = ''.join(x.capitalize() for x in snake_str.lower().split('_'))
-    return camel_case_str[0].lower() + camel_case_str[1:]
+    # A leading underscore is meaningful (private option names round-trip through
+    # here); ''.split('_') drops it, so put it back.
+    return ("_" if snake_str[0] == "_" else "") + camel_case_str[0].lower() + camel_case_str[1:]
 
 
 def to_camel_case_dict(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -44,7 +46,23 @@ def launch_server(**kwargs) -> NoReturn:
     """
     Launch a Playwright server. Takes the same arguments as `Camoufox()`.
     Prints the websocket endpoint to the console.
+
+    Note: persistent contexts are not servable. Playwright's `launchServer`
+    routes through `BrowserType.launch()`, and its `PlaywrightServer` only
+    accepts a `preLaunchedBrowser` -- there is no way to expose a persistent
+    `BrowserContext` over a websocket endpoint. Reject those options up front
+    rather than accepting them and silently launching a throwaway profile,
+    which looks like a working persistent session until the cookies are gone.
     """
+    for unsupported in ('persistent_context', 'user_data_dir'):
+        if kwargs.get(unsupported):
+            raise ValueError(
+                f"launch_server() does not support {unsupported!r}: Playwright cannot "
+                "serve a persistent context over a websocket endpoint. Use "
+                "Camoufox(persistent_context=True, ...) in-process instead."
+            )
+        kwargs.pop(unsupported, None)
+
     config = launch_options(**kwargs)
     nodejs = get_nodejs()
 

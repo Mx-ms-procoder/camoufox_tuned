@@ -37,7 +37,7 @@ from .locale import (
     get_geolocation,
     handle_locales,
 )
-from .pkgman import OS_NAME, get_path, installed_verstr, launch_path
+from .pkgman import INSTALL_DIR, OS_NAME, get_path, installed_verstr, launch_path
 from .tls_profiles import get_http2_config, get_tls_env_vars
 from .virtdisplay import VirtualDisplay
 from .warnings import LeakWarning
@@ -290,6 +290,56 @@ def _write_config_to_secure_file(config_str: str) -> str:
     return path
 
 
+def _runtime_fontconfig(user_agent_os: str) -> str:
+    """
+    Point fontconfig at Camoufox's bundled fonts and return the config file path.
+
+    Two things were wrong here and they stacked, so on Linux the shipped font
+    bundle was never used at all and text rendered with the *host's* fonts —
+    which contradicts the spoofed font list and the claimed OS:
+
+      * the directory was looked up as ``fontconfig/<lin|mac|win>`` while
+        scripts/package.py ships ``fontconfigs/<linux|macos|windows>``, so
+        FONTCONFIG_PATH pointed at a path that does not exist and fontconfig
+        silently fell back to /etc/fonts;
+      * the shipped fonts.conf declares ``<dir prefix="cwd">fonts</dir>``, i.e.
+        relative to the *current working directory*, which under Playwright is
+        not the browser install directory.
+
+    So resolve the font directory absolutely into a patched copy and hand
+    fontconfig that file directly (FONTCONFIG_FILE, not FONTCONFIG_PATH). The
+    copy is content-addressed and lives in the user cache dir, never inside the
+    versioned bundle — the bundle is commonly baked into an image as root and
+    run as a non-root user, so it is read-only at launch time.
+    """
+    directory_map = {'lin': 'linux', 'mac': 'macos', 'win': 'windows'}
+    os_dir = directory_map.get(user_agent_os, user_agent_os)
+
+    # v150+ ships "fontconfig/" (matching the Go launcher); ours ships
+    # "fontconfigs/". Accept either so a mixed bundle still resolves.
+    fontconfig_path = get_path(os.path.join("fontconfig", os_dir))
+    if not os.path.exists(os.path.join(fontconfig_path, "fonts.conf")):
+        fontconfig_path = get_path(os.path.join("fontconfigs", os_dir))
+    if not os.path.exists(os.path.join(fontconfig_path, "fonts.conf")):
+        raise FileNotFoundError(
+            f"fonts.conf not found in {fontconfig_path}. The Camoufox bundle is incomplete."
+        )
+
+    with open(os.path.join(fontconfig_path, "fonts.conf"), 'r', encoding='utf-8') as f:
+        conf_content = f.read()
+    conf_content = conf_content.replace(
+        '<dir prefix="cwd">fonts</dir>', f'<dir>{get_path("fonts")}</dir>'
+    )
+
+    cache_dir = INSTALL_DIR / 'fontconfig'
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    content_hash = hashlib.sha256(conf_content.encode()).hexdigest()[:12]
+    runtime_conf = cache_dir / f'fonts-{content_hash}.conf'
+    if not runtime_conf.exists():
+        runtime_conf.write_text(conf_content, encoding='utf-8')
+    return str(runtime_conf)
+
+
 def get_env_vars(
     config_map: Dict[str, Any], user_agent_os: str
 ) -> Dict[str, Union[str, float, bool]]:
@@ -318,8 +368,7 @@ def get_env_vars(
             env_vars[env_name] = chunk
 
     if OS_NAME == 'lin':
-        fontconfig_path = get_path(os.path.join("fontconfig", user_agent_os))
-        env_vars['FONTCONFIG_PATH'] = fontconfig_path
+        env_vars['FONTCONFIG_FILE'] = _runtime_fontconfig(user_agent_os)
 
     return env_vars
 
@@ -737,6 +786,7 @@ def launch_options(
     ff_version: Optional[int] = None,
     headless: Optional[bool] = None,
     main_world_eval: Optional[bool] = None,
+    allow_addon_new_tab: Optional[bool] = None,
     executable_path: Optional[Union[str, Path]] = None,
     firefox_user_prefs: Optional[Dict[str, Any]] = None,
     proxy: Optional[Dict[str, str]] = None,
@@ -806,6 +856,8 @@ def launch_options(
         main_world_eval (Optional[bool]):
             Whether to enable running scripts in the main world.
             To use this, prepend "mw:" to the script: page.evaluate("mw:" + script).
+        allow_addon_new_tab (Optional[bool]):
+            Whether to let installed addons open new tabs. Defaults to False.
         executable_path (Optional[Union[str, Path]]):
             Custom Camoufox browser executable path.
         firefox_user_prefs (Optional[Dict[str, Any]]):
@@ -1044,6 +1096,11 @@ def launch_options(
     # Enable the main world context creation
     if main_world_eval:
         set_into(config, 'allowMainWorld', True)
+
+    # Let addons open new tabs. patches/security/disable-extension-newtab.patch
+    # has always read this key; it just had no way to be set.
+    if allow_addon_new_tab:
+        set_into(config, 'allowAddonNewtab', True)
 
     # Set Firefox user preferences
     if block_images:

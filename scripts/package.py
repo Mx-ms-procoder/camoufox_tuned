@@ -25,12 +25,17 @@ def add_includes_to_tree(temp_dir, includes, fonts, new_file, target):
         # ~/.mozbuild/vs/.../Microsoft.VC143.CRT/*.dll resolve to real files.
         expanded = os.path.expanduser(os.path.expandvars(include))
         matches = glob.glob(expanded) if any(c in expanded for c in '*?[') else [expanded]
+        matches = [m for m in matches if os.path.exists(m)]
+        # Fatal, not skipped: the Windows package pulls the MSVC CRT in through
+        # a glob, and when that glob does not expand (different toolchain
+        # version on the build host) the warning scrolled past in CI and we
+        # shipped a browser that cannot start on any machine without the
+        # redistributable installed. Adopted from upstream beta.29 (#650).
         if not matches:
-            print(f'Warning: include matched no files: {include}', file=sys.stderr)
-            continue
+            raise FileNotFoundError(
+                f'--includes entry matched no files (unexpanded glob or wrong path): {include}'
+            )
         for match in matches:
-            if not os.path.exists(match):
-                continue
             if os.path.isdir(match):
                 shutil.copytree(
                     match,

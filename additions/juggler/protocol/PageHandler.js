@@ -597,6 +597,14 @@ export class PageHandler {
             // Jitter step delay 7-15ms — fixed 10ms is a stable machine fingerprint
             await new Promise(resolve => setTimeout(resolve, 7 + Math.floor(Math.random() * 9)));
           }
+          // Always finish exactly on the requested destination. The loop stops
+          // at trajectory.length - 2, i.e. it never dispatches the final pair,
+          // which *is* the destination — so without this the cursor came to
+          // rest on the second-to-last interpolated point while
+          // _lastTrackedPos recorded (x, y). hover() then hovered the wrong
+          // pixel and the page's last-seen mousemove disagreed with where the
+          // following mousedown landed.
+          await sendMouseEvent(type, x, y);
         } else {
           // Call the function for the current event
           await sendMouseEvent(type, x, y);
@@ -661,6 +669,21 @@ export class PageHandler {
           return;
         }
 
+        // Skip a zero-displacement mousemove. When the destination rounds to
+        // the pixel the cursor is already on, the widget generates no
+        // eMouseMove, so juggler-mouse-event-hit-renderer never fires and the
+        // sendEvents() below awaits an ack that can never arrive. Input
+        // dispatch is serialized on activateAndRun()'s *process-global* promise
+        // chain, so that one stuck await wedges every later input event — for
+        // this page and for every other page in the process — for the rest of
+        // its life. Two identical `page.mouse.move(x, y)` calls in a row are
+        // enough to trigger it. A no-op move has nothing to dispatch anyway.
+        // Same defect upstream, daijro/camoufox PR #707.
+        if (Math.round(x) === Math.round(this._lastTrackedPos.x) &&
+            Math.round(y) === Math.round(this._lastTrackedPos.y)) {
+          this._lastTrackedPos = { x, y };
+          return;
+        }
         const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
         await sendEvents(['mousemove']);
         this._lastTrackedPos = { x, y };
