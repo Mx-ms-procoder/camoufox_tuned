@@ -576,6 +576,7 @@ export class PageHandler {
       for (const type of types) {
         if (type === 'mousemove' && ChromeUtils.camouGetBool('humanize', false)) {
           let trajectory = ChromeUtils.camouGetMouseTrajectory(this._lastTrackedPos.x, this._lastTrackedPos.y, x, y);
+          let lastSentX, lastSentY;
           for (let i = 2; i < trajectory.length - 2; i += 2) {
             let currentX = trajectory[i];
             let currentY = trajectory[i + 1];
@@ -594,6 +595,8 @@ export class PageHandler {
               continue;
             }
             await sendMouseEvent(type, currentX, currentY);
+            lastSentX = currentX;
+            lastSentY = currentY;
             // Jitter step delay 7-15ms — fixed 10ms is a stable machine fingerprint
             await new Promise(resolve => setTimeout(resolve, 7 + Math.floor(Math.random() * 9)));
           }
@@ -604,7 +607,15 @@ export class PageHandler {
           // _lastTrackedPos recorded (x, y). hover() then hovered the wrong
           // pixel and the page's last-seen mousemove disagreed with where the
           // following mousedown landed.
-          await sendMouseEvent(type, x, y);
+          //
+          // Guarded, because the trajectory samples more points than there are
+          // distinct pixels along a short path, so its final interpolated point
+          // frequently rounds to the destination already. Dispatching a move to
+          // the pixel we just moved to is the same zero-displacement no-op that
+          // wedges the process-global input chain further down -- and it is a
+          // no-op in any case, since the cursor is already there.
+          if (Math.round(x) !== Math.round(lastSentX) || Math.round(y) !== Math.round(lastSentY))
+            await sendMouseEvent(type, x, y);
         } else {
           // Call the function for the current event
           await sendMouseEvent(type, x, y);

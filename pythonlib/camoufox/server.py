@@ -59,7 +59,10 @@ def launch_server(**kwargs) -> NoReturn:
             raise ValueError(
                 f"launch_server() does not support {unsupported!r}: Playwright cannot "
                 "serve a persistent context over a websocket endpoint. Use "
-                "Camoufox(persistent_context=True, ...) in-process instead."
+                "Camoufox(persistent_context=True, ...) in-process instead. "
+                "If you only wanted a stable identity across launches, pass "
+                "fingerprint_seed=... -- that is the half of user_data_dir that "
+                "did work here."
             )
         kwargs.pop(unsupported, None)
 

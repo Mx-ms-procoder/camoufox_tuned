@@ -153,10 +153,10 @@ diff:
 checkpoint:
 	cd $(cf_source_dir) && git commit -m "Checkpoint" -a -uno
 
+# ./mach clobber FIRST: `git clean -fdx` deletes mach itself (it is untracked in
+# the extracted tree), so the old order left clobber to fail with "mach: not
+# found" and the objdir was never actually cleared.
 clean:
-	# ./mach clobber FIRST: `git clean -fdx` deletes mach itself (it is untracked
-	# in the extracted tree), so the old order left clobber to fail with
-	# "mach: not found" and the objdir was never actually cleared.
 	cd $(cf_source_dir) && ./mach clobber && git clean -fdx
 	make revert
 
