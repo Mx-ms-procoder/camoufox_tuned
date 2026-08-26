@@ -4,6 +4,18 @@ ac_add_options --allow-addon-sideload
 ac_add_options --disable-crashreporter
 ac_add_options --disable-backgroundtasks
 ac_add_options --disable-debug
+# --disable-debug only turns off DEBUG code; it does NOT drop -g. Without this,
+# every object file, the gkrust fat-LTO staticlib and the libxul link all carry
+# full debug info -- by far the largest thing the objdir holds, and the peak RSS
+# of the link. Nothing in scripts/package.py consumes symbol files, so on a
+# release build they are pure cost.
+#
+# Adopted from upstream v152.0.4-beta.29 (daijro/camoufox#698), where it was an
+# OOM fix for linux/arm64 container builds. Here it is load-bearing for disk:
+# GitHub halved the ubuntu-24.04 runner from 145G to 72G in August 2026 and the
+# objdir no longer fits alongside the toolchains with symbols on. See the
+# "Create swap space" step in .github/workflows/build.yml.
+ac_add_options --disable-debug-symbols
 ac_add_options --disable-default-browser-agent
 ac_add_options --disable-tests
 ac_add_options --disable-updater
