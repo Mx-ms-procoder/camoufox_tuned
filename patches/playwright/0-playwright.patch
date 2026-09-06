@@ -302,15 +302,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
  
  #include "nsDeviceContext.h"
  #include "mozilla/Attributes.h"
-@@ -64,6 +70,7 @@
- #include "mozilla/dom/DocGroup.h"
- #include "mozilla/dom/Element.h"
- #include "mozilla/dom/FragmentDirective.h"
-+#include "mozilla/dom/Geolocation.h"
- #include "mozilla/dom/HTMLAnchorElement.h"
- #include "mozilla/dom/HTMLIFrameElement.h"
- #include "mozilla/dom/Navigation.h"
-@@ -96,6 +103,7 @@
+@@ -96,6 +102,7 @@
  #include "mozilla/dom/DocumentBinding.h"
  #include "mozilla/glean/DocshellMetrics.h"
  #include "mozilla/ipc/ProtocolUtils.h"
@@ -318,7 +310,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
  #include "mozilla/net/DocumentChannel.h"
  #include "mozilla/net/DocumentChannelChild.h"
  #include "mozilla/net/ParentChannelWrapper.h"
-@@ -120,6 +128,7 @@
+@@ -120,6 +127,7 @@
  #include "nsIDocumentViewer.h"
  #include "mozilla/dom/Document.h"
  #include "nsHTMLDocument.h"
@@ -326,7 +318,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
  #include "nsIDocumentLoaderFactory.h"
  #include "nsIDOMWindow.h"
  #include "nsIEditingSession.h"
-@@ -216,6 +225,7 @@
+@@ -216,6 +224,7 @@
  #include "nsGlobalWindowInner.h"
  #include "nsGlobalWindowOuter.h"
  #include "nsJSEnvironment.h"
@@ -334,7 +326,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
  #include "nsNetCID.h"
  #include "nsNetUtil.h"
  #include "nsObjectLoadingContent.h"
-@@ -356,6 +366,14 @@
+@@ -356,6 +365,14 @@
        mAllowDNSPrefetch(true),
        mAllowWindowControl(true),
        mCSSErrorReportingEnabled(false),
@@ -349,7 +341,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
        mAllowAuth(mItemType == typeContent),
        mAllowKeywordFixup(false),
        mDisableMetaRefreshWhenInactive(false),
-@@ -2977,6 +2995,232 @@
+@@ -2977,6 +2994,214 @@
    mm.forget(aMessageManager);
    return NS_OK;
  }
@@ -506,24 +498,6 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
 +      ToSupports(element), "juggler-file-picker-shown", nullptr);
 +}
 +
-+RefPtr<nsGeolocationService> nsDocShell::GetGeolocationServiceOverride() {
-+  return GetRootDocShell()->mGeolocationServiceOverride;
-+}
-+
-+NS_IMETHODIMP
-+nsDocShell::SetGeolocationOverride(nsIDOMGeoPosition* aGeolocationOverride) {
-+  if (aGeolocationOverride) {
-+    if (!mGeolocationServiceOverride) {
-+      mGeolocationServiceOverride = new nsGeolocationService();
-+      mGeolocationServiceOverride->Init();
-+    }
-+    mGeolocationServiceOverride->Update(aGeolocationOverride);
-+  } else {
-+    mGeolocationServiceOverride = nullptr;
-+  }
-+  return NS_OK;
-+}
-+
 +NS_IMETHODIMP
 +nsDocShell::GetReducedMotionOverride(ReducedMotionOverride* aReducedMotionOverride) {
 +  *aReducedMotionOverride = GetRootDocShell()->mReducedMotionOverride;
@@ -582,7 +556,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
  
  NS_IMETHODIMP
  nsDocShell::GetIsNavigating(bool* aOut) {
-@@ -4671,7 +4915,7 @@
+@@ -4671,7 +4896,7 @@
  }
  
  void nsDocShell::ActivenessMaybeChanged() {
@@ -591,7 +565,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
    if (RefPtr<PresShell> presShell = GetPresShell()) {
      presShell->ActivenessMaybeChanged();
    }
-@@ -7686,6 +7930,12 @@
+@@ -7686,6 +7911,12 @@
                       true,  // aForceNoOpener
                       getter_AddRefs(newBC));
        MOZ_ASSERT(!newBC);
@@ -604,7 +578,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
        return rv;
      }
  
-@@ -8851,6 +9101,9 @@
+@@ -8851,6 +9082,9 @@
    // before calling Stop() below.
    Document* document = GetDocument();
    uint32_t flags = 0;
@@ -614,7 +588,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
    if (document && !document->CanSavePresentation(nullptr, flags, true)) {
      // This forces some flags into the WindowGlobalParent's mBFCacheStatus,
      // which we'll then use in CanonicalBrowsingContext::AllowedInBFCache,
-@@ -8926,6 +9179,16 @@
+@@ -8926,6 +9160,16 @@
    attrs.SetFirstPartyDomain(isTopLevelDoc, aLoadState->URI());
  
    nsCOMPtr<nsIRequest> req;
@@ -631,7 +605,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
    rv = DoURILoad(aLoadState, aCacheKey, getter_AddRefs(req));
  
    if (NS_SUCCEEDED(rv)) {
-@@ -12036,6 +12299,9 @@
+@@ -12036,6 +12280,9 @@
        mHandler->OnLinkClickSync(mContent, mLoadState, mNoOpenerImplied,
                                  mTriggeringPrincipal);
      }
@@ -641,7 +615,7 @@ diff --git a/docshell/base/nsDocShell.cpp b/docshell/base/nsDocShell.cpp
      return NS_OK;
    }
  
-@@ -12091,6 +12357,9 @@
+@@ -12091,6 +12338,9 @@
    }
    RefPtr ev = MakeRefPtr<OnLinkClickEvent>(
        this, aContent, aLoadState, aNoOpenerImplied, aTriggeringPrincipal);
@@ -662,15 +636,7 @@ diff --git a/docshell/base/nsDocShell.h b/docshell/base/nsDocShell.h
  #include "mozilla/dom/SessionHistoryEntry.h"
  #include "mozilla/dom/WindowProxyHolder.h"
  #include "nsCOMPtr.h"
-@@ -85,6 +86,7 @@
- class nsDocShellEditorData;
- class nsDOMNavigationTiming;
- class nsDSURIContentListener;
-+class nsGeolocationService;
- class nsGlobalWindowOuter;
- 
- class FramingChecker;
-@@ -382,6 +384,15 @@
+@@ -382,6 +383,13 @@
  
    void SetWillChangeProcess() { mWillChangeProcess = true; }
    bool WillChangeProcess() { return mWillChangeProcess; }
@@ -681,12 +647,10 @@ diff --git a/docshell/base/nsDocShell.h b/docshell/base/nsDocShell.h
 +  bool ShouldOverrideHasFocus() const;
 +
 +  bool IsBypassCSPEnabled();
-+
-+  RefPtr<nsGeolocationService> GetGeolocationServiceOverride();
  
    // Creates a real network channel (not a DocumentChannel) using the specified
    // parameters.
-@@ -999,6 +1010,8 @@
+@@ -999,6 +1007,8 @@
    already_AddRefed<mozilla::dom::ChildSHistory> GetRootSessionHistory();
  
    bool CSSErrorReportingEnabled() const { return mCSSErrorReportingEnabled; }
@@ -695,7 +659,7 @@ diff --git a/docshell/base/nsDocShell.h b/docshell/base/nsDocShell.h
  
    // Handles retrieval of subframe session history for nsDocShell::LoadURI. If a
    // load is requested in a subframe of the current DocShell, the subframe
-@@ -1323,6 +1336,17 @@
+@@ -1323,6 +1333,16 @@
    bool mAllowDNSPrefetch : 1;
    bool mAllowWindowControl : 1;
    bool mCSSErrorReportingEnabled : 1;
@@ -705,7 +669,6 @@ diff --git a/docshell/base/nsDocShell.h b/docshell/base/nsDocShell.h
 +  bool mForceActiveState : 1;
 +  bool mDisallowBFCache : 1;
 +  nsString mLanguageOverride;
-+  RefPtr<nsGeolocationService> mGeolocationServiceOverride;
 +  ReducedMotionOverride mReducedMotionOverride;
 +  ForcedColorsOverride mForcedColorsOverride;
 +  ContrastOverride mContrastOverride;
@@ -716,15 +679,7 @@ diff --git a/docshell/base/nsDocShell.h b/docshell/base/nsDocShell.h
 diff --git a/docshell/base/nsIDocShell.idl b/docshell/base/nsIDocShell.idl
 --- a/docshell/base/nsIDocShell.idl
 +++ b/docshell/base/nsIDocShell.idl
-@@ -43,6 +43,7 @@
- interface nsIChannel;
- interface nsIPolicyContainer;
- interface nsIDocumentViewer;
-+interface nsIDOMGeoPosition;
- interface nsIEditor;
- interface nsIEditingSession;
- interface nsIInputStream;
-@@ -692,6 +693,45 @@
+@@ -692,6 +692,43 @@
     */
    void synchronizeLayoutHistoryState();
  
@@ -764,8 +719,6 @@ diff --git a/docshell/base/nsIDocShell.idl b/docshell/base/nsIDocShell.idl
 +    CONTRAST_OVERRIDE_NONE, /* This clears the override. */
 +  };
 +  [infallible] attribute nsIDocShell_ContrastOverride contrastOverride;
-+
-+  void setGeolocationOverride(in nsIDOMGeoPosition position);
 +
    /**
     * This attempts to save any applicable layout history state (like

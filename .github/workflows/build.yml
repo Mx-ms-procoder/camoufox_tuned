@@ -277,10 +277,18 @@ jobs:
           python-version: "3.11"
 
       - name: Install 32-bit host libraries
-        if: matrix.target == 'linux' && matrix.arch == 'i686'
+        # The windows legs need libc6-i386 because Mozilla's bootstrapped wine
+        # ships a 32-bit loader, and `mach build` runs midl.exe under it for the
+        # accessible/interfaces/ia2 IDLs. It used to arrive transitively as a
+        # clang-18 dependency of the host-LLVM step; that step is gone now that
+        # the toolchain is bootstrapped, so ask for it explicitly.
+        if: matrix.arch == 'i686' || matrix.target == 'windows'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
+          sudo apt-get install -y libc6-i386
+          if [ "${{ matrix.target }}" = "linux" ]; then
+            sudo apt-get install -y lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
+          fi
 
       - name: Check disk space
         run: df -h
