@@ -547,18 +547,19 @@ diff --git a/dom/workers/WorkerPrivate.h b/dom/workers/WorkerPrivate.h
 diff --git a/gfx/src/nsFontMetrics.cpp b/gfx/src/nsFontMetrics.cpp
 --- a/gfx/src/nsFontMetrics.cpp
 +++ b/gfx/src/nsFontMetrics.cpp
-@@ -3,6 +3,10 @@
+@@ -3,6 +3,11 @@
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
  
  #include "nsFontMetrics.h"
 +#include "mozilla/dom/Document.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "nsPIDOMWindow.h"
++#include "nsPIDOMWindowInlines.h"
 +
  
  #include <math.h>  // for floor, ceil
  
-@@ -28,6 +32,7 @@
+@@ -28,6 +33,7 @@
  
  class gfxUserFontSet;
  using namespace mozilla;
@@ -566,7 +567,7 @@ diff --git a/gfx/src/nsFontMetrics.cpp b/gfx/src/nsFontMetrics.cpp
  
  namespace {
  
-@@ -37,17 +42,39 @@
+@@ -37,17 +43,39 @@
  
    AutoTextRun(const nsFontMetrics* aMetrics, DrawTarget* aDrawTarget,
                const char* aString, uint32_t aLength) {
@@ -870,18 +871,19 @@ diff --git a/gfx/thebes/gfxHarfBuzzShaper.cpp b/gfx/thebes/gfxHarfBuzzShaper.cpp
 diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
 --- a/gfx/thebes/gfxTextRun.cpp
 +++ b/gfx/thebes/gfxTextRun.cpp
-@@ -3,6 +3,10 @@
+@@ -3,6 +3,11 @@
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
  
  #include "gfxTextRun.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "mozilla/dom/Document.h"
 +#include "nsPIDOMWindow.h"
++#include "nsPIDOMWindowInlines.h"
 +
  
  #include "SharedFontList-impl.h"
  #include "TextDrawTarget.h"
-@@ -18,6 +22,7 @@
+@@ -18,6 +23,7 @@
  #include "mozilla/Likely.h"
  #include "mozilla/MruCache.h"
  #include "mozilla/ServoStyleSet.h"
@@ -889,7 +891,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  #include "mozilla/Sprintf.h"
  #include "mozilla/StaticPresData.h"
  #include "mozilla/UniquePtr.h"
-@@ -144,25 +149,26 @@
+@@ -144,25 +150,26 @@
  already_AddRefed<gfxTextRun> gfxTextRun::Create(
      const gfxTextRunFactory::Parameters* aParams, uint32_t aLength,
      gfxFontGroup* aFontGroup, gfx::ShapedTextFlags aFlags,
@@ -919,7 +921,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
        mShapingState(eShapingState_Normal) {
    NS_ASSERTION(mAppUnitsPerDevUnit > 0, "Invalid app unit scale");
    NS_ADDREF(mFontGroup);
-@@ -1871,6 +1877,18 @@
+@@ -1871,6 +1878,18 @@
        mFontVariantEmoji(aVariantEmoji) {
    // We don't use SetUserFontSet() here, as we want to unconditionally call
    // EnsureFontList() rather than only do UpdateUserFonts() if it changed.
@@ -938,7 +940,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  }
  
  gfxFontGroup::~gfxFontGroup() {
-@@ -2465,12 +2483,12 @@
+@@ -2465,12 +2484,12 @@
    RefPtr<gfxFont> font = GetFirstValidFont(uint32_t(hyphen));
    if (font->HasCharacter(hyphen)) {
      return MakeTextRun(&hyphen, 1, aDrawTarget, aAppUnitsPerDevUnit, aFlags,
@@ -953,7 +955,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  }
  
  gfxFloat gfxFontGroup::GetHyphenWidth(
-@@ -2491,7 +2509,7 @@
+@@ -2491,7 +2510,7 @@
  already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
      const T* aString, uint32_t aLength, const Parameters* aParams,
      gfx::ShapedTextFlags aFlags, nsTextFrameUtils::Flags aFlags2,
@@ -962,7 +964,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
    if (aLength == 0) {
      return MakeEmptyTextRun(aParams, aFlags, aFlags2);
    }
-@@ -2510,8 +2528,13 @@
+@@ -2510,8 +2529,13 @@
      return MakeBlankTextRun(aString, aLength, aParams, aFlags, aFlags2);
    }
  
@@ -977,7 +979,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
    if (!textRun) {
      return nullptr;
    }
-@@ -2527,11 +2550,11 @@
+@@ -2527,11 +2551,11 @@
  template already_AddRefed<gfxTextRun> gfxFontGroup::MakeTextRun(
      const uint8_t* aString, uint32_t aLength, const Parameters* aParams,
      gfx::ShapedTextFlags aFlags, nsTextFrameUtils::Flags aFlags2,
@@ -991,7 +993,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  
  // ComputeRanges instantiation (used by
  // gfxPlatformFontList::ListFontsUsedForString).
-@@ -2595,8 +2618,9 @@
+@@ -2595,8 +2619,9 @@
    static LangScriptCache sCache;
    static RWLock sLock("LangScriptCache lock");
  
@@ -1003,7 +1005,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  
    {
      // Try to use a cached value without taking an exclusive lock.
-@@ -3081,7 +3105,7 @@
+@@ -3081,7 +3106,7 @@
    Parameters params = {aRefDrawTarget, nullptr, nullptr,
                         nullptr,        0,       aAppUnitsPerDevPixel};
    return MakeTextRun(ellipsis.BeginReading(), ellipsis.Length(), &params,
@@ -1012,7 +1014,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  }
  
  already_AddRefed<gfxFont> gfxFontGroup::FindFallbackFaceForChar(
-@@ -3489,7 +3513,7 @@
+@@ -3489,7 +3514,7 @@
          font = FindFallbackFaceForChar(ff, aCh, aNextCh, presentation);
          if (font) {
            if (CheckCandidate(font,
@@ -1094,15 +1096,16 @@ diff --git a/gfx/thebes/gfxTextRun.h b/gfx/thebes/gfxTextRun.h
 diff --git a/layout/base/nsLayoutUtils.cpp b/layout/base/nsLayoutUtils.cpp
 --- a/layout/base/nsLayoutUtils.cpp
 +++ b/layout/base/nsLayoutUtils.cpp
-@@ -144,6 +144,7 @@
+@@ -144,6 +144,8 @@
  #include "nsIFrameInlines.h"
  #include "nsIImageLoadingContent.h"
  #include "nsIInterfaceRequestorUtils.h"
 +#include "mozilla/dom/BrowsingContext.h"
++#include "nsPIDOMWindowInlines.h"
  #include "nsIWidget.h"
  #include "nsListControlFrame.h"
  #include "nsMenuPopupFrame.h"
-@@ -1243,6 +1244,31 @@
+@@ -1243,6 +1245,31 @@
    return DoCompareTreePosition(aFrame1, aFrame2, frame2Ancestors,
                                 nonCommonAncestor ? aCommonAncestor : nullptr,
                                 aFlags);
@@ -1166,16 +1169,17 @@ diff --git a/layout/base/nsPresContext.cpp b/layout/base/nsPresContext.cpp
 diff --git a/layout/generic/MathMLTextRunFactory.cpp b/layout/generic/MathMLTextRunFactory.cpp
 --- a/layout/generic/MathMLTextRunFactory.cpp
 +++ b/layout/generic/MathMLTextRunFactory.cpp
-@@ -10,6 +10,8 @@
+@@ -10,6 +10,9 @@
  #include "mozilla/StaticPrefs_mathml.h"
  #include "mozilla/Utf16.h"
  #include "mozilla/intl/UnicodeScriptCodes.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "nsPIDOMWindow.h"
++#include "nsPIDOMWindowInlines.h"
  #include "nsDeviceContext.h"
  #include "nsFontMetrics.h"
  #include "nsStyleConsts.h"
-@@ -636,6 +638,18 @@
+@@ -636,6 +639,18 @@
      newFontGroup = fontGroup;
    }
  
@@ -1194,7 +1198,7 @@ diff --git a/layout/generic/MathMLTextRunFactory.cpp b/layout/generic/MathMLText
    if (mInnerTransformingTextRunFactory) {
      transformedChild = mInnerTransformingTextRunFactory->MakeTextRun(
          convertedString.BeginReading(), convertedString.Length(), &innerParams,
-@@ -645,7 +659,7 @@
+@@ -645,7 +660,7 @@
    } else {
      cachedChild = newFontGroup->MakeTextRun(
          convertedString.BeginReading(), convertedString.Length(), &innerParams,
@@ -1291,16 +1295,17 @@ diff --git a/layout/generic/nsTextRunTransformations.cpp b/layout/generic/nsText
 diff --git a/layout/mathml/nsMathMLChar.cpp b/layout/mathml/nsMathMLChar.cpp
 --- a/layout/mathml/nsMathMLChar.cpp
 +++ b/layout/mathml/nsMathMLChar.cpp
-@@ -20,6 +20,8 @@
+@@ -20,6 +20,9 @@
  #include "mozilla/StaticPrefs_mathml.h"
  #include "mozilla/UniquePtr.h"
  #include "mozilla/dom/Document.h"
 +#include "mozilla/dom/BrowsingContext.h"
 +#include "nsPIDOMWindow.h"
++#include "nsPIDOMWindowInlines.h"
  #include "mozilla/gfx/2D.h"
  #include "mozilla/intl/UnicodeScriptCodes.h"
  #include "nsCSSRendering.h"
-@@ -272,7 +274,7 @@
+@@ -272,7 +275,7 @@
                 "nsUnicodeTable can only access glyphs by code point");
    return aFontGroup->MakeTextRun(&aGlyph.code, 1, aDrawTarget,
                                   aAppUnitsPerDevPixel, gfx::ShapedTextFlags(),
@@ -1309,7 +1314,7 @@ diff --git a/layout/mathml/nsMathMLChar.cpp b/layout/mathml/nsMathMLChar.cpp
  }
  
  // An instance of nsOpenTypeTable is associated with one gfxFontEntry that
-@@ -344,7 +346,7 @@
+@@ -344,7 +347,7 @@
    if (mCharCache != aChar) {
      RefPtr<gfxTextRun> textRun =
          aFontGroup->MakeTextRun(&aChar, 1, aDrawTarget, aAppUnitsPerDevPixel,
@@ -1318,7 +1323,7 @@ diff --git a/layout/mathml/nsMathMLChar.cpp b/layout/mathml/nsMathMLChar.cpp
      const gfxTextRun::CompressedGlyph& data = textRun->GetCharacterGlyphs()[0];
      if (data.IsSimpleGlyph()) {
        mGlyphID = data.GetSimpleGlyph();
-@@ -1217,10 +1219,19 @@
+@@ -1217,10 +1220,19 @@
      flags |= gfx::ShapedTextFlags::TEXT_IS_RTL;
    }
  

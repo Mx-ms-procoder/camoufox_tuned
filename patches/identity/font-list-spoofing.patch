@@ -222,7 +222,7 @@ diff --git a/gfx/thebes/gfxPlatformFontList.cpp b/gfx/thebes/gfxPlatformFontList
 diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
 --- a/gfx/thebes/gfxTextRun.cpp
 +++ b/gfx/thebes/gfxTextRun.cpp
-@@ -34,6 +34,7 @@
+@@ -35,6 +35,7 @@
  #include "mozilla/intl/Locale.h"
  #include "mozilla/intl/String.h"
  #include "mozilla/intl/UnicodeProperties.h"
@@ -230,7 +230,7 @@ diff --git a/gfx/thebes/gfxTextRun.cpp b/gfx/thebes/gfxTextRun.cpp
  #include "nsLayoutUtils.h"
  #include "nsStyleConsts.h"
  #include "nsStyleUtil.h"
-@@ -1933,6 +1934,8 @@
+@@ -1934,6 +1935,8 @@
  NS_IMPL_ISUPPORTS(DeferredClearResolvedFonts, nsIRunnable)
  
  void gfxFontGroup::EnsureFontList() {

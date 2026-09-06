@@ -146,7 +146,7 @@ diff --git a/layout/base/nsLayoutUtils.cpp b/layout/base/nsLayoutUtils.cpp
  #include <algorithm>
  #include <limits>
  
-@@ -9850,6 +9851,54 @@
+@@ -9851,6 +9852,54 @@
  
  static void GetSpoofedSystemFontForRFP(LookAndFeel::FontID aFontID,
                                         gfxFontStyle& aStyle, nsAString& aName) {
@@ -201,7 +201,7 @@ diff --git a/layout/base/nsLayoutUtils.cpp b/layout/base/nsLayoutUtils.cpp
  #if defined(XP_MACOSX) || defined(MOZ_WIDGET_UIKIT)
    aName = u"-apple-system"_ns;
    // Values taken from a macOS 10.15 system.
-@@ -9904,7 +9953,17 @@
+@@ -9905,7 +9954,17 @@
                                        const Document* aDocument) {
    gfxFontStyle fontStyle;
    nsAutoString systemFontName;
