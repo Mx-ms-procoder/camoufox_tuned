@@ -208,31 +208,3 @@ diff --git a/dom/canvas/WebGLContextGL.cpp b/dom/canvas/WebGLContextGL.cpp
    buffer->ResetLastUpdateFenceId();
  }
  
-diff --git a/js/src/vm/Realm.cpp b/js/src/vm/Realm.cpp
---- a/js/src/vm/Realm.cpp
-+++ b/js/src/vm/Realm.cpp
-@@ -597,12 +597,19 @@
- }
- 
- js::DateTimeInfo* Realm::getDateTimeInfo() {
--  // Camoufox: restore per-context timezone support
- #if JS_HAS_INTL_API
--  RefPtr<JS::TimeZoneString> tzOverride = behaviors_.timeZoneOverride();
--  if (tzOverride) {
--    // Always create fresh to handle timezone changes correctly
--    dateTimeInfo_ = js::MakeUnique<js::DateTimeInfo>(tzOverride->chars());
-+  if (RefPtr<TimeZoneString> timeZone = behaviors_.timeZoneOverride()) {
-+    if (!dateTimeInfo_) {
-+      AutoEnterOOMUnsafeRegion oomUnsafe;
-+
-+      // Crash on OOM because we don't have a good way to handle it here.
-+      dateTimeInfo_ = js::MakeUnique<js::DateTimeInfo>(timeZone);
-+      if (!dateTimeInfo_) {
-+        oomUnsafe.crash("getDateTimeInfo");
-+      }
-+    } else {
-+      dateTimeInfo_->updateTimeZoneOverride(timeZone);
-+    }
-     return dateTimeInfo_.get();
-   }
- #endif
