@@ -1,8 +1,11 @@
 """Capture an official Firefox build without requiring Playwright's Juggler fork."""
 import json
+import os
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import subprocess
+import signal
+import sys
 import tempfile
 import threading
 
@@ -17,6 +20,7 @@ const captureTimer = setInterval(async () => {
   if (!output.startsWith('ERR:') && !output.trim().startsWith('{')) return;
   clearInterval(captureTimer);
   await fetch('/result', {method: 'POST', body: output});
+  window.close();
 }, 50);
 </script>'''
 
@@ -50,12 +54,18 @@ const captureTimer = setInterval(async () => {
         worker.start()
         try:
             with tempfile.TemporaryDirectory(prefix='camoufox-stock-probe-') as profile:
+                Path(profile, 'user.js').write_text(
+                    'user_pref("dom.allow_scripts_to_close_windows", true);\n',
+                    encoding='utf-8')
                 args = [executable, '--no-remote', '--profile', profile]
+                if sys.platform == 'win32':
+                    args.append('--wait-for-browser')
                 if headless:
                     args.append('--headless')
                 args.append(f'http://127.0.0.1:{server.server_port}/')
                 process = subprocess.Popen(args, stdout=subprocess.DEVNULL,
-                                           stderr=subprocess.DEVNULL)
+                                           stderr=subprocess.DEVNULL,
+                                           start_new_session=sys.platform != 'win32')
                 try:
                     if not done.wait(60):
                         raise TimeoutError('Stock Firefox did not return fingerprint probes within 60s')
@@ -63,11 +73,17 @@ const captureTimer = setInterval(async () => {
                         raise RuntimeError(result['body'])
                     return json.loads(result['body'])
                 finally:
-                    process.terminate()
                     try:
                         process.wait(timeout=10)
                     except subprocess.TimeoutExpired:
-                        process.kill()
+                        if sys.platform == 'win32':
+                            # Terminating only the parent leaves content processes
+                            # holding this disposable profile's SQLite files open.
+                            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                           check=True)
+                        else:
+                            os.killpg(process.pid, signal.SIGKILL)
                         process.wait()
         finally:
             server.shutdown()

@@ -1,0 +1,16 @@
+{
+  "run": "https://github.com/Mx-ms-procoder/camoufox_tuned/actions/runs/34050776230",
+  "revision": "a4ee8f934ca1cde9ac6ace007caba8e93fe37316",
+  "target": "linux-x86_64",
+  "log_sha256": "5e761446ee754fde833bed8f08e9bf7830a4e3d4bc7b09d25532f337f8d1bd8c",
+  "sandbox_build_lines": [
+    "0:04.30   --enable-bootstrap",
+    "10:14.89 config/external/wasm2c_sandbox_compiler",
+    "18:04.86 config/external/rlbox",
+    "18:08.86 config/external/rlbox_wasm2c_sandbox",
+    "81:04.54 config/external/wasm2c_sandbox_compiler/wasm2c",
+    "81:07.68 media/libsoundtouch/src/rlboxsoundtouch.wasm.c.stub",
+    "81:19.80 security/rlbox",
+    "82:02.73 security/rlbox/rlbox.wasm.c.stub"
+  ]
+}

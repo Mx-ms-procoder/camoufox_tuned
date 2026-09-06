@@ -26,13 +26,15 @@ def write_build_info(target_dir, target):
         fields = dict(re.findall(r'^(version|release)=[\"\']?([^\s\"\']+)', upstream, re.M))
         revision = os.environ.get('GITHUB_SHA') or subprocess.check_output(
             ['git', 'rev-parse', 'HEAD'], text=True).strip()
-        patches = list_bootstrap_patches('./patches') + list_patches('./patches')
+        patches = list_bootstrap_patches('./patches') + sorted(
+            list_patches('./patches'), key=lambda path: Path(path).name)
         info = {
             'schema': 1, 'engine': fields['version'], 'release': fields['release'],
             'repository': os.environ.get('GITHUB_REPOSITORY', 'Mx-ms-procoder/camoufox_tuned'),
             'revision': revision, 'target': target,
             'build_target': os.environ.get('BUILD_TARGET'),
             'playwright': '>=1.62.0,<1.63',
+            'patch_order': 'application',
             'patches': [{'path': Path(p).as_posix(),
                          'sha256': hashlib.sha256(Path(p).read_bytes()).hexdigest()}
                         for p in patches],

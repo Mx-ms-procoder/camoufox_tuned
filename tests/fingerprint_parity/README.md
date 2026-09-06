@@ -20,6 +20,13 @@ a real browser and looks at what `navigator`, `WebGLRenderingContext`,
 
 ## Baseline status (Mittel-2)
 
+A measured **Firefox 155.0.1 / Windows / headless** reference is now available at
+`audits/2026-09-05/remediation/baseline-stock-firefox-155-windows.json`, together
+with installer, executable and baseline hashes in the adjacent provenance file.
+Use it explicitly with `--baseline ... --require-complete-baseline` when that
+environment is the appropriate reference. The older FF150 default below is
+retained only for historical comparisons.
+
 A full baseline needs a live stock-FF150 capture, which this
 environment can't produce. Rather than ship fabricated placeholder
 numbers (which silently caused **false regressions** on non-allowlisted

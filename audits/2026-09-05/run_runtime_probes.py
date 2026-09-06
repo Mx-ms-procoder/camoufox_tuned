@@ -19,7 +19,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200);self.send_header('Content-Type','application/json' if self.path.startswith('/headers') else 'text/html; charset=utf-8');self.send_header('Content-Length',str(len(body)));self.end_headers();self.wfile.write(body)
     def log_message(self,*args):pass
 
-async def main(executable):
+async def main(executable, output_path=None, ua_version='152.0'):
     server=ThreadingHTTPServer(('127.0.0.1',0),Handler)
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     outputs=[]
@@ -30,6 +30,9 @@ async def main(executable):
                 # Raw engine config uses allowMainWorld; main_world_eval is a
                 # Python launch_options argument, not a MaskConfig property.
                 config.pop('main_world_eval', None)
+                config['navigator.userAgent'] = (
+                    f'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:{ua_version}) '
+                    f'Gecko/20100101 Firefox/{ua_version}')
                 config['allowMainWorld'] = True
                 env={k:v for k,v in os.environ.items() if not k.startswith(('CAMOU_CONFIG','CAMOU_TLS_'))}
                 env['CAMOU_CONFIG']=json.dumps(config)
@@ -44,16 +47,19 @@ async def main(executable):
                         raw=await page.locator('#result').text_content()
                         if raw and raw!='pending':data=json.loads(raw);break
                         await asyncio.sleep(.1)
+                    await page.goto('data:text/html,<pre id="navigation-marker"></pre><script>document.getElementById("navigation-marker").textContent=String(window.__audit_init_marker)</script>')
+                    navigation_marker = await page.locator('#navigation-marker').text_content()
                     await page.route('**/headers-route',lambda route:route.continue_())
                     routed=await context.new_page();await routed.route('**/headers-route',lambda route:route.continue_());await routed.goto(f'http://127.0.0.1:{server.server_port}/headers-route')
                     routed_headers=json.loads(await routed.locator('body').text_content());await routed.close()
-                    outputs.append({'seed':seed,'browserVersion':browser.version,'result':data,'routed_headers':routed_headers})
+                    outputs.append({'seed':seed,'browserVersion':browser.version,'result':data,'routed_headers':routed_headers,'navigation_init_marker':navigation_marker})
                 except Exception as e:outputs.append({'seed':seed,'error':str(e)})
                 finally:
                     if browser:await browser.close()
     finally:server.shutdown();server.server_close()
     result={'executable':executable,'executable_sha256':hashlib.sha256(Path(executable).read_bytes()).hexdigest(),'runs':outputs}
-    (HERE/'evidence/runtime-results.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+    (Path(output_path) if output_path else HERE/'evidence/runtime-results.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
     print(json.dumps({'runs':[{'seed':r['seed'],'error':r.get('error'),'audio':(r.get('result') or {}).get('audio'),'webgl':(r.get('result') or {}).get('webgl'),'screen':(r.get('result') or {}).get('screen'),'animation':(r.get('result') or {}).get('animation'),'headers':(r.get('result') or {}).get('headers'),'routed_headers':r.get('routed_headers')} for r in outputs]},indent=2))
+    return result
 if __name__=='__main__':
     ap=argparse.ArgumentParser();ap.add_argument('executable');args=ap.parse_args();asyncio.run(main(args.executable))

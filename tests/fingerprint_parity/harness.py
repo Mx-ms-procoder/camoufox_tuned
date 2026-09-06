@@ -32,11 +32,9 @@ Workflow
    from FF150) — the latter is a real fingerprint surface that
    Camoufox is not maintaining parity on.
 
-The "expected to drift" allowlist is conservative on purpose: every
-field added here is one that anti-bot systems cannot use to tell
-Camoufox from stock Firefox precisely *because* the engine
-randomises it. New spoof targets should be added to the allowlist
-when they ship; everything else is a regression.
+The allowlist records intentional overrides. It does not establish that a
+changed field is undetectable: distributions and cross-field consistency
+still require independent analysis. Review every additional exception.
 
 The harness does not require both browsers on the same host — the
 baseline is a JSON file that round-trips. CI typically only runs
