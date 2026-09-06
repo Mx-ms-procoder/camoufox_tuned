@@ -3,10 +3,11 @@
 # fixed-width types arrive transitively; on i686 the unified-build grouping
 # differs and the TU fails with "unknown type name 'uint8_t'". Add the explicit
 # <cstdint> include. Stock-Firefox fix, no-op where the type was already visible.
+diff --git a/dom/media/webaudio/blink/DenormalDisabler.h b/dom/media/webaudio/blink/DenormalDisabler.h
 --- a/dom/media/webaudio/blink/DenormalDisabler.h
 +++ b/dom/media/webaudio/blink/DenormalDisabler.h
-@@ -29,6 +29,7 @@
- 
+@@ -32,6 +32,7 @@
+ #endif
  #include <cmath>
  #include <cstring>
 +#include <cstdint>

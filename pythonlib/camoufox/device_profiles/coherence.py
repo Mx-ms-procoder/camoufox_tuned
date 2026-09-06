@@ -75,20 +75,9 @@ def _gpu_os_mesa(p: 'DeviceProfile') -> bool:
 # ── Screen ↔ OS coherence ────────────────────────────────────────────
 
 def _dpr_os(p: 'DeviceProfile') -> bool:
-    """Plausibility bounds on device pixel ratio per OS.
-
-    R7 calibration: the previous rule rejected DPR < 1.5 on macOS, but a
-    Mac mini / Mac Pro — or any MacBook driving a standard 1080p/1440p
-    external display — legitimately reports DPR 1.0. That is a common real
-    configuration, not a tell, yet it tripped IdentityCoherenceError and
-    blocked the launch. It also capped Linux at 2.0, rejecting genuine 4K
-    Linux laptops. Keep only the genuinely implausible extremes.
-    """
-    if p.device_pixel_ratio <= 0 or p.device_pixel_ratio > 4.0:
-        return False  # No real display reports DPR <= 0 or > 4.
-    if p.os_family == "lin" and p.device_pixel_ratio > 3.0:
-        return False  # Linux HiDPI exists, but > 3.0 is unheard of.
-    return True
+    """Scaling is user-controlled; it is not restricted to an OS whitelist."""
+    import math
+    return math.isfinite(p.device_pixel_ratio) and p.device_pixel_ratio > 0
 
 
 def _color_depth_os(p: 'DeviceProfile') -> bool:
@@ -147,7 +136,8 @@ def _panel_exists(p: 'DeviceProfile') -> bool:
     panel_h = p.screen_height * p.device_pixel_ratio
     known = _MAC_PANELS if p.os_family == "mac" else _PC_PANELS
     return any(
-        abs(panel_w - w) <= 4 and abs(panel_h - h) <= 4 for w, h in known
+        (abs(panel_w - w) <= 4 and abs(panel_h - h) <= 4) or
+        (abs(panel_w - h) <= 4 and abs(panel_h - w) <= 4) for w, h in known
     )
 
 
@@ -308,10 +298,9 @@ COHERENCE_RULES: List[Tuple[str, Callable[['DeviceProfile'], bool]]] = [
     ("Mesa driver on non-Linux", _gpu_os_mesa),
 
     # Screen ↔ OS
-    ("Non-Retina DPR on macOS", _dpr_os),
+    ("Invalid device pixel ratio", _dpr_os),
     ("Invalid color depth for OS", _color_depth_os),
     ("Screen resolution out of range", _screen_resolution_plausible),
-    ("Implied physical panel is not real hardware", _panel_exists),
     ("Implausible aspect ratio", _screen_aspect_ratio),
 
     # Hardware
@@ -332,6 +321,14 @@ COHERENCE_RULES: List[Tuple[str, Callable[['DeviceProfile'], bool]]] = [
     ("Platform string does not match OS", _platform_os_match),
     ("oscpu does not match OS", _oscpu_os_match),
 
-    # Screen ↔ GPU
-    ("4K resolution with software GPU", _4k_needs_decent_gpu),
 ]
+
+
+def coherence_hints(profile: 'DeviceProfile') -> List[str]:
+    """Nonblocking calibration hints; unusual hardware is not an invalid persona."""
+    hints = []
+    if not _panel_exists(profile):
+        hints.append("Display/scaling combination is outside the calibration sample")
+    if not _4k_needs_decent_gpu(profile):
+        hints.append("Software rendering at 4K may be slow")
+    return hints

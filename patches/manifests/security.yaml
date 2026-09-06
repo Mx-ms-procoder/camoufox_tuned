@@ -1,7 +1,6 @@
 name: security
 description: "Privacy hardening, addon policies, and DOM compatibility shims"
 patches:
-  - security/no-css-animations.patch
   - security/shadow-root-bypass.patch
   # speech-voices-spoofing.patch removed 2026-07-19: its window.setSpeechVoices
   # map-populator was stripped by zzz-remove-inert-setters.patch, leaving the
@@ -17,7 +16,6 @@ patches:
   # isTrusted:false events in the wrong order; now they match a real widget
   # event-for-event and set the user-interacted flag :user-valid selects on.
   - security/trusted-automation-events.patch
-  - security/all-addons-private-mode.patch
   - security/disable-extension-newtab.patch
   - security/no-search-engines.patch
   - security/pin-addons.patch
@@ -25,4 +23,5 @@ patches:
   # last-applied feature patch — its "zzz-" basename sorts after all others in
   # scripts/patch.py's basename apply order, so it runs against the fully-patched
   # tree. See the patch header for rationale.
+  - security/zz-readback-integrity.patch
   - security/zzz-remove-inert-setters.patch

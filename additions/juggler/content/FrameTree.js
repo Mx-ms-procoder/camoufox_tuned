@@ -13,6 +13,15 @@ const {Runtime} = ChromeUtils.importESModule('chrome://juggler/content/content/R
 
 const helper = new Helper();
 
+// Port of daijro/camoufox#745: Playwright wraps init script bodies in an
+// arrow function, so recognize the prefix there as well as in bare scripts.
+const INIT_SCRIPT_WRAPPER = /^\s*\(\(\)\s*=>\s*\{([\s\S]*)\}\)\(\);?\s*$/;
+function mainWorldInitScript(script) {
+  const wrapped = INIT_SCRIPT_WRAPPER.exec(script);
+  const body = (wrapped ? wrapped[1] : script).trimStart();
+  return body.startsWith('mw:') ? body.slice(3) : null;
+}
+
 export class FrameTree {
   constructor(rootBrowsingContext) {
     helper.decorateAsEventEmitter(this);
@@ -547,11 +556,10 @@ class Frame {
       frameId: this.id(),
       name,
     });
-    // Camoufox: Create a main world for the isolated context
-    if (this.allowMW) {
-      const mainWorld = this._runtime.createMW(this.domWindow(), this.domWindow());
-      world.mainEquivalent = mainWorld;
-    }
+    // Only the default automation world may opt in. Resolve the live page
+    // global lazily; navigation may replace it after this context is created.
+    if (!name && this.allowMW)
+      world.resolveMainWorld = () => this.domWindow();
     this._worldNameToContext.set(name, world);
     return world;
   }
@@ -605,7 +613,7 @@ class Frame {
       for (const [name, script] of world._bindings)
         executionContext.addBinding(name, script);
       for (const script of world._scriptsToEvaluateOnNewDocument)
-        executionContext.evaluateScriptSafely(script);
+        this._evaluateInitScript(executionContext, script);
     }
 
     const url = this.domWindow().location?.href;
@@ -616,6 +624,20 @@ class Frame {
     }
 
     this._updateJavaScriptDisabled();
+  }
+
+  _evaluateInitScript(executionContext, script) {
+    const source = mainWorldInitScript(script);
+    if (source === null) {
+      executionContext.evaluateScriptSafely(script);
+      return;
+    }
+    const main = this.allowMW ? executionContext.mainWorldContext() : null;
+    if (!main) {
+      dump('JUGGLER: main-world init script refused; allowMainWorld is required.\n');
+      return;
+    }
+    main.evaluateScriptSafely(source);
   }
 
   _updateJavaScriptDisabled() {
@@ -726,6 +748,5 @@ function channelId(channel) {
   }
   return helper.generateId();
 }
-
 
 

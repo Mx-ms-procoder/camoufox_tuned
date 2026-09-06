@@ -11,7 +11,6 @@ patches:
   # FF152 i686 (32-bit) build fix: VkImage/VkDeviceMemory are uint64_t on 32-bit,
   # so FFmpegVulkanVideoDecoder.cpp's `= nullptr` doesn't compile. Assign
   # VK_NULL_HANDLE instead (no-op on 64-bit). See patch header.
-  - core/ffmpeg-vulkan-nullhandle.patch
   # FF152 i686 build fix: DenormalDisabler.h uses uint8_t/uint32_t without
   # including <cstdint> (arrives transitively on x86_64, not on i686). See header.
   - core/denormaldisabler-cstdint.patch

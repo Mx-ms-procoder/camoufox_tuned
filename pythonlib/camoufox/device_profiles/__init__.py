@@ -24,8 +24,7 @@ _FONTS_PATH = Path(__file__).resolve().parents[1] / "fonts.json"
 
 # Every entry is (CSS width, CSS height, devicePixelRatio, colour depth).
 # screen.width/height are CSS pixels, so `CSS x dpr` is the implied physical
-# panel and must be one that actually ships — see _panel_exists in
-# coherence.py, which enforces exactly that. The tables used to mix the two
+# panel for calibration — see the nonblocking hints in coherence.py. The tables used to mix the two
 # spaces: Windows listed (1536, 864, 1.0) although 1536x864 is what a 1080p
 # panel reports at 125% (so dpr is 1.25, and dpr 1.0 claims a non-existent
 # native 1536x864 panel), and (3840, 2160, 1.5) implied a 5760x3240 display.

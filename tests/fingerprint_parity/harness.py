@@ -187,12 +187,12 @@ def stealth_invariants(captured: Dict[str, Any]) -> List[str]:
     """Hard stealth assertions that should hold regardless of stock drift."""
     navigator = captured.get("navigator", {})
     issues: List[str] = []
-    if navigator.get("webdriverInNavigator") is not False:
-        issues.append("'webdriver' in navigator must be false")
-    if navigator.get("webdriverType") != "undefined":
-        issues.append("typeof navigator.webdriver must be 'undefined'")
-    if navigator.get("webdriverOnPrototype") is not False:
-        issues.append("Navigator.prototype must not expose webdriver")
+    if navigator.get("webdriver") is not False:
+        issues.append("navigator.webdriver must be false")
+    if navigator.get("webdriverType") != "boolean":
+        issues.append("typeof navigator.webdriver must be 'boolean'")
+    if navigator.get("webdriverOnPrototype") is not True:
+        issues.append("Navigator.prototype must retain the native webdriver getter")
     return issues
 
 
@@ -207,20 +207,21 @@ async def capture_probes(
     """
     from playwright.async_api import async_playwright  # local import
 
+    if browser_kind == "stock":
+        from .stock_capture import capture
+        if not executable:
+            raise ValueError('--browser stock requires --executable pointing to official Firefox')
+        return await asyncio.to_thread(capture, executable, PROBE_PAGE, headless)
+
     page_url = PROBE_PAGE.resolve().as_uri()
 
     async with async_playwright() as pw:
         if browser_kind == "camoufox":
             from camoufox.async_api import AsyncNewBrowser
-            browser = await AsyncNewBrowser(pw, headless=headless)
-        elif browser_kind == "stock":
-            # Stock Firefox via plain Playwright. `executable` should
-            # point at a build that matches upstream.sh's pinned
-            # version so the diff is meaningful.
-            launch_kwargs: Dict[str, Any] = {"headless": headless}
+            kwargs = {"headless": headless}
             if executable:
-                launch_kwargs["executable_path"] = executable
-            browser = await pw.firefox.launch(**launch_kwargs)
+                kwargs["executable_path"] = executable
+            browser = await AsyncNewBrowser(pw, **kwargs)
         else:
             raise ValueError(f"unknown browser kind: {browser_kind!r}")
 
@@ -228,11 +229,12 @@ async def capture_probes(
             context = await browser.new_context()
             page = await context.new_page()
             await page.goto(page_url, wait_until="networkidle")
-            # probes.html drives an async collect() that writes the
-            # result into window.__fingerprintProbes; poll briefly.
+            # DOM is shared with the isolated automation world; page globals
+            # are deliberately not. Read the serialized result through DOM.
             result = await page.wait_for_function(
-                "() => window.__fingerprintProbes ? "
-                "JSON.parse(JSON.stringify(window.__fingerprintProbes)) : null",
+                "() => { const t = document.getElementById('output').textContent; "
+                "if (t.startsWith('ERR:')) throw new Error(t); "
+                "return t.trim().startsWith('{') ? JSON.parse(t) : null; }",
                 timeout=10_000,
             )
             data = await result.json_value()
@@ -246,7 +248,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--browser", choices=("camoufox", "stock"), required=True,
                    help="which browser to launch for capture")
     p.add_argument("--executable",
-                   help="path to firefox binary (only for --browser stock)")
+                   help="path to a Firefox or Camoufox binary")
     p.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE,
                    help="baseline JSON to diff against (default: alongside harness)")
     p.add_argument("--out", type=Path,
@@ -255,6 +257,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="open the browser window (default: headless)")
     p.add_argument("--json", action="store_true",
                    help="emit machine-readable JSON diff instead of text")
+    p.add_argument("--require-complete-baseline", action="store_true",
+                   help="fail if any reference field is still capture-pending")
     args = p.parse_args(argv)
 
     captured = asyncio.run(capture_probes(
@@ -278,6 +282,9 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8"))
     pending = sorted(k for k, v in _flatten(baseline).items() if v == CAPTURE_PENDING)
+    if pending and args.require_complete_baseline:
+        print(f'ERROR: baseline has {len(pending)} uncaptured fields', file=sys.stderr)
+        return 2
     regressions, allowed_drift, warnings = diff_probes(captured, baseline)
     if args.browser == "camoufox":
         regressions.extend(stealth_invariants(captured))

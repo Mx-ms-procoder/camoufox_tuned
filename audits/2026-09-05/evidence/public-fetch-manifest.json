@@ -1,0 +1,71 @@
+{
+  "retrieved_at": "2026-09-05T19:10:03.158306+00:00",
+  "sources": [
+    {
+      "file": "mozilla-advisories.html",
+      "url": "https://www.mozilla.org/en-US/security/advisories/",
+      "bytes": 391665,
+      "sha256": "a595e265ade13cc562997059a13fc2bfd126eb42d264eeedb223c47cdc7fa406"
+    },
+    {
+      "file": "firefox-versions.json",
+      "url": "https://product-details.mozilla.org/1.0/firefox_versions.json",
+      "bytes": 638,
+      "sha256": "44a46a4b16ec966a8ad6fa84a0fdcf6ce8ecf8b359216a80dc000277ccd4aa11"
+    },
+    {
+      "file": "mfsa2026-68.html",
+      "url": "https://www.mozilla.org/en-US/security/advisories/mfsa2026-68/",
+      "bytes": 72782,
+      "sha256": "bc378bc7dda6b62a2966a2e15dc1e699ce111341c628ff944a73421f88ddc04e"
+    },
+    {
+      "file": "mfsa2026-74.html",
+      "url": "https://www.mozilla.org/en-US/security/advisories/mfsa2026-74/",
+      "bytes": 70093,
+      "sha256": "02f8aedb56973d42a4c5d314a45abca83f185c4e24574a7f1ecf185a7e237a21"
+    },
+    {
+      "file": "mfsa2026-67.html",
+      "url": "https://www.mozilla.org/en-US/security/advisories/mfsa2026-67/",
+      "bytes": 37069,
+      "sha256": "22a57e30d776549684ec6dd57e6b1d54ad54a5ed896aaf79648d5384f686bfcc"
+    },
+    {
+      "file": "mfsa2026-82.html",
+      "url": "https://www.mozilla.org/en-US/security/advisories/mfsa2026-82/",
+      "bytes": 54540,
+      "sha256": "7a23d94aeb391bb8a6e5a8b71bb4d2f1cda5361297dce6e26517044a03b9f1d4"
+    },
+    {
+      "file": "gecko152-ClientWebGLContext.cpp",
+      "url": "https://hg.mozilla.org/releases/mozilla-release/raw-file/FIREFOX_152_0_4_RELEASE/dom/canvas/ClientWebGLContext.cpp",
+      "bytes": 223013,
+      "sha256": "bcc2bdd5b42a2b218eae9ade44c24f67cbcbedd891784b488325ae350b3055fa"
+    },
+    {
+      "file": "gecko152-CanvasRenderingContext2D.cpp",
+      "url": "https://hg.mozilla.org/releases/mozilla-release/raw-file/FIREFOX_152_0_4_RELEASE/dom/canvas/CanvasRenderingContext2D.cpp",
+      "bytes": 253957,
+      "sha256": "d9196aaf87ee3c63355ee24fd32d5046210e17d658ceb983e9a9ed329fdfe39a"
+    },
+    {
+      "file": "gecko152-OffscreenCanvas.cpp",
+      "url": "https://hg.mozilla.org/releases/mozilla-release/raw-file/FIREFOX_152_0_4_RELEASE/dom/canvas/OffscreenCanvas.cpp",
+      "bytes": 23375,
+      "sha256": "36af445c2c07f23146bf390641fa71e34f63e16b8ae0564ff0a6fab689955165"
+    },
+    {
+      "file": "gecko152-AudioBuffer.cpp",
+      "url": "https://hg.mozilla.org/releases/mozilla-release/raw-file/FIREFOX_152_0_4_RELEASE/dom/media/webaudio/AudioBuffer.cpp",
+      "bytes": 17662,
+      "sha256": "fc8a91bb66d7823e4fbf45ba0910600fd5db8c0ba44c8acbac04caa31429ebb1"
+    },
+    {
+      "file": "gecko152-nsMediaFeatures.cpp",
+      "url": "https://hg.mozilla.org/releases/mozilla-release/raw-file/FIREFOX_152_0_4_RELEASE/layout/style/nsMediaFeatures.cpp",
+      "bytes": 15418,
+      "sha256": "75bf8455af03ee84ca0bc26eb1958348e9af14257e91665186f9a1f70f761867"
+    }
+  ]
+}

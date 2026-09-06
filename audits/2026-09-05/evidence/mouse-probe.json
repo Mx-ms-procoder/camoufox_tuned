@@ -1,0 +1,16 @@
+[
+  {
+    "humanize": false,
+    "near_edge": "completed",
+    "near_edge_seconds": 0.015,
+    "interior_after_edge": "completed",
+    "interior_after_edge_seconds": 0.0
+  },
+  {
+    "humanize": true,
+    "near_edge": "completed",
+    "near_edge_seconds": 1.313,
+    "interior_after_edge": "completed",
+    "interior_after_edge_seconds": 0.672
+  }
+]

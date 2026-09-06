@@ -1,0 +1,12 @@
+[
+  {
+    "Algorithm": "SHA256",
+    "Hash": "2F0D7C2015477A9A76FE317D1D43502C5EB1C4816F4B3AFBA2158293FE22BE43",
+    "Path": "C:\\Users\\maxim\\AppData\\Local\\camoufox\\camoufox\\Cache\\camoufox.exe"
+  },
+  {
+    "Algorithm": "SHA256",
+    "Hash": "4FD2B408AAFCEC2176666DB0E1FF99BAE6BAFEB5193F924A86C1FEC741699F49",
+    "Path": "C:\\Users\\maxim\\AppData\\Local\\camoufox\\camoufox\\Cache\\xul.dll"
+  }
+]

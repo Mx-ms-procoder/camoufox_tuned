@@ -1,10 +1,12 @@
 import os
+import hashlib
+import hmac
 import platform
 import re
-import shlex
 import shutil
 import sys
 import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from functools import total_ordering
 from io import BufferedWriter, BytesIO
@@ -40,14 +42,11 @@ DownloadBuffer: TypeAlias = Union[BytesIO, tempfile._TemporaryFileWrapper, Buffe
 ARCH_MAP: Dict[str, str] = {
     'amd64': 'x86_64',
     'x86_64': 'x86_64',
-    'x86': 'x86_64',
+    'x86': 'i686',
     'i686': 'i686',
     'i386': 'i686',
     'arm64': 'arm64',
     'aarch64': 'arm64',
-    'armv5l': 'arm64',
-    'armv6l': 'arm64',
-    'armv7l': 'arm64',
 }
 OS_MAP: Dict[str, Literal['mac', 'win', 'lin']] = {'darwin': 'mac', 'linux': 'lin', 'win32': 'win'}
 
@@ -59,6 +58,7 @@ OS_NAME: Literal['mac', 'win', 'lin'] = OS_MAP[sys.platform]
 INSTALL_DIR: Path = Path(user_cache_dir("camoufox"))
 LOCAL_DATA: Path = Path(os.path.abspath(__file__)).parent
 DOWNLOAD_TIMEOUT: Tuple[int, int] = (10, 60)
+DEFAULT_RELEASE_REPOSITORY = 'Mx-ms-procoder/camoufox_tuned'
 
 # The supported architectures for each OS
 OS_ARCH_MATRIX: Dict[str, List[str]] = {
@@ -77,6 +77,34 @@ LAUNCH_FILE = {
 
 def rprint(*a, **k):
     click.secho(*a, **k, bold=True)
+
+
+@contextmanager
+def _installation_lock(path: Path):
+    """OS-released lock: an interrupted installer cannot leave a stale lock.
+
+    Keep the inode in place so waiting processes always lock the same file.
+    """
+    with path.open('a+b') as handle:
+        handle.seek(0, os.SEEK_END)
+        if handle.tell() == 0:
+            handle.write(b'\0')
+            handle.flush()
+        handle.seek(0)
+        if sys.platform == 'win32':
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if sys.platform == 'win32':
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle, fcntl.LOCK_UN)
 
 
 @total_ordering
@@ -132,7 +160,7 @@ class Version:
         """
         Check if the version at the given path is supported.
         """
-        return Version.from_path(path) >= VERSION_MIN
+        return Version.from_path(path).is_supported()
 
     @staticmethod
     def build_minmax() -> Tuple['Version', 'Version']:
@@ -149,6 +177,8 @@ class GitHubDownloader:
     """
 
     def __init__(self, github_repo: str) -> None:
+        if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', github_repo):
+            raise ValueError('Release repository must have the form owner/repository')
         self.github_repo = github_repo
         self.api_url = f"https://api.github.com/repos/{github_repo}/releases"
 
@@ -181,6 +211,8 @@ class GitHubDownloader:
         releases = resp.json()
 
         for release in releases:
+            if release.get('draft') or release.get('prerelease'):
+                continue
             for asset in release['assets']:
                 if data := self.check_asset(asset):
                     return data
@@ -193,8 +225,10 @@ class CamoufoxFetcher(GitHubDownloader):
     Handles fetching and installing the latest version of Camoufox.
     """
 
-    def __init__(self) -> None:
-        super().__init__("daijro/camoufox")
+    def __init__(self, repository: Optional[str] = None) -> None:
+        super().__init__(repository or os.environ.get(
+            'CAMOUFOX_RELEASE_REPOSITORY', DEFAULT_RELEASE_REPOSITORY
+        ))
 
         self.arch = self.get_platform_arch()
         self._version_obj: Optional[Version] = None
@@ -204,7 +238,7 @@ class CamoufoxFetcher(GitHubDownloader):
 
         self.fetch_latest()
 
-    def check_asset(self, asset: Dict) -> Optional[Tuple[Version, str]]:
+    def check_asset(self, asset: Dict) -> Optional[Tuple[Version, str, str]]:
         """
         Finds the latest release from a GitHub releases API response that
         supports the Camoufox version constraints, the OS, and architecture.
@@ -213,7 +247,7 @@ class CamoufoxFetcher(GitHubDownloader):
             Optional[Tuple[Version, str]]: The version and URL of a release
         """
         # Search through releases for the first supported version
-        match = self.pattern.match(asset['name'])
+        match = self.pattern.fullmatch(asset['name'])
         if not match:
             return None
 
@@ -222,8 +256,13 @@ class CamoufoxFetcher(GitHubDownloader):
         if not version.is_supported():
             return None
 
-        # Asset was found. Return data
-        return version, asset['browser_download_url']
+        digest = asset.get('digest') or ''
+        if not re.fullmatch(r'sha256:[0-9a-fA-F]{64}', digest):
+            raise MissingRelease('The matching browser asset has no valid SHA-256 digest')
+        url = asset['browser_download_url']
+        if not url.startswith(f'https://github.com/{self.github_repo}/releases/download/'):
+            raise MissingRelease('Browser asset URL does not belong to the selected repository')
+        return version, url, digest.split(':', 1)[1].lower()
 
     def missing_asset_error(self) -> None:
         """
@@ -272,7 +311,7 @@ class CamoufoxFetcher(GitHubDownloader):
         release_data = self.get_asset()
 
         # Set the version and URL
-        self._version_obj, self._url = release_data
+        self._version_obj, self._url, self._sha256 = release_data
 
     @staticmethod
     def download_file(file: DownloadBuffer, url: str) -> DownloadBuffer:
@@ -318,33 +357,60 @@ class CamoufoxFetcher(GitHubDownloader):
             f.write(orjson.dumps({'version': self.version, 'release': self.release}))
 
     def install(self) -> None:
-        """
-        Download and install the latest version of camoufox.
-
-        Raises:
-            Exception: If any error occurs during the installation process
-        """
-        # Clean up old installation
-        self.cleanup()
+        """Verify and stage a release before replacing the existing installation."""
+        parent = INSTALL_DIR.parent.resolve()
+        parent.mkdir(parents=True, exist_ok=True)
+        destination = parent / INSTALL_DIR.name
+        if destination.resolve() != destination or destination.is_symlink():
+            raise OSError('Refusing to replace an installation through a directory link')
+        staging = Path(tempfile.mkdtemp(prefix='.camoufox-install-', dir=parent)).resolve()
+        package, previous = staging / 'new', staging / 'previous'
+        lock_path = parent / '.camoufox-install.lock'
         try:
-            # Install to directory
-            INSTALL_DIR.mkdir(parents=True, exist_ok=True)
-
-            # Fetch the latest zip
-            with tempfile.NamedTemporaryFile() as temp_file:
+            with tempfile.TemporaryFile() as temp_file:
                 self.download_file(temp_file, self.url)
-                self.extract_zip(temp_file)
-                self.set_version()
-
-            # Set permissions on INSTALL_DIR
+                temp_file.seek(0)
+                digest = hashlib.file_digest(temp_file, 'sha256').hexdigest()
+                if not hmac.compare_digest(digest, self._sha256):
+                    raise OSError('Browser download SHA-256 mismatch; installation preserved')
+                temp_file.seek(0)
+                unzip(temp_file, str(package))
+            executable = package / {
+                'win': 'camoufox.exe', 'lin': 'camoufox-bin',
+                'mac': 'Camoufox.app/Contents/MacOS/camoufox',
+            }[OS_NAME]
+            if not executable.is_file():
+                raise OSError('Browser archive does not contain the expected executable')
             if OS_NAME != 'win':
-                os.system(f'chmod -R 755 {shlex.quote(str(INSTALL_DIR))}')  # nosec
-
-            rprint('\nCamoufox successfully installed.', fg="yellow")
-        except Exception as e:
-            rprint(f"Error installing Camoufox: {str(e)}")
-            self.cleanup()
-            raise
+                executable.chmod(0o755)
+            (package / 'version.json').write_bytes(orjson.dumps({
+                'version': self.version, 'release': self.release,
+                # Keep the version.json schema compatible with Version.from_path.
+            }))
+            (package / 'download.json').write_bytes(orjson.dumps({
+                'repository': self.github_repo, 'sha256': self._sha256, 'url': self.url,
+            }))
+            with _installation_lock(lock_path):
+                if destination.resolve() != destination or destination.is_symlink():
+                    raise OSError('Installation destination changed to a directory link')
+                if destination.exists():
+                    destination.rename(previous)
+                try:
+                    package.rename(destination)
+                except BaseException:
+                    if previous.exists():
+                        previous.rename(destination)
+                    raise
+            if previous.exists():
+                # Both paths were constructed inside this fresh staging directory.
+                assert previous.resolve().parent == staging
+                shutil.rmtree(previous)
+            rprint('\nCamoufox successfully installed.', fg='yellow')
+        finally:
+            # If rollback itself failed, retain the backup for recovery.
+            if not previous.exists():
+                assert staging.parent == parent and staging.name.startswith('.camoufox-install-')
+                shutil.rmtree(staging)
 
     @property
     def url(self) -> str:
@@ -552,6 +618,11 @@ def unzip(
             target_path.parent.mkdir(parents=True, exist_ok=True)
             with zf.open(member) as source, open(target_path, 'wb') as target:
                 shutil.copyfileobj(source, target)
+            if OS_NAME != 'win':
+                # Preserve execute bits for browser and helper binaries without
+                # granting executable permissions to every resource in the ZIP.
+                mode = (member.external_attr >> 16) & 0o777
+                target_path.chmod(0o755 if mode & 0o111 else 0o644)
 
 
 def load_yaml(file: str) -> Dict[str, Any]:

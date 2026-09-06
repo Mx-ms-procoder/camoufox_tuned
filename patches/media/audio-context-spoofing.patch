@@ -1,16 +1,15 @@
 diff --git a/dom/media/CubebUtils.cpp b/dom/media/CubebUtils.cpp
-index 1b52782a48..7219b68d88 100644
 --- a/dom/media/CubebUtils.cpp
 +++ b/dom/media/CubebUtils.cpp
-@@ -40,6 +40,7 @@
- #include <thread>
- #include "CallbackThreadRegistry.h"
+@@ -46,6 +46,7 @@
+ #include "audioipc2_client_ffi_generated.h"
+ #include "audioipc2_server_ffi_generated.h"
  #include "mozilla/StaticPrefs_media.h"
 +#include "MaskConfig.hpp"
  
- #define AUDIOIPC_STACK_SIZE_DEFAULT (64 * 4096)
- 
-@@ -399,6 +400,8 @@ uint32_t PreferredSampleRate(bool aShouldResistFingerprinting) {
+ #if defined(ENABLE_TESTS) || defined(FUZZING)
+ #  define ENABLE_MOCK_CUBEB 1
+@@ -501,6 +502,8 @@
    if (sCubebForcedSampleRate) {
      return sCubebForcedSampleRate;
    }
@@ -20,11 +19,10 @@ index 1b52782a48..7219b68d88 100644
      return 44100;
    }
 diff --git a/dom/media/moz.build b/dom/media/moz.build
-index 21063575d7..9e7c9f3e84 100644
 --- a/dom/media/moz.build
 +++ b/dom/media/moz.build
-@@ -418,5 +418,7 @@
- CXXFLAGS += ["-Werror=switch"]
+@@ -436,5 +436,7 @@
+ COMPILE_FLAGS["WARNINGS_CXXFLAGS"] += ["-Werror=switch"]
  
  FINAL_LIBRARY = "xul"
 +# DOM Mask
@@ -32,18 +30,17 @@ index 21063575d7..9e7c9f3e84 100644
  
  SPHINX_TREES["/media"] = "docs"
 diff --git a/dom/media/webaudio/AudioContext.cpp b/dom/media/webaudio/AudioContext.cpp
-index 66184b683b..daf30882ea 100644
 --- a/dom/media/webaudio/AudioContext.cpp
 +++ b/dom/media/webaudio/AudioContext.cpp
-@@ -45,6 +45,7 @@
- #include "mozilla/dom/WaveShaperNodeBinding.h"
- #include "mozilla/dom/Worklet.h"
+@@ -4,6 +4,7 @@
+ 
+ #include "AudioContext.h"
  
 +#include "MaskConfig.hpp"
  #include "AudioBuffer.h"
  #include "AudioBufferSourceNode.h"
  #include "AudioChannelService.h"
-@@ -561,6 +562,8 @@ double AudioContext::OutputLatency() {
+@@ -560,6 +561,8 @@
    }
    // When reduceFingerprinting is enabled, return a latency figure that is
    // fixed, but plausible for the platform.
@@ -52,7 +49,7 @@ index 66184b683b..daf30882ea 100644
    double latency_s = 0.0;
    if (mShouldResistFingerprinting) {
  #ifdef XP_MACOSX
-@@ -714,6 +717,8 @@ void AudioContext::UnregisterActiveNode(AudioNode* aNode) {
+@@ -713,6 +716,8 @@
  }
  
  uint32_t AudioContext::MaxChannelCount() const {
@@ -62,10 +59,9 @@ index 66184b683b..daf30882ea 100644
      return 2;
    }
 diff --git a/dom/media/webaudio/moz.build b/dom/media/webaudio/moz.build
-index 3ee8c0aa76..c0f1df8cf6 100644
 --- a/dom/media/webaudio/moz.build
 +++ b/dom/media/webaudio/moz.build
-@@ -149,3 +149,6 @@ include("/ipc/chromium/chromium-config.mozbuild")
+@@ -149,3 +149,6 @@
  
  FINAL_LIBRARY = "xul"
  LOCAL_INCLUDES += [".."]

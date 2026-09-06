@@ -128,6 +128,13 @@ int main() {
   }
   Check(tailIntact, "writes stay inside the declared length");
 
+  for (const uint32_t offset : {0u, 1u, 256u, 4000u}) {
+    std::vector<float> slice(original.begin() + offset, original.begin() + offset + 128);
+    camoufox::ApplyAudioNoise(slice.data(), slice.size(), 658742122u, offset);
+    Check(std::equal(slice.begin(), slice.end(), a.begin() + offset),
+          "partial read equals whole-channel slice at its absolute offset");
+  }
+
   std::printf("\n%s (%d failure(s))\n", gFailures ? "FAILED" : "ALL PASS",
               gFailures);
   return gFailures ? 1 : 0;

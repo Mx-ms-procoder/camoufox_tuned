@@ -573,55 +573,58 @@ export class PageHandler {
         );
         await watcher.ensureEvent(eventType, eventObject => eventObject.jugglerEventId === jugglerEventId);
       };
-      for (const type of types) {
-        if (type === 'mousemove' && ChromeUtils.camouGetBool('humanize', false)) {
-          let trajectory = ChromeUtils.camouGetMouseTrajectory(this._lastTrackedPos.x, this._lastTrackedPos.y, x, y);
-          let lastSentX, lastSentY;
-          for (let i = 2; i < trajectory.length - 2; i += 2) {
-            let currentX = trajectory[i];
-            let currentY = trajectory[i + 1];
-            // Skip movement that is out of bounds. Must match the endpoint
-            // guard below (>=, not >): a point at exactly x == width or
-            // y == height fires as an exit event instead of eMouseMove, so the
-            // hit-renderer ack never arrives. Dispatch happens inside
-            // activateAndRun(), which serializes on a *process-global* promise
-            // chain, so one missing ack wedges that chain and every later input
-            // event -- clicks, typing, scrolling -- hangs behind it forever.
-            // The endpoint check was fixed to >= earlier; the trajectory added
-            // its own bounds check in the old strict-> form and bypassed it.
-            // Same defect upstream, daijro/camoufox#225, fixed in
-            // v152.0.4-beta.28 (PR #680).
-            if (currentX < 0 || currentY < 0 || currentX >= boundingBox.width || currentY >= boundingBox.height) {
-              continue;
+      try {
+        for (const type of types) {
+          if (type === 'mousemove' && ChromeUtils.camouGetBool('humanize', false)) {
+            let trajectory = ChromeUtils.camouGetMouseTrajectory(this._lastTrackedPos.x, this._lastTrackedPos.y, x, y);
+            let lastSentX, lastSentY;
+            for (let i = 2; i < trajectory.length - 2; i += 2) {
+              let currentX = trajectory[i];
+              let currentY = trajectory[i + 1];
+              // Skip movement that is out of bounds. Must match the endpoint
+              // guard below (>=, not >): a point at exactly x == width or
+              // y == height fires as an exit event instead of eMouseMove, so the
+              // hit-renderer ack never arrives. Dispatch happens inside
+              // activateAndRun(), which serializes on a *process-global* promise
+              // chain, so one missing ack wedges that chain and every later input
+              // event -- clicks, typing, scrolling -- hangs behind it forever.
+              // The endpoint check was fixed to >= earlier; the trajectory added
+              // its own bounds check in the old strict-> form and bypassed it.
+              // Same defect upstream, daijro/camoufox#225, fixed in
+              // v152.0.4-beta.28 (PR #680).
+              if (currentX < 0 || currentY < 0 || currentX >= boundingBox.width || currentY >= boundingBox.height) {
+                continue;
+              }
+              await sendMouseEvent(type, currentX, currentY);
+              lastSentX = currentX;
+              lastSentY = currentY;
+              // Jitter step delay 7-15ms — fixed 10ms is a stable machine fingerprint
+              await new Promise(resolve => setTimeout(resolve, 7 + Math.floor(Math.random() * 9)));
             }
-            await sendMouseEvent(type, currentX, currentY);
-            lastSentX = currentX;
-            lastSentY = currentY;
-            // Jitter step delay 7-15ms — fixed 10ms is a stable machine fingerprint
-            await new Promise(resolve => setTimeout(resolve, 7 + Math.floor(Math.random() * 9)));
-          }
-          // Always finish exactly on the requested destination. The loop stops
-          // at trajectory.length - 2, i.e. it never dispatches the final pair,
-          // which *is* the destination — so without this the cursor came to
-          // rest on the second-to-last interpolated point while
-          // _lastTrackedPos recorded (x, y). hover() then hovered the wrong
-          // pixel and the page's last-seen mousemove disagreed with where the
-          // following mousedown landed.
-          //
-          // Guarded, because the trajectory samples more points than there are
-          // distinct pixels along a short path, so its final interpolated point
-          // frequently rounds to the destination already. Dispatching a move to
-          // the pixel we just moved to is the same zero-displacement no-op that
-          // wedges the process-global input chain further down -- and it is a
-          // no-op in any case, since the cursor is already there.
-          if (Math.round(x) !== Math.round(lastSentX) || Math.round(y) !== Math.round(lastSentY))
+            // Always finish exactly on the requested destination. The loop stops
+            // at trajectory.length - 2, i.e. it never dispatches the final pair,
+            // which *is* the destination — so without this the cursor came to
+            // rest on the second-to-last interpolated point while
+            // _lastTrackedPos recorded (x, y). hover() then hovered the wrong
+            // pixel and the page's last-seen mousemove disagreed with where the
+            // following mousedown landed.
+            //
+            // Guarded, because the trajectory samples more points than there are
+            // distinct pixels along a short path, so its final interpolated point
+            // frequently rounds to the destination already. Dispatching a move to
+            // the pixel we just moved to is the same zero-displacement no-op that
+            // wedges the process-global input chain further down -- and it is a
+            // no-op in any case, since the cursor is already there.
+            if (Math.round(x) !== Math.round(lastSentX) || Math.round(y) !== Math.round(lastSentY))
+              await sendMouseEvent(type, x, y);
+          } else {
+            // Call the function for the current event
             await sendMouseEvent(type, x, y);
-        } else {
-          // Call the function for the current event
-          await sendMouseEvent(type, x, y);
+          }
         }
+      } finally {
+        watcher.dispose();
       }
-      await watcher.dispose();
     };
 
     // We must switch to proper tab in the tabbed browser so that
@@ -675,8 +678,12 @@ export class PageHandler {
         this._lastMousePosition = { x, y };
         if (this._isDragging) {
           const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
-          await this._contentPage.send('dispatchDragEvent', {type:'dragover', x, y, modifiers});
-          await watcher.ensureEventsAndDispose(['dragover']);
+          try {
+            await this._contentPage.send('dispatchDragEvent', {type:'dragover', x, y, modifiers});
+            await watcher.ensureEvent('dragover');
+          } finally {
+            watcher.dispose();
+          }
           return;
         }
 
@@ -696,34 +703,41 @@ export class PageHandler {
           return;
         }
         const watcher = new EventWatcher(this._pageEventSink, ['dragstart', 'juggler-drag-finalized'], this._pendingEventWatchers);
-        await sendEvents(['mousemove']);
-        this._lastTrackedPos = { x, y };
+        try {
+          await sendEvents(['mousemove']);
+          this._lastTrackedPos = { x, y };
 
         // The order of events after 'mousemove' is sent:
         // 1. [dragstart] - might or might NOT be emitted
         // 2. [mousemove] - always emitted. This was awaited as part of `sendEvents` call.
         // 3. [juggler-drag-finalized] - only emitted if dragstart was emitted.
 
-        if (watcher.hasEvent('dragstart')) {
-          const eventObject = await watcher.ensureEvent('juggler-drag-finalized');
-          this._isDragging = eventObject.dragSessionStarted;
+          if (watcher.hasEvent('dragstart')) {
+            const eventObject = await watcher.ensureEvent('juggler-drag-finalized');
+            this._isDragging = eventObject.dragSessionStarted;
+          }
+        } finally {
+          watcher.dispose();
         }
-        watcher.dispose();
         return;
       }
 
       if (type === 'mouseup') {
         if (this._isDragging) {
           const watcher = new EventWatcher(this._pageEventSink, ['dragover'], this._pendingEventWatchers);
-          await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x, y, modifiers});
-          await this._contentPage.send('dispatchDragEvent', {type: 'drop', x, y, modifiers});
-          await this._contentPage.send('dispatchDragEvent', {type: 'dragend', x, y, modifiers});
+          try {
+            await this._contentPage.send('dispatchDragEvent', {type: 'dragover', x, y, modifiers});
+            await this._contentPage.send('dispatchDragEvent', {type: 'drop', x, y, modifiers});
+            await this._contentPage.send('dispatchDragEvent', {type: 'dragend', x, y, modifiers});
           // NOTE:
           // - 'drop' event might not be dispatched at all, depending on dropAction.
           // - 'dragend' event might not be dispatched at all, if the source element was removed
           //   during drag. However, it'll be dispatched synchronously in the renderer.
-          await watcher.ensureEventsAndDispose(['dragover']);
-          this._isDragging = false;
+            await watcher.ensureEvent('dragover');
+          } finally {
+            watcher.dispose();
+            this._isDragging = false;
+          }
         } else {
           // Human-like click hold (gated on `humanize`): a real press holds the
           // button ~50-120ms before release; a 0ms mousedown->mouseup gap is a
@@ -810,4 +824,3 @@ export class PageHandler {
     return await worker.sendMessage(JSON.parse(message));
   }
 }
-

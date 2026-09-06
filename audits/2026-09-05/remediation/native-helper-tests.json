@@ -1,0 +1,27 @@
+[
+  {
+    "test": "AudioNoise_test.cpp",
+    "exit": 0,
+    "output": "seed 0 leaves the signal untouched (the bug)                     PASS\na configured seed changes the fingerprint sum                    PASS\ntwo identities produce different fingerprints                    PASS\nsample data differs between identities                           PASS\nsame seed is reproducible across runs                            PASS\nper-sample deviation stays within the intended ~0.8-1.0%         PASS\naggregate signal is preserved (no audible distortion)            PASS\na constant input is not scaled by a constant factor              PASS\nbyte path: seed 0 is a no-op                                     PASS\nbyte path: a seed perturbs the data                              PASS\nbyte path: adjustment stays within +/-1                          PASS\nwrites stay inside the declared length                           PASS\npartial read equals whole-channel slice at its absolute offset   PASS\npartial read equals whole-channel slice at its absolute offset   PASS\npartial read equals whole-channel slice at its absolute offset   PASS\npartial read equals whole-channel slice at its absolute offset   PASS\n\nALL PASS (0 failure(s))\n"
+  },
+  {
+    "test": "ByteReadbackNoise_test.cpp",
+    "exit": 0,
+    "output": "Direct/PBO layout parity with skips and row padding: PASS\nPrefix, row padding, and oversized suffix remain untouched: PASS\nAlpha remains exact: PASS\nNoise is active: PASS\nCropped reads match the corresponding full read: PASS\nInvalid/overflowing layouts never write: PASS\nRGB last row without trailing padding is accepted safely: PASS\n"
+  },
+  {
+    "test": "CanvasNoise_test.cpp",
+    "exit": 0,
+    "output": "toDataURL and getImageData agree despite different strides     PASS\nsame seed + same content is reproducible                       PASS\nnoise is applied at all (not a dead path)                      PASS\nperturbation rate is the intended ~1/8 of pixels               PASS\na different seed yields a different canvas                     PASS\nalpha channel left exact                                       PASS\nrow padding untouched (no out-of-rect writes)                  PASS\nseed 0 is a no-op (feature off)                                PASS\n\nALL PASS (0 failure(s))\n"
+  },
+  {
+    "test": "SdpSanitize_test.cpp",
+    "exit": 0,
+    "output": "regression: whole-blob ipv6 regex rewrites a=fingerprint         PASS\ncrypto lines are never passed to the replacer                    PASS\na=fingerprint survives byte for byte                             PASS\nreal IPv4 gone from every line                                   PASS\nreal IPv6 gone from every line                                   PASS\nc= line carries the spoofed IPv4                                 PASS\na=rtcp: line carries the spoofed IPv4                            PASS\nIPv4 candidate carries the spoofed IPv4                          PASS\nIPv6 candidate carries the spoofed IPv6                          PASS\nno line added or dropped                                         PASS\nterminators stay canonical CRLF                                  PASS\na=ice-pwd untouched                                              PASS\nnumeric attributes untouched                                     PASS\no= keeps the unspecified address (special IPs not masked)        PASS\nraddr 0.0.0.0 left alone                                         PASS\nbare-LF input is normalised to CRLF, nothing merged              PASS\nempty SDP stays empty                                            PASS\n\nALL PASS (0 failure(s))\n"
+  },
+  {
+    "test": "juggler_lifecycle",
+    "exit": 0,
+    "output": "\u2714 missing ack expires and releases the pending waiter (23.4546ms)\n\u2714 dispose rejects existing and future waits (0.9618ms)\n\u2714 unrelated acknowledgements do not satisfy an event ID (0.3846ms)\n\u2714 tab-switch timeout removes its DOM listener (17.7666ms)\n\u2714 Playwright-wrapped and bare main-world init scripts are recognized (2.4073ms)\n\u2139 tests 5\n\u2139 suites 0\n\u2139 pass 5\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 149.3865\n"
+  }
+]

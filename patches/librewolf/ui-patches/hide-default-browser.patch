@@ -1,20 +1,21 @@
 diff --git a/browser/components/preferences/main.js b/browser/components/preferences/main.js
---- before/browser/components/preferences/main.js
-+++ after/browser/components/preferences/main.js
-@@ -494,65 +494,6 @@
-   },
- };
- 
+--- a/browser/components/preferences/main.js
++++ b/browser/components/preferences/main.js
+@@ -367,69 +367,6 @@
+     storeId: PROXY_KEY,
+     l10nId: "extension-controlling-proxy-config",
+     allowControl: true,
+-  },
+-});
+-
 -Preferences.addSetting({
 -  id: "alwaysCheckDefault",
 -  pref: "browser.shell.checkDefaultBrowser",
 -  setup: emitChange => {
 -    if (!DefaultBrowserHelper.canCheck) {
--      return;
+-      return undefined;
 -    }
--    DefaultBrowserHelper.pollForDefaultChanges(emitChange);
--    // eslint-disable-next-line consistent-return
--    return () => DefaultBrowserHelper.clearPollingForDefaultChanges();
+-    return DefaultBrowserHelper.pollForDefaultChanges(emitChange);
 -  },
 -  /**
 -   * Show button for setting browser as default browser or information that
@@ -31,14 +32,20 @@ diff --git a/browser/components/preferences/main.js b/browser/components/prefere
 -  id: "isDefaultPane",
 -  deps: ["alwaysCheckDefault"],
 -  visible: () =>
--    DefaultBrowserHelper.canCheck && DefaultBrowserHelper.isBrowserDefault,
+-    DefaultBrowserHelper.canCheck &&
+-    DefaultBrowserHelper.isBrowserDefault &&
+-    Services.policies.isAllowed("setDefaultBrowser") &&
+-    !Services.prefs.prefIsLocked("pref.general.disable_button.default_browser"),
 -});
 -
 -Preferences.addSetting({
 -  id: "isNotDefaultPane",
 -  deps: ["alwaysCheckDefault"],
 -  visible: () =>
--    DefaultBrowserHelper.canCheck && !DefaultBrowserHelper.isBrowserDefault,
+-    DefaultBrowserHelper.canCheck &&
+-    !DefaultBrowserHelper.isBrowserDefault &&
+-    Services.policies.isAllowed("setDefaultBrowser") &&
+-    !Services.prefs.prefIsLocked("pref.general.disable_button.default_browser"),
 -  onUserClick: (e, { alwaysCheckDefault }) => {
 -    if (!DefaultBrowserHelper.canCheck) {
 -      return;
@@ -61,13 +68,10 @@ diff --git a/browser/components/preferences/main.js b/browser/components/prefere
 -    DefaultBrowserHelper.setDefaultBrowser().finally(() => {
 -      setDefaultButton.disabled = false;
 -    });
--  },
--});
--
- // AI Control pref settings
- Preferences.addSetting({
-   id: "aiControlDefault",
-@@ -679,16 +620,11 @@
+   },
+ });
+ 
+@@ -565,16 +502,11 @@
            role: "status",
          },
        },
@@ -82,5 +86,5 @@ diff --git a/browser/components/preferences/main.js b/browser/components/prefere
  SettingGroupManager.registerGroups({
 -  defaultBrowser: createDefaultBrowserConfig(),
    startup: createStartupConfig(
-     Services.prefs.getBoolPref("browser-settings-redesign.enabled", false)
+     Services.prefs.getBoolPref("browser.settings-redesign.enabled", false)
    ),

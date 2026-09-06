@@ -1,8 +1,7 @@
 diff --git a/layout/style/nsMediaFeatures.cpp b/layout/style/nsMediaFeatures.cpp
-index cc86d1abf6..bfc4d0f1d8 100644
 --- a/layout/style/nsMediaFeatures.cpp
 +++ b/layout/style/nsMediaFeatures.cpp
-@@ -372,24 +372,10 @@ static PointerCapabilities GetPointerCapabilities(const Document* aDocument,
+@@ -409,24 +409,10 @@
  
    // The default value for Desktop is mouse-type pointer, and for Android
    // a coarse pointer.

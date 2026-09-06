@@ -1,0 +1,238 @@
+# Audit 2026-09-06: validated WebGL readback layout/PBO parity and native timezone cache.
+diff --git a/dom/canvas/ClientWebGLContext.cpp b/dom/canvas/ClientWebGLContext.cpp
+--- a/dom/canvas/ClientWebGLContext.cpp
++++ b/dom/canvas/ClientWebGLContext.cpp
+@@ -36,7 +36,6 @@
+ #include "mozilla/dom/BufferSourceBinding.h"
+ #include "mozilla/dom/Document.h"
+ #include "mozilla/dom/GeneratePlaceholderCanvasData.h"
+-#include "CanvasNoise.hpp"
+ #include "mozilla/dom/ToJSValue.h"
+ #include "mozilla/dom/TypedArray.h"
+ #include "mozilla/dom/WebGLContextEvent.h"
+@@ -5597,7 +5596,8 @@
+   const auto desc = webgl::ReadPixelsDesc{{x, y},
+                                           *uvec2::From(width, height),
+                                           {format, type},
+-                                          state.mPixelPackState};
++                                          state.mPixelPackState,
++                                          MaskConfig::GetUint64("canvas:noiseSeed").value_or(0)};
+   Run<RPROC(ReadPixelsPbo)>(desc, static_cast<uint64_t>(offset));
+ }
+ 
+@@ -5645,7 +5645,8 @@
+     const auto desc = webgl::ReadPixelsDesc{{x, y},
+                                             *uvec2::From(width, height),
+                                             {format, type},
+-                                            state.mPixelPackState};
++                                            state.mPixelPackState,
++                                          MaskConfig::GetUint64("canvas:noiseSeed").value_or(0)};
+     bool succeeded = DoReadPixels(desc, *range);
+     if (succeeded) {
+       CanvasUtils::ImageExtraction extraction =
+@@ -5677,42 +5678,7 @@
+               range->size_bytes(), pii->elementsPerPixel, pii->bytesPerElement,
+               alphaChannelOffset, hasAlphaChannel);
+         }
+-        // Camoufox: content-aware WebGL readback noise, independent of RFP.
+-        // Same dead-path as the 2D-canvas hook — RFP (the only trigger for
+-        // RandomizeElements above) is OFF in Camoufox, so readPixels would
+-        // otherwise return the real backend's pixels, letting a detector
+-        // compare them against a reference for the spoofed renderer string or
+-        // fingerprint the actual (e.g. llvmpipe) GPU. Only 8-bit
+-        // UNSIGNED_BYTE readback is perturbed (the fingerprinting case).
+-        if (extraction != CanvasUtils::ImageExtraction::Randomize &&
+-            type == LOCAL_GL_UNSIGNED_BYTE) {
+-          if (auto camouSeed = MaskConfig::GetUint64("canvas:noiseSeed")) {
+-            uint32_t camouEpp;
+-            switch (format) {
+-              case LOCAL_GL_RGBA:
+-              case LOCAL_GL_BGRA:
+-              case LOCAL_GL_SRGB_ALPHA:
+-                camouEpp = 4;
+-                break;
+-              case LOCAL_GL_RGB:
+-              case LOCAL_GL_SRGB:
+-                camouEpp = 3;
+-                break;
+-              case LOCAL_GL_LUMINANCE_ALPHA:
+-                camouEpp = 2;
+-                break;
+-              default:
+-                camouEpp = 1;
+-                break;
+-            }
+-            const bool camouHasAlpha =
+-                format == LOCAL_GL_SRGB_ALPHA || format == LOCAL_GL_RGBA ||
+-                format == LOCAL_GL_BGRA || format == LOCAL_GL_LUMINANCE_ALPHA;
+-            camoufox::ApplyByteReadbackNoise(range->data(), range->size_bytes(),
+-                                             width, height, camouEpp,
+-                                             camouHasAlpha, camouSeed.value());
+-          }
+-        }
++
+       }
+     }
+   });
+diff --git a/dom/canvas/WebGLTypes.h b/dom/canvas/WebGLTypes.h
+--- a/dom/canvas/WebGLTypes.h
++++ b/dom/canvas/WebGLTypes.h
+@@ -1145,7 +1145,9 @@
+   PackingInfo pi = {LOCAL_GL_RGBA, LOCAL_GL_UNSIGNED_BYTE};
+   PixelPackingState packState;
+ 
+-  auto MutTiedFields() { return std::tie(srcOffset, size, pi, packState); }
++  uint64_t noiseSeed = 0;
++
++  auto MutTiedFields() { return std::tie(srcOffset, size, pi, packState, noiseSeed); }
+ };
+ 
+ }  // namespace webgl
+diff --git a/dom/canvas/WebGLIpdl.h b/dom/canvas/WebGLIpdl.h
+--- a/dom/canvas/WebGLIpdl.h
++++ b/dom/canvas/WebGLIpdl.h
+@@ -286,7 +286,7 @@
+ // -
+ 
+ DEFINE_IPC_SERIALIZER_WITH_FIELDS(mozilla::webgl::ReadPixelsDesc, srcOffset,
+-                                  size, pi, packState);
++                                  size, pi, packState, noiseSeed);
+ 
+ // -
+ 
+diff --git a/dom/canvas/WebGLContextGL.cpp b/dom/canvas/WebGLContextGL.cpp
+--- a/dom/canvas/WebGLContextGL.cpp
++++ b/dom/canvas/WebGLContextGL.cpp
+@@ -7,6 +7,8 @@
+ #include <algorithm>
+ 
+ #include "CanvasUtils.h"
++#include "CanvasNoise.hpp"
++#include "mozilla/CheckedInt.h"
+ #include "GLContext.h"
+ #include "MozFramebuffer.h"
+ #include "WebGL2Context.h"
+@@ -901,6 +903,53 @@
+   return true;
+ }
+ 
++namespace {
++struct CamouReadbackLayout {
++  size_t offset;
++  size_t length;
++  uint32_t channels;
++  bool alpha;
++};
++
++Maybe<CamouReadbackLayout> CamouReadbackLayoutFor(
++    const webgl::ReadPixelsDesc& desc, const webgl::ReadPixelsResult& res,
++    uint64_t available) {
++  if (!desc.noiseSeed || desc.pi.type != LOCAL_GL_UNSIGNED_BYTE ||
++      res.subrect.IsEmpty()) return Nothing();
++  uint32_t channels;
++  bool alpha = false;
++  switch (desc.pi.format) {
++    case LOCAL_GL_RGBA: case LOCAL_GL_BGRA: case LOCAL_GL_SRGB_ALPHA:
++      channels = 4; alpha = true; break;
++    case LOCAL_GL_RGB: case LOCAL_GL_SRGB: channels = 3; break;
++    case LOCAL_GL_LUMINANCE_ALPHA: channels = 2; alpha = true; break;
++    case LOCAL_GL_ALPHA: channels = 1; alpha = true; break;
++    case LOCAL_GL_RED: case LOCAL_GL_LUMINANCE: channels = 1; break;
++    case LOCAL_GL_RG: channels = 2; break;
++    default: return Nothing(); // Integer attachments preserve exact values.
++  }
++  const auto row = CheckedInt<size_t>(desc.packState.skipRows) + res.subrect.y;
++  const auto col = CheckedInt<size_t>(desc.packState.skipPixels) + res.subrect.x;
++  const auto first = row * res.byteStride + col * channels;
++  const auto length = CheckedInt<size_t>(res.subrect.height - 1) * res.byteStride +
++                      CheckedInt<size_t>(res.subrect.width) * channels;
++  const auto end = first + length;
++  if (!first.isValid() || !length.isValid() || !end.isValid() ||
++      end.value() > available) return Nothing();
++  return Some(CamouReadbackLayout{first.value(), length.value(), channels, alpha});
++}
++
++void CamouNoiseReadback(uint8_t* bytes, const CamouReadbackLayout& layout,
++                        const webgl::ReadPixelsDesc& desc,
++                        const webgl::ReadPixelsResult& res) {
++  camoufox::ApplyByteReadbackNoise(
++      bytes, layout.length, res.subrect.width, res.subrect.height,
++      layout.channels, layout.alpha, desc.noiseSeed, res.byteStride, 0,
++      uint32_t(int64_t(desc.srcOffset.x) + res.subrect.x),
++      uint32_t(int64_t(desc.srcOffset.y) + res.subrect.y));
++}
++} // namespace
++
+ webgl::ReadPixelsResult WebGLContext::ReadPixelsInto(
+     const webgl::ReadPixelsDesc& desc, const Range<uint8_t>& dest) {
+   const FuncScope funcScope(*this, "readPixels");
+@@ -911,8 +960,12 @@
+     return {};
+   }
+ 
+-  return ReadPixelsImpl(desc, reinterpret_cast<uintptr_t>(dest.begin().get()),
+-                        dest.length());
++  const auto res = ReadPixelsImpl(
++      desc, reinterpret_cast<uintptr_t>(dest.begin().get()), dest.length());
++  if (auto layout = CamouReadbackLayoutFor(desc, res, dest.length())) {
++    CamouNoiseReadback(dest.begin().get() + layout->offset, *layout, desc, res);
++  }
++  return res;
+ }
+ 
+ void WebGLContext::ReadPixelsPbo(const webgl::ReadPixelsDesc& desc,
+@@ -959,8 +1012,24 @@
+ 
+   const ScopedLazyBind lazyBind(gl, LOCAL_GL_PIXEL_PACK_BUFFER, buffer);
+ 
+-  ReadPixelsImpl(desc, offset, bytesAvailable);
+-
++  const auto res = ReadPixelsImpl(desc, offset, bytesAvailable);
++  if (auto layout = CamouReadbackLayoutFor(desc, res, bytesAvailable)) {
++    // Transform the actual PBO storage so copies, partial reads, and subsequent
++    // GPU uploads observe the same pixels as direct ArrayBuffer readback.
++    auto* bytes = static_cast<uint8_t*>(gl->fMapBufferRange(
++        LOCAL_GL_PIXEL_PACK_BUFFER, offset + layout->offset, layout->length,
++        LOCAL_GL_MAP_READ_BIT | LOCAL_GL_MAP_WRITE_BIT));
++    if (!bytes) {
++      // Do not expose an unprotected readback after a driver mapping failure.
++      LoseContext();
++      return;
++    }
++    CamouNoiseReadback(bytes, *layout, desc, res);
++    if (!gl->fUnmapBuffer(LOCAL_GL_PIXEL_PACK_BUFFER)) {
++      LoseContext();
++      return;
++    }
++  }
+   buffer->ResetLastUpdateFenceId();
+ }
+ 
+diff --git a/js/src/vm/Realm.cpp b/js/src/vm/Realm.cpp
+--- a/js/src/vm/Realm.cpp
++++ b/js/src/vm/Realm.cpp
+@@ -597,12 +597,19 @@
+ }
+ 
+ js::DateTimeInfo* Realm::getDateTimeInfo() {
+-  // Camoufox: restore per-context timezone support
+ #if JS_HAS_INTL_API
+-  RefPtr<JS::TimeZoneString> tzOverride = behaviors_.timeZoneOverride();
+-  if (tzOverride) {
+-    // Always create fresh to handle timezone changes correctly
+-    dateTimeInfo_ = js::MakeUnique<js::DateTimeInfo>(tzOverride->chars());
++  if (RefPtr<TimeZoneString> timeZone = behaviors_.timeZoneOverride()) {
++    if (!dateTimeInfo_) {
++      AutoEnterOOMUnsafeRegion oomUnsafe;
++
++      // Crash on OOM because we don't have a good way to handle it here.
++      dateTimeInfo_ = js::MakeUnique<js::DateTimeInfo>(timeZone);
++      if (!dateTimeInfo_) {
++        oomUnsafe.crash("getDateTimeInfo");
++      }
++    } else {
++      dateTimeInfo_->updateTimeZoneOverride(timeZone);
++    }
+     return dateTimeInfo_.get();
+   }
+ #endif

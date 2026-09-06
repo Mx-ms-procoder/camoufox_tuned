@@ -23,6 +23,17 @@
  */
 namespace camoufox {
 
+// Random access: a slice must produce exactly the corresponding samples of
+// a whole-channel read, independent of previously visited samples.
+inline uint32_t AudioSampleHash(uint32_t seed, uint32_t index, uint32_t bits) {
+  uint32_t h = seed ^ (index * 0x9e3779b9u) ^ bits;
+  h ^= h >> 16;
+  h *= 0x7feb352du;
+  h ^= h >> 15;
+  h *= 0x846ca68bu;
+  return h ^ (h >> 16);
+}
+
 // Float samples (AudioBuffer channel data).
 //
 // Content-aware: each sample's own bits are folded into the PRNG state, so the
@@ -32,16 +43,15 @@ namespace camoufox {
 // inversion. Variance is 0.8% (range [0.996, 1.004]) plus a non-linear
 // polynomial term — deliberately wider than Brave's 0.1-0.2%, which was
 // shown to be averaged out across repeated reads.
-inline void ApplyAudioNoise(float* data, uint32_t length, uint32_t seed) {
+inline void ApplyAudioNoise(float* data, uint32_t length, uint32_t seed,
+                            uint32_t sampleOffset = 0) {
   if (seed == 0 || length == 0 || !data) {
     return;
   }
-  uint32_t state = seed;
   for (uint32_t i = 0; i < length; ++i) {
     uint32_t sampleBits;
     std::memcpy(&sampleBits, &data[i], sizeof(sampleBits));
-    state ^= sampleBits;
-    state = (state * 1664525u + 1013904223u);
+    const uint32_t state = AudioSampleHash(seed, sampleOffset + i, sampleBits);
     float normalized = static_cast<float>(state) / 4294967295.0f;
     float base = 0.996f + normalized * 0.008f;
     float adjustment = (normalized * normalized - 0.5f) * 0.002f;

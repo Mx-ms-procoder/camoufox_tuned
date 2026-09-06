@@ -1,0 +1,43 @@
+<!doctype html><meta charset="utf-8"><title>Local Camoufox audit probes</title>
+<pre id="result">pending</pre><script>
+async function run() {
+  const result = {};
+  const digest = async bytes => Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))).map(x=>x.toString(16).padStart(2,'0')).join('');
+  const nav = n => ({userAgent:n.userAgent, appVersion:n.appVersion, platform:n.platform, hardwareConcurrency:n.hardwareConcurrency, language:n.language, languages:Array.from(n.languages)});
+  result.navigator = {...nav(navigator), webdriver:navigator.webdriver, webdriverIn:'webdriver' in navigator, webdriverType:typeof navigator.webdriver, setters:Object.getOwnPropertyNames(window).filter(k=>/^set(?:Font|AudioFingerprint|Timezone|Screen|Navigator|WebGL|WebRTC|Speech)/.test(k))};
+  result.locale = {default:new Intl.DateTimeFormat().resolvedOptions(), explicitJapanese:new Intl.DateTimeFormat('ja-JP').resolvedOptions(), explicitEnglish:new Intl.NumberFormat('en-US').resolvedOptions(), janOffset:new Date('2026-01-15T12:00:00Z').getTimezoneOffset(), julyOffset:new Date('2026-07-15T12:00:00Z').getTimezoneOffset()};
+  result.screen = {width:screen.width,height:screen.height,availWidth:screen.availWidth,availHeight:screen.availHeight,dpr:devicePixelRatio,outerWidth,innerWidth,cssWidth:matchMedia(`(device-width: ${screen.width}px)`).matches,css800:matchMedia('(device-width: 800px)').matches};
+  const el=document.createElement('div');document.body.appendChild(el);const animation=el.animate([{opacity:0},{opacity:1}],{duration:1000,fill:'both'});
+  result.animation={requested:animation.effect.getTiming().duration,computed:animation.effect.getComputedTiming().duration,activeDuration:animation.effect.getComputedTiming().activeDuration};animation.cancel();el.remove();
+  result.headers=await (await fetch('/headers')).json();
+  const workerBody = `onmessage=()=>postMessage({userAgent:navigator.userAgent,appVersion:navigator.appVersion,platform:navigator.platform,hardwareConcurrency:navigator.hardwareConcurrency,language:navigator.language,languages:Array.from(navigator.languages),timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,offset:new Date('2026-01-15T12:00:00Z').getTimezoneOffset()})`;
+  result.worker = await new Promise(resolve=>{const u=URL.createObjectURL(new Blob([workerBody],{type:'text/javascript'})); const w=new Worker(u); const timer=setTimeout(()=>{w.terminate();URL.revokeObjectURL(u);resolve({error:'timeout'});},3000);w.onmessage=e=>{clearTimeout(timer);w.terminate();URL.revokeObjectURL(u);resolve(e.data)};w.postMessage(1)});
+  try {
+    const ctx = new OfflineAudioContext(1,2048,44100); const osc=ctx.createOscillator();osc.frequency.value=1000;osc.connect(ctx.destination);osc.start();
+    const buffer = await ctx.startRendering(); const before=new Float32Array(128),after=new Float32Array(128);
+    buffer.copyFromChannel(before,0,256);const full=buffer.getChannelData(0);buffer.copyFromChannel(after,0,256);
+    result.audio = {offsetMismatches:before.reduce((n,v,i)=>n+(v!==after[i]),0),fullSliceMatchesAfter:after.every((v,i)=>v===full[256+i]),beforeHash:await digest(before.buffer),afterHash:await digest(after.buffer)};
+  } catch(e) {result.audio={error:String(e)}}
+  try {
+    const c=document.createElement('canvas');c.width=64;c.height=64;const gl=c.getContext('webgl2');
+    if (!gl) throw new Error('webgl2 unavailable');
+    gl.clearColor(0.25,0.5,0.75,1);gl.clear(gl.COLOR_BUFFER_BIT);
+    const direct=new Uint8Array(64*64*4);gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,direct);
+    const pbo=gl.createBuffer();gl.bindBuffer(gl.PIXEL_PACK_BUFFER,pbo);gl.bufferData(gl.PIXEL_PACK_BUFFER,direct.length,gl.STREAM_READ);gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,0);
+    const viaPbo=new Uint8Array(direct.length);gl.getBufferSubData(gl.PIXEL_PACK_BUFFER,0,viaPbo);gl.bindBuffer(gl.PIXEL_PACK_BUFFER,null);
+    const empty=new Uint8Array(4096).fill(127);gl.readPixels(0,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,empty);
+    const packed=new Uint8Array(64*64*4).fill(127);gl.pixelStorei(gl.PACK_ROW_LENGTH,64);gl.pixelStorei(gl.PACK_SKIP_PIXELS,8);gl.pixelStorei(gl.PACK_SKIP_ROWS,8);gl.readPixels(0,0,8,8,gl.RGBA,gl.UNSIGNED_BYTE,packed);
+    let modifiedOutside=0;for(let i=0;i<packed.length;i++){const row=Math.floor(i/(64*4)),col=Math.floor(i/4)%64;if(!(row>=8&&row<16&&col>=8&&col<16)&&packed[i]!==127)modifiedOutside++}
+    const renderedHash=await digest(new TextEncoder().encode(c.toDataURL()));
+    gl.clearColor(0.25,0.5,0.75,1);gl.clear(gl.COLOR_BUFFER_BIT);gl.pixelStorei(gl.PACK_ROW_LENGTH,0);gl.pixelStorei(gl.PACK_SKIP_PIXELS,0);gl.pixelStorei(gl.PACK_SKIP_ROWS,0);
+    const newRead=new Uint8Array(direct.length);gl.readPixels(0,0,64,64,gl.RGBA,gl.UNSIGNED_BYTE,newRead);
+    result.webgl = {error:gl.getError(),directHash:await digest(direct),pboHash:await digest(viaPbo),directPboMismatches:direct.reduce((n,v,i)=>n+(v!==viaPbo[i]),0),zeroSizeWrites:empty.filter(x=>x!==127).length,packWritesOutsideRequestedRectangle:modifiedOutside,exportHash:renderedHash,identicalRedrawHash:await digest(newRead)};
+  } catch(e) {result.webgl={error:String(e)}}
+  const canvas=document.createElement('canvas');canvas.width=64;canvas.height=64;const cx=canvas.getContext('2d');cx.fillStyle='#4080c0';cx.fillRect(0,0,64,64);
+  const raw=cx.getImageData(0,0,64,64).data; result.canvas={hash:await digest(raw),exportHash:await digest(new TextEncoder().encode(canvas.toDataURL()))};
+  result.initMarker = window.__audit_init_marker ?? null;
+  try {const pc=new RTCPeerConnection({iceServers:[]});pc.createDataChannel('local-audit');const offer=await pc.createOffer();await pc.setLocalDescription(offer);result.webrtc={localOfferAccepted:true};pc.close()}catch(e){result.webrtc={error:String(e)}}
+  return result;
+}
+run().then(x=>document.querySelector('#result').textContent=JSON.stringify(x)).catch(e=>document.querySelector('#result').textContent=JSON.stringify({error:String(e)}));
+</script>

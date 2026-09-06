@@ -28,37 +28,16 @@ ac_add_options --enable-release
 ac_add_options --disable-system-policies
 # ac_add_options --disable-accessibility
 # ac_add_options --disable-webspeech
-ac_add_options --without-wasm-sandboxed-libraries
+# Keep Gecko's default RLBox isolation for native third-party libraries.
 
 ac_add_options --with-app-name=camoufox
 ac_add_options --with-branding=browser/branding/camoufox
 
 ac_add_options --with-unsigned-addon-scopes=app,system
 
-# Toolchain bootstrap policy is target-dependent (BUILD_TARGET is exported by
-# multibuild.py before `make set-target` / `make build`):
-#   * linux: CI installs clang/lld locally via apt and pins libclang to the
-#     host llvm-18, so Mozilla's toolchain bootstrap stays disabled.
-#   * windows: cross-compiling from Linux needs Mozilla's clang-cl + the REAL
-#     Visual Studio / Windows SDK (ATL included). `mach bootstrap` downloads
-#     these from Microsoft to ~/.mozbuild/vs, which --enable-bootstrap wires
-#     into configure via get_vs.py. This is Mozilla's first-class Windows
-#     target; it retires the entire MinGW cross-toolchain (emutls, libssp,
-#     --allow-multiple-definition, the mozjemalloc DllMain TLS deadlock, etc.).
-#   * macos: cross-compiling from Linux needs Mozilla's matched clang + macOS
-#     SDK, which only --enable-bootstrap provides. The standalone osxcross route
-#     plus a newer third-party SDK hits clang-vs-SDK availability mismatches
-#     (the macOS 26 SDK's `visionOS` availability tokens that host clang-18
-#     cannot parse). This mirrors upstream camoufox, which enables bootstrap.
-if [ "${BUILD_TARGET%%,*}" = "macos" ] || [ "${BUILD_TARGET%%,*}" = "windows" ]; then
-    ac_add_options --enable-bootstrap
-else
-    ac_add_options --disable-bootstrap
-    if [ -d "/usr/lib/llvm-18/lib" ]; then
-        ac_add_options --with-libclang-path=/usr/lib/llvm-18/lib
-        export LIBCLANG_PATH=/usr/lib/llvm-18/lib
-    fi
-fi
+# Use Mozilla's version-matched compiler and WASI toolchain on every target.
+# RLBox needs the WASM compiler/sysroot as well as the native C++ compiler.
+ac_add_options --enable-bootstrap
 
 # Use ccache for faster incremental rebuilds if available (CONTRIBUTING.md:
 # cold build ~40 min, cached rebuilds ~5 min). Guarded so configure does not

@@ -1,16 +1,15 @@
 diff --git a/gfx/thebes/gfxPlatformFontList.cpp b/gfx/thebes/gfxPlatformFontList.cpp
-index d82edfc767..3d16611ebe 100644
 --- a/gfx/thebes/gfxPlatformFontList.cpp
 +++ b/gfx/thebes/gfxPlatformFontList.cpp
-@@ -13,6 +13,7 @@
- #include "gfxTextRun.h"
- #include "gfxUserFontSet.h"
- #include "SharedFontList-impl.h"
+@@ -3,6 +3,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+ 
+ #include "gfxPlatformFontList.h"
 +#include "MaskConfig.hpp"
  
  #include "FontVisibilityProvider.h"
- 
-@@ -314,6 +315,16 @@ gfxPlatformFontList::gfxPlatformFontList(bool aNeedFullnamePostscriptNames)
+ #include "GeckoProfiler.h"
+@@ -320,6 +321,16 @@
  
    mFontPrefs = MakeUnique<FontPrefs>();
  
@@ -28,11 +27,10 @@ index d82edfc767..3d16611ebe 100644
    mFontFamilyWhitelistActive = !mEnabledFontsList.IsEmpty();
  
 diff --git a/gfx/thebes/moz.build b/gfx/thebes/moz.build
-index e19da2b985..e4947d70a0 100644
 --- a/gfx/thebes/moz.build
 +++ b/gfx/thebes/moz.build
-@@ -299,3 +299,6 @@ DEFINES["GRAPHITE2_STATIC"] = True
- CXXFLAGS += ["-Werror=switch"]
+@@ -301,3 +301,6 @@
+ COMPILE_FLAGS["WARNINGS_CXXFLAGS"] += ["-Werror=switch"]
  
  include("/tools/fuzzing/libfuzzer-config.mozbuild")
 +
@@ -40,10 +38,9 @@ index e19da2b985..e4947d70a0 100644
 +LOCAL_INCLUDES += ["/camoucfg"]
 \ No newline at end of file
 diff --git a/layout/style/FontFace.cpp b/layout/style/FontFace.cpp
-index 74caa590c0..7627535068 100644
 --- a/layout/style/FontFace.cpp
 +++ b/layout/style/FontFace.cpp
-@@ -239,7 +239,16 @@ void FontFace::SetSizeAdjust(const nsACString& aValue, ErrorResult& aRv) {
+@@ -239,7 +239,16 @@
    mImpl->SetSizeAdjust(aValue, aRv);
  }
  
@@ -61,7 +58,7 @@ index 74caa590c0..7627535068 100644
  
  Promise* FontFace::Load(ErrorResult& aRv) {
    EnsurePromise();
-@@ -249,7 +258,17 @@ Promise* FontFace::Load(ErrorResult& aRv) {
+@@ -249,7 +258,17 @@
      return nullptr;
    }
  
@@ -81,19 +78,16 @@ index 74caa590c0..7627535068 100644
    return mLoaded;
  }
 diff --git a/layout/style/FontFaceImpl.cpp b/layout/style/FontFaceImpl.cpp
-index 6a71b06dab..d1e3f7bbb1 100644
 --- a/layout/style/FontFaceImpl.cpp
 +++ b/layout/style/FontFaceImpl.cpp
-@@ -358,21 +358,15 @@ void FontFaceImpl::DoLoad() {
+@@ -355,20 +355,14 @@
  void FontFaceImpl::SetStatus(FontFaceLoadStatus aStatus) {
    gfxFontUtils::AssertSafeThreadOrServoFontMetricsLocked();
  
 -  if (mStatus == aStatus) {
 -    return;
 -  }
-+  nsAutoCString fontFamily;
-+  GetFamily(fontFamily);
- 
+-
 -  if (aStatus < mStatus) {
 -    // We're being asked to go backwards in status!  Normally, this shouldn't
 -    // happen.  But it can if the FontFace had a user font entry that had
@@ -101,19 +95,21 @@ index 6a71b06dab..d1e3f7bbb1 100644
 -    // if we used a local() rule.  For now, just ignore the request to
 -    // go backwards in status.
 -    return;
+-  }
+-
+-  mStatus = aStatus;
++  nsAutoCString fontFamily;
++  GetFamily(fontFamily);
++
 +  if (IsFontAllowed(fontFamily)) {
 +    mStatus = FontFaceLoadStatus::Loaded;
 +  } else {
 +    mStatus = FontFaceLoadStatus::Error;
-   }
++  }
  
--  mStatus = aStatus;
--
    if (mInFontFaceSet) {
      mFontFaceSet->OnFontFaceStatusChanged(this);
-   }
 diff --git a/layout/style/FontFaceImpl.h b/layout/style/FontFaceImpl.h
-index ce49ac67dc..0bac123bd4 100644
 --- a/layout/style/FontFaceImpl.h
 +++ b/layout/style/FontFaceImpl.h
 @@ -8,6 +8,7 @@
@@ -124,10 +120,11 @@ index ce49ac67dc..0bac123bd4 100644
  #include "nsTHashSet.h"
  
  class gfxFontFaceBufferSource;
-@@ -27,6 +28,20 @@ class UTF8StringOrArrayBufferOrArrayBufferView;
+@@ -26,6 +27,20 @@
+ }  // namespace mozilla
  
  namespace mozilla::dom {
- 
++
 +// Helper function to check if a font is in the allowed list
 +inline bool IsFontAllowed(const nsACString& aFontName) {
 +  if (std::vector<std::string> maskValues =
@@ -141,15 +138,13 @@ index ce49ac67dc..0bac123bd4 100644
 +  }
 +  return true;
 +}
-+
+ 
  class FontFaceImpl final {
    NS_INLINE_DECL_THREADSAFE_REFCOUNTING(FontFaceImpl)
- 
 diff --git a/layout/style/moz.build b/layout/style/moz.build
-index 65874de131..01f29cdcd7 100644
 --- a/layout/style/moz.build
 +++ b/layout/style/moz.build
-@@ -368,3 +368,6 @@ if CONFIG["COMPILE_ENVIRONMENT"]:
+@@ -369,3 +369,6 @@
          "ServoStyleConsts.h",
          inputs=["/servo/ports/geckolib", "/servo/components/style"],
      )

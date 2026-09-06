@@ -1,0 +1,46 @@
+CanvasNoise
+toDataURL and getImageData agree despite different strides     PASS
+same seed + same content is reproducible                       PASS
+noise is applied at all (not a dead path)                      PASS
+perturbation rate is the intended ~1/8 of pixels               PASS
+a different seed yields a different canvas                     PASS
+alpha channel left exact                                       PASS
+row padding untouched (no out-of-rect writes)                  PASS
+seed 0 is a no-op (feature off)                                PASS
+
+ALL PASS (0 failure(s))
+AudioNoise
+seed 0 leaves the signal untouched (the bug)                     PASS
+a configured seed changes the fingerprint sum                    PASS
+two identities produce different fingerprints                    PASS
+sample data differs between identities                           PASS
+same seed is reproducible across runs                            PASS
+per-sample deviation stays within the intended ~0.8-1.0%         PASS
+aggregate signal is preserved (no audible distortion)            PASS
+a constant input is not scaled by a constant factor              PASS
+byte path: seed 0 is a no-op                                     PASS
+byte path: a seed perturbs the data                              PASS
+byte path: adjustment stays within +/-1                          PASS
+writes stay inside the declared length                           PASS
+
+ALL PASS (0 failure(s))
+SdpSanitize
+regression: whole-blob ipv6 regex rewrites a=fingerprint         PASS
+crypto lines are never passed to the replacer                    PASS
+a=fingerprint survives byte for byte                             PASS
+real IPv4 gone from every line                                   PASS
+real IPv6 gone from every line                                   PASS
+c= line carries the spoofed IPv4                                 PASS
+a=rtcp: line carries the spoofed IPv4                            PASS
+IPv4 candidate carries the spoofed IPv4                          PASS
+IPv6 candidate carries the spoofed IPv6                          PASS
+no line added or dropped                                         PASS
+terminators stay canonical CRLF                                  PASS
+a=ice-pwd untouched                                              PASS
+numeric attributes untouched                                     PASS
+o= keeps the unspecified address (special IPs not masked)        PASS
+raddr 0.0.0.0 left alone                                         PASS
+bare-LF input is normalised to CRLF, nothing merged              PASS
+empty SDP stays empty                                            PASS
+
+ALL PASS (0 failure(s))

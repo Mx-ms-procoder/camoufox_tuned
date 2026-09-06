@@ -38,11 +38,14 @@ source-verifiable facts for stock FF150 that Camoufox must also satisfy:
 | `navigator.cookieEnabled` | `true` | default in both |
 | `navigator.pdfViewerEnabled` | `true` | pdf.js enabled (camoufox.cfg keeps `pdfjs.disabled=false`) |
 
-The `webdriver`-hiding fields (`webdriverInNavigator` / `Type` /
-`OnPrototype`) are intentionally left pending here: Camoufox differs from
-stock on them **by design** (it hides `webdriver` harder), and
-`harness.stealth_invariants()` already asserts Camoufox's hidden values
-directly, independent of the baseline.
+The native WebDriver shape is present: a boolean value and a prototype
+property, with `false` in an ordinary unautomated browser. The independent
+`harness.stealth_invariants()` checks expect that shape. Removing the property
+would itself differ from ordinary Firefox.
+
+The historical Firefox 150 reference remains partial. Pass
+`--require-complete-baseline` to fail closed when fields are uncaptured.
+A green comparison with skipped fields does not establish full parity.
 
 ## What counts as a regression
 
@@ -68,16 +71,24 @@ python -m tests.fingerprint_parity.harness \
 ## Refreshing the baseline
 
 The baseline JSON shipped with the harness is a schema-shaped
-placeholder. Regenerate it on a workstation with stock Firefox 150
+placeholder. Regenerate it on a workstation with official Firefox 155.0.1
 installed:
 
 ```bash
 python -m tests.fingerprint_parity.harness \
     --browser stock \
-    --executable /opt/firefox-150.0.3/firefox \
-    --out tests/fingerprint_parity/baseline_stock_firefox_150.json
+    --executable /opt/firefox-155.0.1/firefox \
+    --out tests/fingerprint_parity/baseline_stock_firefox_155.json
 ```
 
+Stock capture uses a temporary profile and a loopback server. Official Firefox
+does not provide Playwright's Juggler endpoint. The page posts its results to
+the local collector; no patched browser is substituted for the reference.
+Camoufox capture reads through the shared DOM, since Juggler's isolated world
+does not share page globals. `--executable` also accepts a Camoufox binary.
+
+Record the official binary hash, OS, GPU and headless/headed mode with each
+reference. Hardware-dependent fields are not a universal Firefox fingerprint.
 Commit the resulting JSON. Re-capture every time `upstream.sh` is
 bumped to a new Firefox version (the `check_upstream_security.py`
 job will tell you when that happens).

@@ -1,10 +1,9 @@
 diff --git a/browser/components/sessionstore/SessionStore.sys.mjs b/browser/components/sessionstore/SessionStore.sys.mjs
-index 183543c5f2..a2a236c7c8 100644
 --- a/browser/components/sessionstore/SessionStore.sys.mjs
 +++ b/browser/components/sessionstore/SessionStore.sys.mjs
-@@ -4884,8 +4884,19 @@ var SessionStoreInternal = {
+@@ -4929,8 +4929,19 @@
    },
-
+ 
    maybeDontRestoreTabs(aWindow) {
 +    // Camoufox: a window.open() popup created with window features opens as a
 +    // separate chrome window that SessionStore may never have registered (the
@@ -21,5 +20,5 @@ index 183543c5f2..a2a236c7c8 100644
 -    this._windows[aWindow.__SSi]._maybeDontRestoreTabs = true;
 +    winData._maybeDontRestoreTabs = true;
    },
-
+ 
    isLastRestorableWindow() {

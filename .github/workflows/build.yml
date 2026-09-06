@@ -81,6 +81,18 @@ jobs:
         # real Firefox source.
         run: python3 ./scripts/patch.py --check-conflicts
 
+      - name: Test native privacy helpers
+        run: |
+          set -euo pipefail
+          for source in additions/camoucfg/*_test.cpp; do
+            binary="${RUNNER_TEMP}/$(basename "$source" .cpp)"
+            g++ -std=c++17 -O2 -I additions/camoucfg "$source" -o "$binary"
+            "$binary"
+          done
+
+      - name: Test Juggler lifecycle and init scripts
+        run: node --test tests/juggler_lifecycle.test.cjs
+
       - name: Run pythonlib tests
         run: pytest -q pythonlib/tests
 
@@ -98,13 +110,15 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.27.1"
 
       - name: Vet and build sidecar
         working-directory: bundle/_experimental
         run: |
           set -eux
           go vet ./...
+          go mod verify
+          go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
           CGO_ENABLED=0 go build -o /tmp/utls_proxy ./utls_proxy.go
 
   apply-check:
@@ -255,37 +269,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: "1.25"
+          go-version: "1.27.1"
 
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
-      - name: Set up LLVM
-        # Install LLVM 18 from Ubuntu Noble's own repos (universe) instead of
-        # bootstrapping via apt.llvm.org/llvm.sh. Noble ships clang-18,
-        # lld-18, llvm-18 and libclang-18-dev natively, which removes the
-        # "wget | sudo bash" supply-chain TOFU and the unsigned shell-script
-        # download. The package contents (clang/lld/llvm tools with -18
-        # suffix) are identical to what llvm.sh would have pulled in for
-        # Firefox 150's clang-18 baseline.
+      - name: Install 32-bit host libraries
+        if: matrix.target == 'linux' && matrix.arch == 'i686'
         run: |
           sudo apt-get update
-          sudo apt-get install -y lld-18 clang-18 llvm-18 libclang-18-dev
-          if [ "${{ matrix.target }}" = "linux" ] && [ "${{ matrix.arch }}" = "i686" ]; then
-            sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
-          fi
-          sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 100
-          sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 100
-          sudo update-alternatives --install /usr/bin/lld lld /usr/bin/lld-18 100
-          sudo update-alternatives --install /usr/bin/ld.lld ld.lld /usr/bin/ld.lld-18 100
-          sudo update-alternatives --install /usr/bin/lld-link lld-link /usr/bin/lld-link-18 100
-          sudo update-alternatives --install /usr/bin/llvm-objdump llvm-objdump /usr/bin/llvm-objdump-18 100
-          sudo update-alternatives --install /usr/bin/llvm-readelf llvm-readelf /usr/bin/llvm-readelf-18 100
-          sudo update-alternatives --install /usr/bin/llvm-objcopy llvm-objcopy /usr/bin/llvm-objcopy-18 100
-          sudo update-alternatives --install /usr/bin/llvm-ar llvm-ar /usr/bin/llvm-ar-18 100
-          sudo update-alternatives --install /usr/bin/llvm-nm llvm-nm /usr/bin/llvm-nm-18 100
+          sudo apt-get install -y libc6-i386 lib32gcc-s1 lib32stdc++6 gcc-multilib g++-multilib
 
       - name: Check disk space
         run: df -h
@@ -318,16 +313,8 @@ jobs:
           # installs whatever host packages it needs itself, so no osxcross
           # build prerequisites are required here.
 
-      - name: Install Rust toolchain (Firefox 150 baseline)
-        # Firefox 150 ships with Rust 1.94.0 and source-tree MSRV is 1.90.0.
-        # Sources verified:
-        #   https://firefox-source-docs.mozilla.org/writing-rust-code/update-policy.html
-        #   https://searchfox.org/mozilla-central/source/python/mozboot/mozboot/util.py
-        #     ("MINIMUM_RUST_VERSION = "1.90.0"")
-        # The previous pin to 1.86.0 was below MSRV and produced
-        # "post-cargo rustc archive-pack" failures on windows-gnu (the
-        # symptom that motivated the LTO disable workaround). Pinning to
-        # 1.94.0 matches upstream Firefox 150 release toolchain exactly.
+      - name: Install Rust toolchain
+        # 1.94.0 is pinned; Gecko 155.0.1 declares MSRV 1.90.0.
         run: |
           set -eux
           rustup toolchain install 1.94.0 --profile minimal
@@ -346,22 +333,8 @@ jobs:
           cargo --version
           rustup target list --installed
 
-      - name: Install cbindgen (Firefox 150 needs >= 0.29.1)
-        # Ubuntu's apt cbindgen is 0.26.0, which Firefox 150 rejects
-        # ("cbindgen version 0.26.0 is too old. At least version 0.29.1 is
-        # required." from build/moz.configure/bindgen.configure). Install from
-        # crates.io instead.
-        #
-        # C-1 (audit 2026-07-03): pin an EXACT version, not a floating range.
-        # The old "^0.29" resolved to whatever the latest 0.29.x was at build
-        # time; --locked only pins cbindgen's own Cargo.lock, NOT which cbindgen
-        # version cargo selects. During the windows-only grind the range drifted
-        # from a green 0.29.x to 0.29.4, which mistranslates BudgetType::COUNT
-        # and silently broke all three Linux legs with no commit to blame (see
-        # the "Fix cbindgen BudgetType::COUNT array size" step). An exact "="
-        # pin makes the toolchain reproducible so a floating dep can never again
-        # regress an already-green leg. Keep this in lockstep with the Dockerfile
-        # (both install cbindgen 0.29.4) and bump both together, deliberately.
+      - name: Install cbindgen
+        # Gecko 155.0.1 requires 0.29.4. Keep the version reproducible.
         run: |
           set -eux
           cargo install cbindgen --version "=0.29.4" --locked
@@ -376,22 +349,8 @@ jobs:
           make setup-minimal
           mkdir -p dist
 
-      - name: Bootstrap Mozilla toolchain (macOS + Windows cross)
-        # Mirror upstream camoufox: use Mozilla's own bootstrapped toolchain
-        # instead of hand-built cross toolchains. `mach bootstrap` provisions the
-        # host build environment; the subsequent `mach build` (with
-        # --enable-bootstrap from assets/base.mozconfig) auto-fetches the
-        # target-specific toolchain during configure:
-        #   * macos: Mozilla's cross clang for --target=*-apple-darwin. The macOS
-        #     SDK is supplied separately by the next step (Mozilla's SDK artifact
-        #     is Apple-licensed/private and 403s for external builds).
-        #   * windows: clang-cl + the real Visual Studio / Windows SDK (ATL) that
-        #     get_vs.py downloads from Microsoft to ~/.mozbuild/vs — the winsysroot
-        #     Firefox's windows.configure needs. Retires the MinGW and xwin
-        #     cross-toolchains and the mozjemalloc DllMain TLS deadlock with them.
-        # Runs on the freshly extracted, not-yet-patched tree — bootstrap is
-        # independent of the patch graph.
-        if: matrix.target == 'macos' || matrix.target == 'windows'
+      - name: Bootstrap Mozilla toolchain
+        # Includes native and WASI compilers for the restored RLBox sandbox.
         run: |
           set -eux
           src_dir="$(ls -d camoufox-*/ | head -n1)"
@@ -424,37 +383,10 @@ jobs:
           test -d "$sdk_dir"
           echo "MACOS_SDK_DIR=$sdk_dir" >> "$GITHUB_ENV"
 
-      - name: Fix cbindgen BudgetType::COUNT array size (all platforms)
-        # cbindgen >= 0.29.x mistranslates the associated-const array *size*
-        # `BudgetType::COUNT` in gfx/wr/webrender/src/texture_cache.rs into a
-        # bare, undeclared `COUNT` in the generated webrender_ffi_generated.h
-        # (`constexpr static const BudgetType BudgetType_VALUES[COUNT]`), so any
-        # TU that includes that header fails with "use of undeclared identifier
-        # 'COUNT'". cbindgen evaluates target cfgs while generating, so the
-        # broken line lands in the Linux-target header (compiled by
-        # accessible/atk + accessible/base) but NOT the macOS-target one -- which
-        # is why only the three Linux legs regressed once the floating `^0.29`
-        # cbindgen pin drifted (build-0.11 on 2026-06-06 predates the bad
-        # release; v0.29.4 has the bug). The windows leg already applies this
-        # exact rewrite inside "Patch MinGW-specific Firefox source gaps" (#12);
-        # this dedicated, ungated step makes it platform-agnostic so Linux/macOS
-        # get it too. Idempotent: on windows this runs first and the windows
-        # copy then finds nothing and no-ops. 7 == BudgetType::COUNT so the
-        # rewrite is behaviourally identical; value-context uses (which end in
-        # `)` not `]`) are deliberately left untouched. Must run after "Setup
-        # source" (the tree is extracted) and before "Build" (cbindgen runs).
+      - name: Fix cbindgen BudgetType array size
         run: |
-          set -eux
           src_dir="$(ls -d camoufox-*/ | head -n1)"
-          texcache="${src_dir}gfx/wr/webrender/src/texture_cache.rs"
-          test -f "$texcache" || { echo "ERROR: $texcache not found"; exit 1; }
-          if grep -qE '\[[^]]*BudgetType::COUNT\]' "$texcache"; then
-            sed -i -E 's@(\[[^]]*); BudgetType::COUNT\]@\1; 7]@g' "$texcache"
-            echo "rewrote BudgetType::COUNT array sizes to literal 7 in texture_cache.rs"
-            grep -nE '\[[^]]*BudgetType::COUNT\]' "$texcache" && { echo "ERROR: array-size BudgetType::COUNT still present"; exit 1; } || true
-          else
-            echo "NOTE: no BudgetType::COUNT array sizes in texture_cache.rs; skipping."
-          fi
+          python3 scripts/fix_cbindgen_budget.py "${src_dir}gfx/wr/webrender/src/texture_cache.rs"
 
       - name: Validate patch graph
         run: python3 ./scripts/validate_patches.py
@@ -575,6 +507,11 @@ jobs:
           # Logs are tiny but auto-expire fast so they never accumulate against
           # the 0.5 GB Actions-artifact quota.
           retention-days: 1
+
+      - name: Record package checksums
+        run: |
+          cd dist
+          sha256sum *.zip > SHA256SUMS-${{ matrix.target }}-${{ matrix.arch }}.txt
 
       - name: Upload binaries to release (tag pushes only)
         # The binaries go DIRECTLY to the GitHub Release, not to Actions-artifact

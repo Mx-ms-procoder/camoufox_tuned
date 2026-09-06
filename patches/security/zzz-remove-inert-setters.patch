@@ -18,9 +18,10 @@
 # speech-voices-spoofing.patch that added it was replaced by the config-driven
 # media/voice-spoofing.patch (MaskConfig::MVoices, no window.set* surface), so
 # SetSpeechVoices no longer exists to remove. Hunks regenerated against FF152.
+diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
 --- a/dom/base/nsGlobalWindowInner.cpp
 +++ b/dom/base/nsGlobalWindowInner.cpp
-@@ -7735,52 +7735,6 @@
+@@ -7785,52 +7785,6 @@
    return GetMainThreadSerialEventTarget();
  }
  
@@ -73,7 +74,7 @@
  Worklet* nsGlobalWindowInner::GetPaintWorklet(ErrorResult& aRv) {
    if (!mPaintWorklet) {
      nsIPrincipal* principal = GetPrincipal();
-@@ -7814,103 +7768,6 @@
+@@ -7864,103 +7818,6 @@
    return mIntlUtils;
  }
  
@@ -177,10 +178,13 @@
  void nsGlobalWindowInner::StoreSharedWorker(SharedWorker* aSharedWorker) {
    MOZ_ASSERT(aSharedWorker);
    MOZ_ASSERT(!mSharedWorkers.Contains(aSharedWorker));
-@@ -7925,179 +7782,6 @@
-   mSharedWorkers.RemoveElement(aSharedWorker);
- }
- 
+@@ -7992,179 +7849,6 @@
+     const nsAString& aTimezoneOverride) {
+   for (RefPtr<SharedWorker> pinnedWorker : mSharedWorkers.ForwardRange()) {
+     pinnedWorker->UpdateTimezoneOverride(aTimezoneOverride);
+-  }
+-}
+-
 -
 -void nsGlobalWindowInner::SetAudioFingerprintSeed(uint32_t seed,
 -                                                    ErrorResult& aRv) {
@@ -351,15 +355,13 @@
 -      JS_SetProperty(cx, global, "setWebGLRenderer", undef);
 -      JS_DeleteProperty(cx, global, "setWebGLRenderer");
 -    }
--  }
--}
--
- RefPtr<GenericPromise> nsGlobalWindowInner::StorageAccessPermissionChanged(
-     bool aGranted) {
-   // Invalidate cached StorageAllowed field so that calls to GetLocalStorage
+   }
+ }
+ 
+diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
-@@ -676,44 +676,14 @@
+@@ -677,25 +677,10 @@
  
    mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
  
@@ -385,7 +387,11 @@
    void StoreSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
  
    void ForgetSharedWorker(mozilla::dom::SharedWorker* aSharedWorker);
+@@ -703,21 +688,6 @@
+   void UpdateSharedWorkersLanguageOverride(const nsCString& aLanguageOverride);
  
+   void UpdateSharedWorkerTimezoneOverride(const nsAString& aTimezoneOverride);
+-
 -  // Per-context font list spoofing
 -  void SetFontList(const nsAString& aFontList, mozilla::ErrorResult& aRv);
 -
@@ -400,7 +406,6 @@
 -  // Per-context WebGL parameter spoofing
 -  void SetWebGLVendor(const nsAString& vendor, mozilla::ErrorResult& aRv);
 -  void SetWebGLRenderer(const nsAString& renderer, mozilla::ErrorResult& aRv);
--
+ 
   public:
    void Alert(nsIPrincipal& aSubjectPrincipal, mozilla::ErrorResult& aError);
-   void Alert(const nsAString& aMessage, nsIPrincipal& aSubjectPrincipal,

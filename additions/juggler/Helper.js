@@ -3,6 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 const uuidGen = Cc["@mozilla.org/uuid-generator;1"].getService(Ci.nsIUUIDGenerator);
+const {setTimeout, clearTimeout} = ChromeUtils.importESModule('resource://gre/modules/Timer.sys.mjs');
 
 export class Helper {
   decorateAsEventEmitter(objectToDecorate) {
@@ -60,12 +61,21 @@ export class Helper {
     };
   }
 
-  awaitEvent(receiver, eventName) {
-    return new Promise(resolve => {
-      receiver.addEventListener(eventName, function listener() {
+  awaitEvent(receiver, eventName, timeout = 0) {
+    return new Promise((resolve, reject) => {
+      let timer;
+      const listener = () => {
+        clearTimeout(timer);
         receiver.removeEventListener(eventName, listener);
         resolve();
-      });
+      };
+      receiver.addEventListener(eventName, listener);
+      if (timeout) {
+        timer = setTimeout(() => {
+          receiver.removeEventListener(eventName, listener);
+          reject(new Error(`Timed out waiting for ${eventName}`));
+        }, timeout);
+      }
     });
   }
 
@@ -178,6 +188,7 @@ export class EventWatcher {
     this._pendingEventWatchers.add(this);
 
     this._events = [];
+    this._disposed = false;
     this._pendingPromises = [];
     this._eventListeners = eventNames.map(eventName =>
       helper.on(receiver, eventName, this._onEvent.bind(this, eventName)),
@@ -191,14 +202,30 @@ export class EventWatcher {
     this._pendingPromises = [];
   }
 
-  async ensureEvent(aEventName, predicate) {
+  async ensureEvent(aEventName, predicate, timeout = 10000) {
     if (typeof aEventName !== 'string')
       throw new Error('ERROR: ensureEvent expects a "string" as its first argument');
+    const deadline = Date.now() + timeout;
     while (true) {
+      if (this._disposed)
+        throw new Error('EventWatcher is being disposed');
       const result = this.getEvent(aEventName, predicate);
       if (result)
         return result;
-      await new Promise((resolve, reject) => this._pendingPromises.push({resolve, reject}));
+      const remaining = deadline - Date.now();
+      if (remaining <= 0)
+        throw new Error(`Timed out waiting for ${aEventName}`);
+      let timer, waiter;
+      try {
+        await new Promise((resolve, reject) => {
+          waiter = {resolve, reject};
+          this._pendingPromises.push(waiter);
+          timer = setTimeout(() => reject(new Error(`Timed out waiting for ${aEventName}`)), remaining);
+        });
+      } finally {
+        clearTimeout(timer);
+        this._pendingPromises = this._pendingPromises.filter(p => p !== waiter);
+      }
     }
   }
 
@@ -211,9 +238,11 @@ export class EventWatcher {
   async ensureEventsAndDispose(eventNames, predicate) {
     if (!Array.isArray(eventNames))
       throw new Error('ERROR: ensureEventsAndDispose expects an array of event names as its first argument');
-    const result = await this.ensureEvents(eventNames, predicate);
-    this.dispose();
-    return result;
+    try {
+      return await this.ensureEvents(eventNames, predicate);
+    } finally {
+      this.dispose();
+    }
   }
 
   getEvent(aEventName, predicate = (eventObject) => true) {
@@ -225,6 +254,7 @@ export class EventWatcher {
   }
 
   dispose() {
+    this._disposed = true;
     this._pendingEventWatchers.delete(this);
     for (const promise of this._pendingPromises)
       promise.reject(new Error('EventWatcher is being disposed'));
@@ -232,5 +262,4 @@ export class EventWatcher {
     helper.removeListeners(this._eventListeners);
   }
 }
-
 

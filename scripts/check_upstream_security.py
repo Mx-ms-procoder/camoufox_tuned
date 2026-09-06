@@ -10,16 +10,16 @@ CI check, security-relevant point releases age silently. This script
 runs as a weekly cron job in
 ``.github/workflows/upstream-security-check.yml`` and exits non-zero
 when our pinned version is older than the highest release named in any
-MFSA listed under the configured cutoff date — letting GitHub email
-the repo owner.
+MFSA listed in Mozilla's index. Notification delivery follows the
+repository owner's GitHub Actions notification settings.
 
 Usage:
     python3 scripts/check_upstream_security.py           # uses upstream.sh
     python3 scripts/check_upstream_security.py --json    # machine-readable
 
-No network access required at import time. The MFSA fetch is gated
-behind ``--check`` so unit tests can import the parser without going
-to mozilla.org.
+No network access occurs at import time. Running the CLI fetches the
+index; tests can inject a saved response. Exit 0 means checked/current,
+1 means security drift, and 2 means the check could not establish status.
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ import re
 import sys
 import urllib.request
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import List, Optional
 
@@ -51,12 +52,15 @@ class FirefoxVersion:
     @classmethod
     def parse(cls, raw: str) -> Optional["FirefoxVersion"]:
         # Strip 'beta.NN', 'esr' suffixes and pull just the numeric tuple.
-        m = re.match(r"^(\d+)\.(\d+)(?:\.(\d+))?", raw.strip())
+        m = re.fullmatch(
+            r"(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:esr|-beta\.\d+)?",
+            raw.strip(),
+        )
         if not m:
             return None
         return cls(
             major=int(m.group(1)),
-            minor=int(m.group(2)),
+            minor=int(m.group(2) or 0),
             patch=int(m.group(3) or 0),
         )
 
@@ -111,22 +115,77 @@ class MFSARecord:
         return max(self.firefox_versions, key=lambda v: v.as_tuple())
 
 
+def _firefox_versions(products: str) -> tuple:
+    # Require a version immediately after Firefox. This deliberately excludes
+    # Firefox ESR / Firefox for iOS / Thunderbird version numbers.
+    return tuple(
+        version for match in _FF_VER_RE.finditer(products)
+        if (version := FirefoxVersion.parse(match.group(1))) is not None
+    )
+
+
+class _MFSAIndexParser(HTMLParser):
+    """Mozilla's date headings and advisory links, including nested spans."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.records: List[MFSARecord] = []
+        self.date = ""
+        self.heading: Optional[List[str]] = None
+        self.advisory_id: Optional[str] = None
+        self.link_text: List[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "h2":
+            self.heading = []
+        elif tag == "a":
+            href = dict(attrs).get("href") or ""
+            match = re.search(r"/security/advisories/mfsa(\d{4}-\d+)/?$", href)
+            if match:
+                self.advisory_id = match.group(1)
+                self.link_text = []
+
+    def handle_data(self, data):
+        if self.heading is not None:
+            self.heading.append(data)
+        if self.advisory_id is not None:
+            self.link_text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "h2" and self.heading is not None:
+            self.date = " ".join("".join(self.heading).split())
+            self.heading = None
+        elif tag == "a" and self.advisory_id is not None:
+            products = " ".join("".join(self.link_text).split())
+            versions = _firefox_versions(products)
+            if versions:
+                self.records.append(MFSARecord(
+                    id=self.advisory_id, date=self.date, products=products,
+                    firefox_versions=versions,
+                ))
+            self.advisory_id = None
+            self.link_text = []
+
+
 def parse_mfsa_index(html: str) -> List[MFSARecord]:
-    """Parse the MFSA advisories HTML table into a list of records."""
-    records: List[MFSARecord] = []
+    """Parse the current list layout, retaining the historical table format."""
+    parser = _MFSAIndexParser()
+    parser.feed(html)
+    parser.close()
+    records = parser.records
+    seen = {record.id for record in records}
     for m in _MFSA_ROW_RE.finditer(html):
+        if m.group("id") in seen:
+            continue
         products = m.group("products")
-        versions = []
-        for vm in _FF_VER_RE.finditer(products):
-            parsed = FirefoxVersion.parse(vm.group(1))
-            if parsed is not None:
-                versions.append(parsed)
+        versions = _firefox_versions(products)
         records.append(MFSARecord(
             id=m.group("id"),
             date=m.group("date").strip(),
             products=products.strip(),
-            firefox_versions=tuple(versions),
+            firefox_versions=versions,
         ))
+        seen.add(m.group("id"))
     return records
 
 
@@ -182,15 +241,21 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     pinned = read_pinned_version(args.upstream)
 
+    def check_failed(message: str) -> int:
+        if args.json:
+            print(json.dumps({"status": "error", "pinned": str(pinned), "error": message}))
+        else:
+            print(f"ERROR: {message}", file=sys.stderr)
+        return 2
+
     try:
         html = fetch_mfsa_index(timeout=args.timeout)
     except Exception as exc:
-        # Don't fail CI when mozilla.org is briefly unreachable — surface
-        # the error and exit 0 so the cron does not page on flakes.
-        print(f"WARNING: fetching MFSA index failed: {exc}", file=sys.stderr)
-        return 0
+        return check_failed(f"fetching MFSA index failed: {exc}")
 
     records = parse_mfsa_index(html)
+    if not any(record.firefox_versions for record in records):
+        return check_failed("MFSA response contains no parseable Firefox desktop advisories; security status is unknown.")
     hits = newer_releases(pinned, records)
     major_hits = newer_major_releases(pinned, records)
 
@@ -204,7 +269,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     if args.json:
         json.dump(
             {
+                "status": "outdated" if (hits or major_hits) else "ok",
                 "pinned": str(pinned),
+                "parsed_advisories": len(records),
                 "newer_advisories": _fmt(hits),
                 "newer_major_advisories": _fmt(major_hits),
             },

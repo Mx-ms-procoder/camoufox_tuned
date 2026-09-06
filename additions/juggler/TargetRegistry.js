@@ -537,7 +537,7 @@ export class PageTarget {
     const result = globalTabAndWindowActivationChain.then(async () => {
       this._window.focus();
       if (tabBrowser.selectedTab !== this._tab) {
-        const promise = helper.awaitEvent(ownerWindow, 'TabSwitchDone');
+        const promise = helper.awaitEvent(ownerWindow, 'TabSwitchDone', 10000);
         tabBrowser.selectedTab = this._tab;
         await promise;
       }
@@ -1603,4 +1603,3 @@ TargetRegistry.Events = {
   DownloadFinished: Symbol('TargetRegistry.Events.DownloadFinished'),
   ScreencastStopped: Symbol('TargetRegistry.ScreencastStopped'),
 };
-

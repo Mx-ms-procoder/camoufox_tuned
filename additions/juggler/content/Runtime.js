@@ -119,7 +119,7 @@ class Runtime {
       const mainWorldScript = args[3].value.substring(3);
       
       // Get the main world execution context
-      const mainContext = executionContext.mainEquivalent;
+      const mainContext = executionContext.mainWorldContext();
       if (!mainContext) {
         throw new Error(`Main world injection is not enabled.`);
       }
@@ -343,6 +343,10 @@ class Runtime {
   }
 
   destroyExecutionContext(destroyedContext) {
+    if (destroyedContext.mainEquivalent) {
+      this._debugger.removeDebuggee(destroyedContext.mainEquivalent._contextGlobal);
+      destroyedContext.mainEquivalent = undefined;
+    }
     for (const [promiseID, {reject, executionContext}] of this._pendingPromises) {
       if (executionContext === destroyedContext) {
         reject(new Error('Execution context was destroyed!'));
@@ -365,6 +369,16 @@ class MainWorldContext {
     this._domWindow = domWindow;
     this._contextGlobal = contextGlobal;
     this._debuggee = runtime._debugger.addDebuggee(contextGlobal);
+  }
+
+  evaluateScriptSafely(script) {
+    try {
+      const result = this._debuggee.executeInGlobal(script);
+      if (!result || result.throw)
+        dump('JUGGLER: main-world init script failed.\n');
+    } catch (error) {
+      dump(`JUGGLER: main-world init script failed: ${error.message}\n`);
+    }
   }
 
   _getResult(completionValue, exceptionDetails = {}) {
@@ -455,6 +469,20 @@ class ExecutionContext {
     }).bind(null, JSON.stringify.bind(JSON))`).return;
 
     this.mainEquivalent = undefined;
+    this.resolveMainWorld = null;
+  }
+
+  mainWorldContext() {
+    const global = this.resolveMainWorld?.();
+    if (!global)
+      return null;
+    if (this.mainEquivalent && this.mainEquivalent._contextGlobal !== global) {
+      this._runtime._debugger.removeDebuggee(this.mainEquivalent._contextGlobal);
+      this.mainEquivalent = undefined;
+    }
+    if (!this.mainEquivalent)
+      this.mainEquivalent = this._runtime.createMW(global, global);
+    return this.mainEquivalent;
   }
 
   id() {

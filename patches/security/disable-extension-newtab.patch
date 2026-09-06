@@ -1,8 +1,7 @@
 diff --git a/browser/components/extensions/parent/ext-browser.js b/browser/components/extensions/parent/ext-browser.js
-index 179816fa96..c7de1c2278 100644
 --- a/browser/components/extensions/parent/ext-browser.js
 +++ b/browser/components/extensions/parent/ext-browser.js
-@@ -62,6 +62,9 @@ extensions.on("page-shutdown", (type, context) => {
+@@ -66,6 +66,9 @@
  /* eslint-enable mozilla/balanced-listeners */
  
  global.openOptionsPage = extension => {
@@ -13,10 +12,9 @@ index 179816fa96..c7de1c2278 100644
    if (!window) {
      return Promise.reject({ message: "No browser window available" });
 diff --git a/browser/components/extensions/parent/ext-tabs.js b/browser/components/extensions/parent/ext-tabs.js
-index b47f0510e3..649caccc60 100644
 --- a/browser/components/extensions/parent/ext-tabs.js
 +++ b/browser/components/extensions/parent/ext-tabs.js
-@@ -700,6 +700,9 @@ this.tabs = class extends ExtensionAPIPersistent {
+@@ -689,6 +689,9 @@
          }).api(),
  
          create(createProperties) {

@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-06",
+  "python_tests": {
+    "passed": 108,
+    "command": "pytest -q pythonlib/tests"
+  },
+  "cpp_checks": {
+    "passed": 48,
+    "evidence": "native-helper-tests.json"
+  },
+  "juggler_tests": {
+    "passed": 5,
+    "command": "node --test tests/juggler_lifecycle.test.cjs"
+  },
+  "patch_application": {
+    "passed": 57,
+    "fuzz": 0,
+    "engine": "155.0.1",
+    "evidence": "patch-application.json"
+  },
+  "package_provenance_probe": {
+    "engine": "155.0.1",
+    "ordered_patches": 57
+  },
+  "go": {
+    "toolchain": "1.27.1",
+    "vet": "passed",
+    "build": "passed",
+    "called_vulnerabilities": 0,
+    "unimported_module_advisory": "GO-2026-5932"
+  },
+  "browser_runtime": "pending new binary"
+}

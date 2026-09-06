@@ -1,8 +1,7 @@
 diff --git a/dom/webidl/Element.webidl b/dom/webidl/Element.webidl
 --- a/dom/webidl/Element.webidl
 +++ b/dom/webidl/Element.webidl
-@@ -291,6 +291,9 @@ partial interface Element {
-   ShadowRoot attachShadow(ShadowRootInit shadowRootInitDict);
+@@ -295,6 +295,9 @@
    [BinaryName="shadowRootForBindings"]
    readonly attribute ShadowRoot? shadowRoot;
  
@@ -11,3 +10,4 @@ diff --git a/dom/webidl/Element.webidl b/dom/webidl/Element.webidl
 +
    [NeedsSubjectPrincipal, Func="Document::IsCallerChromeOrAddon"]
    readonly attribute ShadowRoot? openOrClosedShadowRoot;
+ 

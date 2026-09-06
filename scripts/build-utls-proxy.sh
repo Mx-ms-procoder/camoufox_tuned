@@ -21,7 +21,7 @@ mkdir -p "$out_dir"
 cd "$src_dir"
 
 if ! command -v go >/dev/null 2>&1; then
-    echo "go toolchain not found in PATH. Install Go 1.25+ first." >&2
+    echo "go toolchain not found in PATH. Install Go 1.27.1+ first." >&2
     exit 1
 fi
 

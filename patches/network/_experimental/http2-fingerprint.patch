@@ -74,18 +74,18 @@
 diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http2Session.cpp
 --- a/netwerk/protocol/http/Http2Session.cpp
 +++ b/netwerk/protocol/http/Http2Session.cpp
-@@ -31,7 +31,10 @@
- #include "mozilla/glean/NetwerkProtocolHttpMetrics.h"
+@@ -4,6 +4,9 @@
+ 
+ // HttpLog.h should generally be included first
+ #include "HttpLog.h"
 +#include <cstring>
 +#include <optional>
- #include "nsHttp.h"
- #include "nsHttpConnection.h"
- #include "nsHttpHandler.h"
 +#include "IdentityStateProvider.hpp"
- #include "nsHttpConnectionMgr.h"
- #include "nsIRequestContext.h"
- #include "nsISupportsPriority.h"
-@@ -1038,5 +1041,61 @@
+ #include "nsCOMPtr.h"
+ #include "nsStringFwd.h"
+ 
+@@ -1059,6 +1062,62 @@
+ // 4] 6 priority frames for streams which will never be opened with headers
  //    these streams (3, 5, 7, 9, b, d) build a dependency tree that all other
  //    streams will be direct leaves of.
 +
@@ -147,16 +147,16 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
  void Http2Session::SendHello() {
    MOZ_ASSERT(OnSocketThread(), "not on socket thread");
    LOG3(("Http2Session::SendHello %p\n", this));
-@@ -1074,7 +1133,7 @@
+@@ -1096,7 +1155,7 @@
                               SETTINGS_TYPE_HEADER_TABLE_SIZE);
    NetworkEndian::writeUint32(
        packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
 -      maxHpackBufferSize);
 +      ResolveHttp2Setting("headerTableSize", maxHpackBufferSize));
    numberOfEntries++;
-
+ 
    // We don't support HTTP/2 Push. Set SETTINGS_TYPE_ENABLE_PUSH to 0
-@@ -1100,7 +1159,8 @@
+@@ -1122,7 +1181,8 @@
    NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
                               SETTINGS_TYPE_INITIAL_WINDOW);
    NetworkEndian::writeUint32(
@@ -164,9 +164,9 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
 +      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
 +      ResolveHttp2Setting("initialWindowSize", mPushAllowance));
    numberOfEntries++;
-
+ 
    // Make sure the other endpoint knows that we're sticking to the default max
-@@ -1108,7 +1168,8 @@
+@@ -1130,7 +1190,8 @@
    NetworkEndian::writeUint16(packet + kFrameHeaderBytes + (6 * numberOfEntries),
                               SETTINGS_TYPE_MAX_FRAME_SIZE);
    NetworkEndian::writeUint32(
@@ -174,11 +174,11 @@ diff --git a/netwerk/protocol/http/Http2Session.cpp b/netwerk/protocol/http/Http
 +      packet + kFrameHeaderBytes + (6 * numberOfEntries) + 2,
 +      ResolveHttp2Setting("maxFrameSize", kMaxFrameData));
    numberOfEntries++;
-
+ 
    bool disableRFC7540Priorities =
-@@ -1136,7 +1197,8 @@
+@@ -1158,7 +1219,8 @@
          kFrameHeaderBytes + dataLen);
-
+ 
    // now bump the local session window from 64KB
 -  uint32_t sessionWindowBump = mInitialRwin - kDefaultRwin;
 +  uint32_t sessionWindowBump =

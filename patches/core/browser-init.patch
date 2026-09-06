@@ -1,11 +1,11 @@
 diff --git a/browser/base/content/browser-init.js b/browser/base/content/browser-init.js
-index 1cfa4b8497..bdf8d7202e 100644
 --- a/browser/base/content/browser-init.js
 +++ b/browser/base/content/browser-init.js
-@@ -3,6 +3,16 @@
+@@ -1,6 +1,16 @@
+ /* This Source Code Form is subject to the terms of the Mozilla Public
   * License, v. 2.0. If a copy of the MPL was not distributed with this
   * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
- 
++
 +const { AddonManager } = ChromeUtils.importESModule(
 +  "resource://gre/modules/AddonManager.sys.mjs",
 +  { global: "shared" }
@@ -15,11 +15,10 @@ index 1cfa4b8497..bdf8d7202e 100644
 +  { global: "contextual" }
 +);
 +
-+
+ 
  let _resolveDelayedStartup;
  var delayedStartupPromise = new Promise(resolve => {
-   _resolveDelayedStartup = resolve;
-@@ -72,7 +82,7 @@ var gBrowserInit = {
+@@ -115,7 +125,7 @@
      updateBookmarkToolbarVisibility();
  
      // Set a sane starting width/height for all resolutions on new profiles.
@@ -28,10 +27,11 @@ index 1cfa4b8497..bdf8d7202e 100644
        // When the fingerprinting resistance is enabled, making sure that we don't
        // have a maximum window to interfere with generating rounded window dimensions.
        document.documentElement.setAttribute("sizemode", "normal");
-@@ -310,6 +320,22 @@ var gBrowserInit = {
+@@ -333,6 +343,22 @@
+ 
      // Update UI if browser is under remote control.
      gRemoteControl.updateVisualCue();
- 
++
 +    // Camoufox: print URL changes to console
 +    if (ChromeUtils.isCamouDebug()) {
 +      ChromeUtils.camouDebug("Debug mode ON.");
@@ -47,11 +47,10 @@ index 1cfa4b8497..bdf8d7202e 100644
 +        ChromeUtils.camouDebug("URL bar value changed to: " + gURLBar.value);
 +      });
 +    }
-+
+ 
      // If we are given a tab to swap in, take care of it before first paint to
      // avoid an about:blank flash.
-     let tabToAdopt = this.getTabToAdopt();
-@@ -345,6 +371,31 @@ var gBrowserInit = {
+@@ -397,6 +423,31 @@
        }
      }
  
@@ -83,8 +82,8 @@ index 1cfa4b8497..bdf8d7202e 100644
      // Wait until chrome is painted before executing code not critical to making the window visible
      this._boundDelayedStartup = this._delayedStartup.bind(this);
      window.addEventListener("MozAfterPaint", this._boundDelayedStartup);
-@@ -366,9 +417,152 @@ var gBrowserInit = {
-       )?.removeAttribute("key");
+@@ -424,7 +475,150 @@
+       }
      }
  
 +    // Set default size
@@ -180,8 +179,8 @@ index 1cfa4b8497..bdf8d7202e 100644
 +    }
 +
      this._loadHandled = true;
-   },
- 
++  },
++
 +  importCertificate(certdb, certData, source) {
 +    try {
 +      certdb.addCertFromBase64(certData, "C,C,C", "");
@@ -231,8 +230,6 @@ index 1cfa4b8497..bdf8d7202e 100644
 +    const addon = await AddonManager.installTemporaryAddon(addonFile);
 +    Services.obs.notifyObservers(null, "devtools-installed-addon", addon.id);
 +    return addon;
-+  },
-+
+   },
+ 
    _cancelDelayedStartup() {
-     window.removeEventListener("MozAfterPaint", this._boundDelayedStartup);
-     this._boundDelayedStartup = null;

@@ -1,0 +1,28 @@
+{
+  "security_monitor": {
+    "parsed_records": 0,
+    "parse_major_153": "None",
+    "exit_code": 0,
+    "output": "OK: upstream.sh pins 152.0.4; no newer MFSA found.\n"
+  },
+  "rotating_proxy_cache": {
+    "first_exit": "192.0.2.10",
+    "new_exit_available": "198.51.100.20",
+    "second_result": "192.0.2.10",
+    "network_calls_second_launch": 0
+  },
+  "first_ip_response_latency": {
+    "first_ready_seconds": 0.02,
+    "slow_response_seconds": 0.2,
+    "returned_after_seconds": 0.203
+  },
+  "portrait_panel": {
+    "aspect_rule_accepts": true,
+    "panel_rule_accepts": false
+  },
+  "network_152": {
+    "source": "native-nss-runtime",
+    "tls_override_keys": [],
+    "http2_overrides": {}
+  }
+}

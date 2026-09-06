@@ -1,0 +1,24 @@
+[
+  {
+    "mode": "viewport",
+    "result": {
+      "screen": 1664,
+      "inner": 800,
+      "cssConfigured": false,
+      "css1920": false,
+      "css800": true,
+      "cssInner": true
+    }
+  },
+  {
+    "mode": "no_viewport",
+    "result": {
+      "screen": 1664,
+      "inner": 1280,
+      "cssConfigured": true,
+      "css1920": false,
+      "css800": false,
+      "cssInner": false
+    }
+  }
+]

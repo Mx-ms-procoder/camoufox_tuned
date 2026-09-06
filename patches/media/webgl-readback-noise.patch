@@ -1,16 +1,15 @@
 diff --git a/dom/canvas/ClientWebGLContext.cpp b/dom/canvas/ClientWebGLContext.cpp
 --- a/dom/canvas/ClientWebGLContext.cpp
 +++ b/dom/canvas/ClientWebGLContext.cpp
-@@ -28,5 +28,6 @@
+@@ -28,6 +28,7 @@
  #include "mozilla/dom/BufferSourceBinding.h"
  #include "mozilla/dom/Document.h"
  #include "mozilla/dom/GeneratePlaceholderCanvasData.h"
 +#include "CanvasNoise.hpp"
  #include "mozilla/dom/ToJSValue.h"
  #include "mozilla/dom/TypedArray.h"
-@@ -5439,8 +5440,44 @@ void ClientWebGLContext::ReadPixels(GLint x, GLint y, GLsizei width,
-           nsRFPService::RandomizeElements(
-               GetCookieJarSettings(), PrincipalOrNull(), range->data(),
+ #include "mozilla/dom/WebGLContextEvent.h"
+@@ -5476,6 +5477,42 @@
                range->size_bytes(), pii->elementsPerPixel, pii->bytesPerElement,
                alphaChannelOffset, hasAlphaChannel);
          }

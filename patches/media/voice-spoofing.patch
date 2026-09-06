@@ -1,27 +1,25 @@
 diff --git a/dom/media/webspeech/synth/moz.build b/dom/media/webspeech/synth/moz.build
 --- a/dom/media/webspeech/synth/moz.build
 +++ b/dom/media/webspeech/synth/moz.build
-@@ -63,2 +63,5 @@
+@@ -61,3 +61,6 @@
+ LOCAL_INCLUDES += [
      "ipc",
  ]
 +
 +# DOM Mask
 +LOCAL_INCLUDES += ['/camoucfg']
-
 diff --git a/dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp b/dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp
-index e5a1353d6b..4a4a5b080b 100644
 --- a/dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp
 +++ b/dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp
-@@ -26,7 +26,8 @@
+@@ -24,6 +24,7 @@
  #include "nsSpeechTask.h"
  #include "nsString.h"
  
 +#include "MaskConfig.hpp"
  using mozilla::intl::LocaleService;
  
- namespace mozilla::dom {
- 
-@@ -169,6 +171,20 @@
+ #undef LOG
+@@ -166,6 +167,20 @@
        // Start up all speech synth services.
        NS_CreateServicesFromCategory(NS_SPEECH_SYNTH_STARTED, nullptr,
                                      NS_SPEECH_SYNTH_STARTED);
@@ -42,10 +40,11 @@ index e5a1353d6b..4a4a5b080b 100644
      }
    }
  
-@@ -181,6 +196,25 @@ bool nsSynthVoiceRegistry::SendInitialVoicesAndState(
+@@ -182,6 +197,25 @@
+ bool nsSynthVoiceRegistry::SendInitialVoicesAndState(
      SpeechSynthesisParent* aParent) {
    MOZ_ASSERT(XRE_IsParentProcess());
- 
++
 +  // Camoufox: guarantee the config voices are registered before we hand the
 +  // initial voice list to a content process. The GetInstance()-time
 +  // registration can run before CAMOU_CONFIG is readable (or before any
@@ -64,20 +63,19 @@ index e5a1353d6b..4a4a5b080b 100644
 +      }
 +    }
 +  }
-+
+ 
    nsTArray<RemoteVoice> voices;
    nsTArray<nsString> defaults;
- 
-@@ -305,6 +339,8 @@ nsSynthVoiceRegistry::AddVoice(nsISpeechService* aService,
+@@ -301,6 +335,8 @@
+   if (NS_WARN_IF(XRE_IsContentProcess())) {
      return NS_ERROR_NOT_AVAILABLE;
    }
- 
-+  if (MaskConfig::GetBool("voices:blockIfNotDefined")) return NS_OK;
 +
++  if (MaskConfig::GetBool("voices:blockIfNotDefined")) return NS_OK;
+ 
    return AddVoiceImpl(aService, aUri, aName, aLang, aLocalService,
                        aQueuesUtterances);
- }
-@@ -779,6 +815,35 @@ void nsSynthVoiceRegistry::SpeakImpl(VoiceData* aVoice, nsSpeechTask* aTask,
+@@ -776,6 +812,35 @@
         NS_ConvertUTF16toUTF8(aText).get(),
         NS_ConvertUTF16toUTF8(aVoice->mUri).get(), aRate, aPitch));
  

@@ -1,0 +1,287 @@
+[
+  {
+    "patch": "patches\\playwright\\0-playwright.patch",
+    "exit": 0,
+    "output": "patching file accessible/interfaces/nsIAccessibleDocument.idl\npatching file accessible/xpcom/xpcAccessibleDocument.cpp\npatching file accessible/xpcom/xpcAccessibleDocument.h\npatching file browser/app/winlauncher/LauncherProcessWin.cpp\npatching file browser/installer/allowed-dupes.mn\npatching file browser/installer/package-manifest.in\npatching file devtools/server/socket/websocket-server.js\npatching file docshell/base/BrowsingContext.cpp\npatching file docshell/base/BrowsingContext.h\npatching file docshell/base/CanonicalBrowsingContext.cpp\npatching file docshell/base/nsDocShell.cpp\npatching file docshell/base/nsDocShell.h\npatching file docshell/base/nsIDocShell.idl\npatching file dom/base/Document.cpp\npatching file dom/base/Document.h\npatching file dom/base/Navigator.cpp\npatching file dom/base/Navigator.h\npatching file dom/base/nsContentUtils.cpp\npatching file dom/base/nsDOMWindowUtils.cpp\npatching file dom/base/nsFocusManager.cpp\npatching file dom/base/nsGlobalWindowOuter.cpp\npatching file dom/base/nsGlobalWindowOuter.h\npatching file dom/base/nsINode.cpp\npatching file dom/base/nsINode.h\npatching file dom/base/nsJSUtils.cpp\npatching file dom/base/nsJSUtils.h\npatching file dom/chrome-webidl/BrowsingContext.webidl\npatching file dom/fetch/Fetch.cpp\npatching file dom/fetch/FetchService.cpp\npatching file dom/geolocation/Geolocation.cpp\npatching file dom/html/HTMLInputElement.cpp\npatching file dom/interfaces/base/nsIDOMWindowUtils.idl\npatching file dom/ipc/BrowserChild.cpp\npatching file dom/ipc/CoalescedMouseData.cpp\npatching file dom/media/systemservices/video_engine/desktop_capture_impl.cc\npatching file dom/media/systemservices/video_engine/desktop_capture_impl.h\npatching file dom/script/ScriptSettings.cpp\npatching file dom/security/nsCSPUtils.cpp\npatching file dom/webidl/GeometryUtils.webidl\npatching file dom/webidl/Window.webidl\npatching file dom/workers/RuntimeService.cpp\npatching file dom/workers/RuntimeService.h\npatching file dom/workers/WorkerCommon.h\npatching file dom/workers/WorkerPrivate.cpp\npatching file dom/workers/WorkerPrivate.h\npatching file intl/components/src/TimeZone.cpp\npatching file intl/components/src/TimeZone.h\npatching file js/public/Date.h\npatching file js/src/debugger/Object.cpp\npatching file js/src/vm/DateTime.cpp\npatching file js/src/vm/DateTime.h\npatching file js/src/vm/Realm.cpp\npatching file layout/base/GeometryUtils.cpp\npatching file layout/base/PresShell.cpp\npatching file layout/base/nsLayoutUtils.cpp\npatching file layout/style/GeckoBindings.h\npatching file layout/style/nsMediaFeatures.cpp\npatching file netwerk/base/LoadInfo.cpp\npatching file netwerk/base/LoadInfo.h\npatching file netwerk/base/TRRLoadInfo.cpp\npatching file netwerk/base/nsILoadInfo.idl\npatching file netwerk/base/nsINetworkInterceptController.idl\npatching file netwerk/ipc/DocumentLoadListener.cpp\npatching file netwerk/protocol/http/InterceptedHttpChannel.cpp\npatching file netwerk/protocol/http/InterceptedHttpChannel.h\npatching file netwerk/protocol/http/nsHttpChannel.cpp\npatching file netwerk/protocol/http/nsHttpChannel.h\npatching file parser/html/nsHtml5TreeOpExecutor.cpp\npatching file security/manager/ssl/nsCertOverrideService.cpp\npatching file third_party/libwebrtc/api/location.h\npatching file toolkit/components/browser/nsIWebBrowserChrome.idl\npatching file toolkit/components/resistfingerprinting/nsUserCharacteristics.cpp\npatching file toolkit/components/startup/nsAppStartup.cpp\npatching file toolkit/components/statusfilter/nsBrowserStatusFilter.cpp\npatching file toolkit/mozapps/update/UpdateService.sys.mjs\npatching file toolkit/toolkit.mozbuild\npatching file toolkit/xre/nsWindowsWMain.cpp\npatching file uriloader/base/nsDocLoader.cpp\npatching file uriloader/exthandler/nsExternalHelperAppService.cpp\npatching file uriloader/exthandler/nsExternalHelperAppService.h\npatching file uriloader/exthandler/nsIExternalHelperAppService.idl\npatching file widget/InProcessCompositorWidget.cpp\npatching file widget/MouseEvents.h\npatching file widget/cocoa/NativeKeyBindings.mm\npatching file widget/headless/HeadlessCompositorWidget.cpp\npatching file widget/headless/HeadlessCompositorWidget.h\npatching file widget/headless/HeadlessWidget.cpp\npatching file widget/headless/HeadlessWidget.h\npatching file widget/nsGUIEventIPC.h\npatching file xpcom/reflect/xptinfo/xptinfo.h\npatching file toolkit/components/geolocation/GeolocationService.cpp\npatching file toolkit/components/geolocation/GeolocationService.h\n"
+  },
+  {
+    "patch": "patches\\playwright\\1-leak-fixes.patch",
+    "exit": 0,
+    "output": "patching file dom/base/Navigator.cpp\n"
+  },
+  {
+    "patch": "patches\\ghostery\\Disable-Onboarding-Messages.patch",
+    "exit": 0,
+    "output": "patching file browser/components/asrouter/modules/OnboardingMessageProvider.sys.mjs\n"
+  },
+  {
+    "patch": "patches\\identity\\anti-font-fingerprinting.patch",
+    "exit": 0,
+    "output": "patching file dom/base/FontSpacingSeedManager.cpp\npatching file dom/base/FontSpacingSeedManager.h\npatching file dom/base/RoverfoxStorageManager.cpp\npatching file dom/base/RoverfoxStorageManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/canvas/CanvasRenderingContext2D.cpp\npatching file dom/canvas/OffscreenCanvas.cpp\npatching file dom/workers/WorkerPrivate.h\npatching file gfx/src/nsFontMetrics.cpp\npatching file gfx/src/nsFontMetrics.h\npatching file gfx/thebes/gfxFont.cpp\npatching file gfx/thebes/gfxFont.h\npatching file gfx/thebes/gfxHarfBuzzShaper.cpp\npatching file gfx/thebes/gfxTextRun.cpp\npatching file gfx/thebes/gfxTextRun.h\npatching file layout/base/nsLayoutUtils.cpp\npatching file layout/base/nsLayoutUtils.h\npatching file layout/base/nsPresContext.cpp\npatching file layout/generic/MathMLTextRunFactory.cpp\npatching file layout/generic/nsTextFrame.cpp\npatching file layout/generic/nsTextRunTransformations.cpp\npatching file layout/mathml/nsMathMLChar.cpp\npatching file toolkit/components/resistfingerprinting/FontVisibilityProvider.h\npatching file gfx/thebes/gfxPlatformFontList.cpp\n"
+  },
+  {
+    "patch": "patches\\media\\audio-context-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/media/CubebUtils.cpp\npatching file dom/media/moz.build\npatching file dom/media/webaudio/AudioContext.cpp\npatching file dom/media/webaudio/moz.build\n"
+  },
+  {
+    "patch": "patches\\media\\audio-fingerprint-manager.patch",
+    "exit": 0,
+    "output": "patching file dom/base/AudioFingerprintManager.cpp\npatching file dom/base/AudioFingerprintManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/media/webaudio/AnalyserNode.cpp\npatching file dom/media/webaudio/AudioBuffer.cpp\npatching file dom/media/webaudio/moz.build\n"
+  },
+  {
+    "patch": "patches\\librewolf\\bootstrap.patch",
+    "exit": 0,
+    "output": "patching file python/mozversioncontrol/mozversioncontrol/repo/source.py\n"
+  },
+  {
+    "patch": "patches\\core\\browser-init.patch",
+    "exit": 0,
+    "output": "patching file browser/base/content/browser-init.js\n"
+  },
+  {
+    "patch": "patches\\identity\\canvas-noise.patch",
+    "exit": 0,
+    "output": "patching file dom/canvas/CanvasRenderingContext2D.cpp\n"
+  },
+  {
+    "patch": "patches\\core\\chromeutil.patch",
+    "exit": 0,
+    "output": "patching file dom/base/ChromeUtils.cpp\npatching file dom/base/ChromeUtils.h\npatching file dom/chrome-webidl/ChromeUtils.webidl\n"
+  },
+  {
+    "patch": "patches\\core\\config.patch",
+    "exit": 0,
+    "output": "patching file browser/installer/package-manifest.in\npatching file lw/moz.build\npatching file moz.build\n"
+  },
+  {
+    "patch": "patches\\core\\cross-process-storage.patch",
+    "exit": 0,
+    "output": "patching file dom/ipc/ContentParent.cpp\npatching file dom/ipc/ContentParent.h\npatching file dom/ipc/PContent.ipdl\npatching file ipc/ipdl/sync-messages.ini\npatching file modules/libpref/Preferences.cpp\npatching file dom/base/RoverfoxStorageManager.cpp\n"
+  },
+  {
+    "patch": "patches\\librewolf\\custom-ubo-assets-bootstrap-location.patch",
+    "exit": 0,
+    "output": "patching file toolkit/components/extensions/parent/ext-storage.js\n"
+  },
+  {
+    "patch": "patches\\librewolf\\dbus_name.patch",
+    "exit": 0,
+    "output": "patching file toolkit/components/remote/nsDBusRemoteClient.cpp\npatching file toolkit/components/remote/nsDBusRemoteServer.cpp\n"
+  },
+  {
+    "patch": "patches\\security\\debugger-invisible-to-content.patch",
+    "exit": 0,
+    "output": "patching file js/src/builtin/Promise.cpp\npatching file js/src/debugger/DebugAPI.h\npatching file js/src/debugger/Debugger.cpp\npatching file js/src/debugger/Debugger.h\npatching file js/src/jsapi.cpp\npatching file js/src/vm/Realm.cpp\npatching file js/src/vm/Realm.h\n"
+  },
+  {
+    "patch": "patches\\core\\denormaldisabler-cstdint.patch",
+    "exit": 0,
+    "output": "patching file dom/media/webaudio/blink/DenormalDisabler.h\n"
+  },
+  {
+    "patch": "patches\\librewolf\\devtools-bypass.patch",
+    "exit": 0,
+    "output": "patching file devtools/server/actors/thread.js\npatching file devtools/server/actors/webconsole/listeners/console-api.js\n"
+  },
+  {
+    "patch": "patches\\librewolf\\disable-data-reporting-at-compile-time.patch",
+    "exit": 0,
+    "output": "patching file browser/moz.configure\npatching file python/mach/mach/telemetry.py\n"
+  },
+  {
+    "patch": "patches\\security\\disable-extension-newtab.patch",
+    "exit": 0,
+    "output": "patching file browser/components/extensions/parent/ext-browser.js\npatching file browser/components/extensions/parent/ext-tabs.js\n"
+  },
+  {
+    "patch": "patches\\core\\disable-remote-subframes.patch",
+    "exit": 0,
+    "output": "patching file docshell/base/BrowsingContext.cpp\npatching file docshell/base/moz.build\n"
+  },
+  {
+    "patch": "patches\\identity\\fingerprint-injection.patch",
+    "exit": 0,
+    "output": "patching file browser/app/moz.build\npatching file dom/base/Element.cpp\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsHistory.cpp\npatching file dom/base/nsScreen.cpp\npatching file dom/battery/BatteryManager.cpp\npatching file dom/battery/moz.build\npatching file dom/workers/WorkerNavigator.cpp\npatching file dom/workers/moz.build\n"
+  },
+  {
+    "patch": "patches\\identity\\font-hijacker.patch",
+    "exit": 0,
+    "output": "patching file gfx/thebes/gfxPlatformFontList.cpp\npatching file gfx/thebes/moz.build\npatching file layout/style/FontFace.cpp\npatching file layout/style/FontFaceImpl.cpp\npatching file layout/style/FontFaceImpl.h\npatching file layout/style/moz.build\n"
+  },
+  {
+    "patch": "patches\\identity\\font-list-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/base/FontListManager.cpp\npatching file dom/base/FontListManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file gfx/thebes/gfxPlatformFontList.cpp\npatching file gfx/thebes/gfxTextRun.cpp\npatching file layout/style/FontFaceSet.cpp\n"
+  },
+  {
+    "patch": "patches\\identity\\font-system-fonts-css2.patch",
+    "exit": 0,
+    "output": "patching file widget/gtk/moz.build\npatching file widget/gtk/nsLookAndFeel.cpp\npatching file layout/base/moz.build\npatching file layout/base/nsLayoutUtils.cpp\npatching file gfx/thebes/gfxMacPlatformFontList.mm\npatching file gfx/thebes/moz.build\n"
+  },
+  {
+    "patch": "patches\\identity\\force-default-pointer.patch",
+    "exit": 0,
+    "output": "patching file layout/style/nsMediaFeatures.cpp\n"
+  },
+  {
+    "patch": "patches\\identity\\geolocation-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/geolocation/Geolocation.cpp\npatching file dom/geolocation/GeolocationPosition.cpp\npatching file dom/geolocation/moz.build\npatching file dom/system/NetworkGeolocationProvider.sys.mjs\n"
+  },
+  {
+    "patch": "patches\\core\\global-style-sheets.patch",
+    "exit": 0,
+    "output": "patching file layout/style/GlobalStyleSheetCache.cpp\n"
+  },
+  {
+    "patch": "patches\\librewolf\\ui-patches\\handlers.patch",
+    "exit": 0,
+    "output": "patching file uriloader/exthandler/HandlerList.sys.mjs\n"
+  },
+  {
+    "patch": "patches\\librewolf\\ui-patches\\hide-default-browser.patch",
+    "exit": 0,
+    "output": "patching file browser/components/preferences/main.js\n"
+  },
+  {
+    "patch": "patches\\network\\_experimental\\http2-fingerprint.patch",
+    "exit": 0,
+    "output": "patching file netwerk/protocol/http/Http2Session.cpp\n"
+  },
+  {
+    "patch": "patches\\identity\\locale-spoofing.patch",
+    "exit": 0,
+    "output": "patching file browser/base/content/browser-init.js\npatching file intl/components/moz.build\npatching file intl/components/src/Locale.cpp\npatching file intl/components/src/Locale.h\npatching file intl/locale/OSPreferences.cpp\npatching file js/xpconnect/src/XPCLocale.cpp\n"
+  },
+  {
+    "patch": "patches\\core\\macos-sandbox-crash-fix.patch",
+    "exit": 0,
+    "output": "patching file dom/ipc/ContentParent.cpp\n"
+  },
+  {
+    "patch": "patches\\media\\media-device-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/media/MediaDevices.cpp\n"
+  },
+  {
+    "patch": "patches\\librewolf\\mozilla_dirs.patch",
+    "exit": 0,
+    "output": "patching file toolkit/components/extensions/NativeManifests.sys.mjs\npatching file toolkit/xre/nsXREDirProvider.cpp\npatching file xpcom/build/nsXULAppAPI.h\n"
+  },
+  {
+    "patch": "patches\\identity\\navigator-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/base/NavigatorManager.cpp\npatching file dom/base/NavigatorManager.h\npatching file dom/base/Navigator.cpp\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/workers/WorkerNavigator.cpp\n"
+  },
+  {
+    "patch": "patches\\network\\network-patches.patch",
+    "exit": 0,
+    "output": "patching file netwerk/protocol/http/moz.build\npatching file netwerk/protocol/http/nsHttpHandler.cpp\n"
+  },
+  {
+    "patch": "patches\\security\\no-search-engines.patch",
+    "exit": 0,
+    "output": "patching file browser/components/urlbar/UrlbarProviderInterventions.sys.mjs\npatching file toolkit/components/search/SearchEngineSelector.sys.mjs\n"
+  },
+  {
+    "patch": "patches\\network\\nss-tls-override.patch",
+    "exit": 0,
+    "output": "patching file security/manager/ssl/nsNSSComponent.cpp\npatching file security/manager/ssl/moz.build\n"
+  },
+  {
+    "patch": "patches\\security\\pin-addons.patch",
+    "exit": 0,
+    "output": "patching file browser/base/content/browser-addons.js\npatching file browser/base/content/main-popupset.inc.xhtml\n"
+  },
+  {
+    "patch": "patches\\librewolf\\ui-patches\\remove-branding-urlbar.patch",
+    "exit": 0,
+    "output": "patching file browser/locales/en-US/browser/browser.ftl\n"
+  },
+  {
+    "patch": "patches\\librewolf\\ui-patches\\remove-organization-policy-banner.patch",
+    "exit": 0,
+    "output": "patching file browser/components/preferences/preferences.js\n"
+  },
+  {
+    "patch": "patches\\librewolf\\rust-gentoo-musl.patch",
+    "exit": 0,
+    "output": "patching file build/moz.configure/rust.configure\n"
+  },
+  {
+    "patch": "patches\\identity\\screen-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/base/ScreenDimensionManager.cpp\npatching file dom/base/ScreenDimensionManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/base/nsScreen.cpp\npatching file gfx/src/moz.build\npatching file gfx/src/nsDeviceContext.cpp\npatching file layout/style/nsMediaFeatures.cpp\n"
+  },
+  {
+    "patch": "patches\\core\\sessionstore-popup-close-crash.patch",
+    "exit": 0,
+    "output": "patching file browser/components/sessionstore/SessionStore.sys.mjs\n"
+  },
+  {
+    "patch": "patches\\security\\shadow-root-bypass.patch",
+    "exit": 0,
+    "output": "patching file dom/webidl/Element.webidl\n"
+  },
+  {
+    "patch": "patches\\librewolf\\sed-patches\\stop-undesired-requests.patch",
+    "exit": 0,
+    "output": "patching file browser/components/asrouter/content/asrouter-admin.bundle.js\n"
+  },
+  {
+    "patch": "patches\\identity\\system-ui-font-spoofing.patch",
+    "exit": 0,
+    "output": "patching file gfx/thebes/gfxPlatformFontList.cpp\n"
+  },
+  {
+    "patch": "patches\\identity\\timezone-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/base/TimezoneManager.cpp\npatching file dom/base/TimezoneManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/base/nsGlobalWindowOuter.cpp\npatching file dom/workers/WorkerPrivate.cpp\npatching file js/public/Date.h\npatching file js/src/vm/DateTime.cpp\npatching file js/src/vm/DateTime.h\npatching file js/src/vm/Realm.cpp\n"
+  },
+  {
+    "patch": "patches\\security\\trusted-automation-events.patch",
+    "exit": 0,
+    "output": "patching file dom/base/nsINode.cpp\npatching file dom/events/Event.cpp\npatching file dom/events/MouseEvent.cpp\npatching file dom/events/MouseEvent.h\npatching file dom/events/PointerEventHandler.cpp\npatching file dom/events/PointerEventHandler.h\npatching file dom/html/HTMLSelectElement.cpp\n"
+  },
+  {
+    "patch": "patches\\librewolf\\urlbarprovider-interventions.patch",
+    "exit": 0,
+    "output": "patching file browser/components/urlbar/UrlbarProviderInterventions.sys.mjs\n"
+  },
+  {
+    "patch": "patches\\media\\voice-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/media/webspeech/synth/moz.build\npatching file dom/media/webspeech/synth/nsSynthVoiceRegistry.cpp\n"
+  },
+  {
+    "patch": "patches\\media\\webgl-readback-noise.patch",
+    "exit": 0,
+    "output": "patching file dom/canvas/ClientWebGLContext.cpp\n"
+  },
+  {
+    "patch": "patches\\media\\webgl-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/base/WebGLParamsManager.cpp\npatching file dom/base/WebGLParamsManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/canvas/ClientWebGLContext.cpp\npatching file dom/canvas/ClientWebGLContext.h\npatching file dom/canvas/moz.build\n"
+  },
+  {
+    "patch": "patches\\network\\webrtc-ip-spoofing.patch",
+    "exit": 0,
+    "output": "patching file dom/base/WebRTCIPManager.cpp\npatching file dom/base/WebRTCIPManager.h\npatching file dom/base/moz.build\npatching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\npatching file dom/media/webrtc/jsapi/PeerConnectionImpl.cpp\npatching file dom/media/webrtc/jsapi/PeerConnectionImpl.h\npatching file dom/media/webrtc/jsapi/moz.build\n"
+  },
+  {
+    "patch": "patches\\core\\windows-theming-bug-modified.patch",
+    "exit": 0,
+    "output": "patching file browser/app/firefox.exe.manifest\npatching file browser/app/moz.build\n"
+  },
+  {
+    "patch": "patches\\security\\zz-readback-integrity.patch",
+    "exit": 0,
+    "output": "patching file dom/canvas/ClientWebGLContext.cpp\npatching file dom/canvas/WebGLTypes.h\npatching file dom/canvas/WebGLIpdl.h\npatching file dom/canvas/WebGLContextGL.cpp\npatching file js/src/vm/Realm.cpp\n"
+  },
+  {
+    "patch": "patches\\security\\zzz-remove-inert-setters.patch",
+    "exit": 0,
+    "output": "patching file dom/base/nsGlobalWindowInner.cpp\npatching file dom/base/nsGlobalWindowInner.h\n"
+  }
+]

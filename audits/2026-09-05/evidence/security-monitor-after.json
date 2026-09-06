@@ -1,0 +1,36 @@
+{
+  "exit_code": 1,
+  "result": {
+    "status": "outdated",
+    "pinned": "152.0.4",
+    "parsed_advisories": 163,
+    "newer_advisories": [
+      {
+        "id": "2026-67",
+        "date": "July 14, 2026",
+        "products": "MFSA 2026-67 Security Vulnerabilities fixed in Firefox 152.0.6",
+        "highest_firefox": "152.0.6"
+      }
+    ],
+    "newer_major_advisories": [
+      {
+        "id": "2026-82",
+        "date": "September 1, 2026",
+        "products": "MFSA 2026-82 Security Vulnerabilities fixed in Firefox 155",
+        "highest_firefox": "155.0.0"
+      },
+      {
+        "id": "2026-74",
+        "date": "August 18, 2026",
+        "products": "MFSA 2026-74 Security Vulnerabilities fixed in Firefox 154",
+        "highest_firefox": "154.0.0"
+      },
+      {
+        "id": "2026-68",
+        "date": "July 21, 2026",
+        "products": "MFSA 2026-68 Security Vulnerabilities fixed in Firefox 153",
+        "highest_firefox": "153.0.0"
+      }
+    ]
+  }
+}

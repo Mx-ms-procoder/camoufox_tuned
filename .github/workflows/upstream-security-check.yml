@@ -32,7 +32,7 @@ jobs:
 
       - name: Compare upstream.sh against Mozilla MFSA index
         # Exit code 1 fails the job, which surfaces in the repo's
-        # workflow status (and emails the owner if enabled). The
-        # script itself swallows network errors so a transient
-        # mozilla.org outage does not page.
+        # workflow status (and emails the owner if enabled).
+        # Exit code 2 reports fetch/parse errors as an unsuccessful check;
+        # a missing or changed upstream response must never look current.
         run: python3 scripts/check_upstream_security.py

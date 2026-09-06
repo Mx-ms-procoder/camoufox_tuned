@@ -2,15 +2,44 @@
 
 import argparse
 import glob
+import hashlib
+import json
 import os
+from pathlib import Path
+import re
 import shutil
 import sys
+import subprocess
 import tempfile
 from shlex import join
 
-from _mixin import find_src_dir, get_moz_target, list_files, run, temp_cd
+from _mixin import find_src_dir, get_moz_target, list_files, list_bootstrap_patches, list_patches, run, temp_cd
 
-UNNEEDED_PATHS = {'uninstall', 'pingsender.exe', 'pingsender', 'vaapitest', 'glxtest'}
+UNNEEDED_PATHS = {'uninstall', 'pingsender.exe', 'pingsender'}
+
+
+def write_build_info(target_dir, target):
+    """Record the engine, source revision, and ordered patch set in every ZIP."""
+    root = Path(__file__).resolve().parent.parent
+    with temp_cd(root):
+        upstream = Path('upstream.sh').read_text(encoding='utf-8')
+        fields = dict(re.findall(r'^(version|release)=[\"\']?([^\s\"\']+)', upstream, re.M))
+        revision = os.environ.get('GITHUB_SHA') or subprocess.check_output(
+            ['git', 'rev-parse', 'HEAD'], text=True).strip()
+        patches = list_bootstrap_patches('./patches') + list_patches('./patches')
+        info = {
+            'schema': 1, 'engine': fields['version'], 'release': fields['release'],
+            'repository': os.environ.get('GITHUB_REPOSITORY', 'Mx-ms-procoder/camoufox_tuned'),
+            'revision': revision, 'target': target,
+            'build_target': os.environ.get('BUILD_TARGET'),
+            'playwright': '>=1.62.0,<1.63',
+            'patches': [{'path': Path(p).as_posix(),
+                         'sha256': hashlib.sha256(Path(p).read_bytes()).hexdigest()}
+                        for p in patches],
+            'requirements_sha256': hashlib.sha256(Path('requirements.lock').read_bytes()).hexdigest(),
+        }
+    Path(target_dir, 'build-info.json').write_text(
+        json.dumps(info, indent=2) + '\n', encoding='utf-8')
 
 
 def add_includes_to_tree(temp_dir, includes, fonts, new_file, target):
@@ -69,6 +98,8 @@ def add_includes_to_tree(temp_dir, includes, fonts, new_file, target):
         elif os.path.exists(os.path.join(target_dir, path)):
             os.remove(os.path.join(target_dir, path))
 
+    write_build_info(target_dir, target)
+
     # Update package
     run(join(['7z', 'u', new_file, f'{temp_dir}/*', '-r', '-mx=9']))
 
@@ -76,7 +107,7 @@ def add_includes_to_tree(temp_dir, includes, fonts, new_file, target):
 def add_includes_to_package(package_file, includes, fonts, new_file, target):
     with tempfile.TemporaryDirectory() as temp_dir:
         # Extract package
-        run(join(['7z', 'x', package_file, f'-o{temp_dir}']), exit_on_fail=False)
+        run(join(['7z', 'x', package_file, f'-o{temp_dir}']))
         # Delete package_file
         os.remove(package_file)
         if package_file.endswith('.tar.xz'):

@@ -53,27 +53,29 @@ and never changes, so a single classification per process is safe.
 
 Bug: daijro/camoufox#598 (sibling of font-system-ui.patch)
 
+diff --git a/widget/gtk/moz.build b/widget/gtk/moz.build
 --- a/widget/gtk/moz.build
 +++ b/widget/gtk/moz.build
-@@ -155,6 +155,7 @@
+@@ -162,6 +162,7 @@
  FINAL_LIBRARY = "xul"
-
+ 
  LOCAL_INCLUDES += [
 +    "/camoucfg",
      "/layout/base",
      "/layout/forms",
      "/layout/generic",
+diff --git a/widget/gtk/nsLookAndFeel.cpp b/widget/gtk/nsLookAndFeel.cpp
 --- a/widget/gtk/nsLookAndFeel.cpp
 +++ b/widget/gtk/nsLookAndFeel.cpp
-@@ -34,6 +34,7 @@
- #include "mozilla/glean/WidgetGtkMetrics.h"
- #include "mozilla/ScopeExit.h"
- #include "mozilla/WidgetUtilsGtk.h"
+@@ -4,6 +4,7 @@
+ 
+ // for strtod()
+ #include "nsLookAndFeel.h"
 +#include "MaskConfig.hpp"
- #include "ScreenHelperGTK.h"
- #include "ScrollbarDrawing.h"
-
-@@ -1302,6 +1303,48 @@
+ 
+ #include <cairo-gobject.h>
+ #include <dlfcn.h>
+@@ -1307,6 +1308,48 @@
  bool nsLookAndFeel::PerThemeData::GetFont(FontID aID, nsString& aFontName,
                                            gfxFontStyle& aFontStyle,
                                            float aTextScaleFactor) const {
@@ -122,6 +124,7 @@ Bug: daijro/camoufox#598 (sibling of font-system-ui.patch)
    switch (aID) {
      case FontID::Menu:             // css2
      case FontID::MozPullDownMenu:  // css3
+diff --git a/layout/base/moz.build b/layout/base/moz.build
 --- a/layout/base/moz.build
 +++ b/layout/base/moz.build
 @@ -146,6 +146,7 @@
@@ -132,18 +135,19 @@ Bug: daijro/camoufox#598 (sibling of font-system-ui.patch)
      "/docshell/base",
      "/dom/base",
      "/dom/html",
+diff --git a/layout/base/nsLayoutUtils.cpp b/layout/base/nsLayoutUtils.cpp
 --- a/layout/base/nsLayoutUtils.cpp
 +++ b/layout/base/nsLayoutUtils.cpp
-@@ -6,6 +6,7 @@
-
+@@ -4,6 +4,7 @@
+ 
  #include "nsLayoutUtils.h"
-
+ 
 +#include "MaskConfig.hpp"
  #include <algorithm>
  #include <limits>
-
-@@ -9623,6 +9654,54 @@
-
+ 
+@@ -9850,6 +9851,54 @@
+ 
  static void GetSpoofedSystemFontForRFP(LookAndFeel::FontID aFontID,
                                         gfxFontStyle& aStyle, nsAString& aName) {
 +  // Camoufox: when navigator.platform is spoofed, return the family-name
@@ -197,7 +201,7 @@ Bug: daijro/camoufox#598 (sibling of font-system-ui.patch)
  #if defined(XP_MACOSX) || defined(MOZ_WIDGET_UIKIT)
    aName = u"-apple-system"_ns;
    // Values taken from a macOS 10.15 system.
-@@ -9729,7 +9729,17 @@ void nsLayoutUtils::ComputeSystemFont(nsFont* aSystemFont,
+@@ -9904,7 +9953,17 @@
                                        const Document* aDocument) {
    gfxFontStyle fontStyle;
    nsAutoString systemFontName;
@@ -220,14 +224,14 @@ diff --git a/gfx/thebes/gfxMacPlatformFontList.mm b/gfx/thebes/gfxMacPlatformFon
 --- a/gfx/thebes/gfxMacPlatformFontList.mm
 +++ b/gfx/thebes/gfxMacPlatformFontList.mm
 @@ -17,6 +17,7 @@
- #include "SharedFontList-impl.h"
+ #include "gfxUserFontSet.h"
  
  #include "harfbuzz/hb.h"
 +#include "MaskConfig.hpp"
  
  #include "AppleUtils.h"
  #include "MainThreadUtils.h"
-@@ -394,7 +395,48 @@ void gfxMacPlatformFontList::LookupSystemFont(LookAndFeel::FontID aSystemFontID,
+@@ -394,7 +395,48 @@
    }
    NS_ASSERTION(font, "system font not set");
  
@@ -277,10 +281,10 @@ diff --git a/gfx/thebes/gfxMacPlatformFontList.mm b/gfx/thebes/gfxMacPlatformFon
  
    NSFontSymbolicTraits traits = font.fontDescriptor.symbolicTraits;
    aFontStyle.style = (traits & NSFontItalicTrait) ? FontSlantStyle::ITALIC
-
+diff --git a/gfx/thebes/moz.build b/gfx/thebes/moz.build
 --- a/gfx/thebes/moz.build
 +++ b/gfx/thebes/moz.build
-@@ -301,4 +301,10 @@
+@@ -303,4 +303,10 @@
  include("/tools/fuzzing/libfuzzer-config.mozbuild")
  
  # DOM Mask

@@ -2,6 +2,7 @@ from ipaddress import ip_address
 import re
 from dataclasses import dataclass
 from functools import lru_cache
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 from typing import Dict, Optional, Tuple
 
 import requests
@@ -82,9 +83,10 @@ def validate_ip(ip: str) -> None:
         raise InvalidIP(f"Invalid IP address: {ip}")
 
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+# A bounded process-wide pool lets the first successful request return without
+# waiting for unrelated providers. Running requests retain their own timeout.
+_IP_EXECUTOR = ThreadPoolExecutor(max_workers=6, thread_name_prefix='camoufox-ip')
 
-@lru_cache(maxsize=None)
 def public_ip(proxy: Optional[str] = None) -> str:
     """
     Sends requests to multiple public IP APIs in parallel and returns the first valid response.
@@ -110,12 +112,17 @@ def public_ip(proxy: Optional[str] = None) -> str:
         except Exception:
             return None
 
-    with ThreadPoolExecutor(max_workers=len(URLS)) as executor:
-        future_to_url = {executor.submit(fetch_ip, url): url for url in URLS}
-        for future in as_completed(future_to_url):
+    # Proxy endpoints may rotate between launches; never cache an exit by URL.
+    futures = [_IP_EXECUTOR.submit(fetch_ip, url) for url in URLS]
+    try:
+        for future in as_completed(futures, timeout=6):
             result = future.result()
             if result:
-                # Cancel other futures if possible (though ThreadPoolExecutor doesn't support easy cancellation of running tasks)
                 return result
+    except TimeoutError:
+        pass
+    finally:
+        for future in futures:
+            future.cancel()
 
     raise InvalidIP("Failed to get IP address from any service")

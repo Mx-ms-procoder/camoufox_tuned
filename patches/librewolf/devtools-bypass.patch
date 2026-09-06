@@ -1,8 +1,7 @@
 diff --git a/devtools/server/actors/thread.js b/devtools/server/actors/thread.js
-index d91f463..3c1ba5a 100644
 --- a/devtools/server/actors/thread.js
 +++ b/devtools/server/actors/thread.js
-@@ -386,7 +386,8 @@ class ThreadActor extends Actor {
+@@ -390,7 +390,8 @@
    attach(options) {
      // Note that the client avoids trying to call attach if already attached.
      // But just in case, avoid any possible duplicate call to attach.
@@ -13,10 +12,9 @@ index d91f463..3c1ba5a 100644
      }
  
 diff --git a/devtools/server/actors/webconsole/listeners/console-api.js b/devtools/server/actors/webconsole/listeners/console-api.js
-index 3e5d0bc..8260e2b 100644
 --- a/devtools/server/actors/webconsole/listeners/console-api.js
 +++ b/devtools/server/actors/webconsole/listeners/console-api.js
-@@ -97,6 +97,7 @@ class ConsoleAPIListener {
+@@ -98,7 +98,8 @@
     *        The message object receives from the ConsoleAPIStorage service.
     */
    onConsoleAPILogEvent(message) {
@@ -25,3 +23,4 @@ index 3e5d0bc..8260e2b 100644
 +    if (!this.handler || disableConsole) {
        return;
      }
+ 

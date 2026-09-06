@@ -1,6 +1,5 @@
 diff --git a/dom/base/AudioFingerprintManager.cpp b/dom/base/AudioFingerprintManager.cpp
 new file mode 100644
-index 0000000000..6ec4dc5265
 --- /dev/null
 +++ b/dom/base/AudioFingerprintManager.cpp
 @@ -0,0 +1,66 @@
@@ -59,8 +58,8 @@ index 0000000000..6ec4dc5265
 +// can exercise the exact code that ships. See that file for why the noise has
 +// to be content-aware and why the variance is 0.8% rather than Brave's 0.1%.
 +/* static */ void
-+AudioFingerprintManager::ApplyTransformation(float* data, uint32_t length, uint32_t seed) {
-+  camoufox::ApplyAudioNoise(data, length, seed);
++AudioFingerprintManager::ApplyTransformation(float* data, uint32_t length, uint32_t seed, uint32_t offset) {
++  camoufox::ApplyAudioNoise(data, length, seed, offset);
 +}
 +
 +/* static */ void
@@ -72,7 +71,6 @@ index 0000000000..6ec4dc5265
 +}  // namespace mozilla
 diff --git a/dom/base/AudioFingerprintManager.h b/dom/base/AudioFingerprintManager.h
 new file mode 100644
-index 0000000000..6848990431
 --- /dev/null
 +++ b/dom/base/AudioFingerprintManager.h
 @@ -0,0 +1,30 @@
@@ -93,7 +91,7 @@ index 0000000000..6848990431
 +  static void SetSeed(uint32_t aUserContextId, uint32_t aSeed);
 +  static uint32_t GetSeed(uint32_t aUserContextId);
 +
-+  static void ApplyTransformation(float* data, uint32_t length, uint32_t seed);
++  static void ApplyTransformation(float* data, uint32_t length, uint32_t seed, uint32_t offset = 0);
 +  static void ApplyTransformationToBytes(uint8_t* data, uint32_t length, uint32_t seed);
 +
 +  static void DisableFunction(uint32_t userContextId);
@@ -107,43 +105,41 @@ index 0000000000..6848990431
 +
 +#endif  // mozilla_dom_AudioFingerprintManager_h
 diff --git a/dom/base/moz.build b/dom/base/moz.build
-index 49c8ac12fa..b503ecab2b 100644
 --- a/dom/base/moz.build
 +++ b/dom/base/moz.build
-@@ -142,6 +142,7 @@ EXPORTS.mozilla.dom += [
-     "AnimationFrameProvider.h",
+@@ -143,6 +143,7 @@
      "AnonymousContent.h",
+     "AtomAttributes.h",
      "Attr.h",
 +    "AudioFingerprintManager.h",
      "AutoPrintEventDispatcher.h",
      "AutoSuppressEventHandlingAndSuspend.h",
      "BarProps.h",
-@@ -293,6 +294,11 @@ EXPORTS.mozilla.dom += [
+@@ -301,6 +302,11 @@
+     "WindowFeatures.h",
      "WindowProxyHolder.h",
  ]
- 
++
 +# AudioFingerprintManager compiled separately to avoid namespace pollution
 +# in unified builds (it includes RoverfoxStorageManager.h which can affect
 +# alphabetically-later files like BarProps.cpp)
 +SOURCES += ["AudioFingerprintManager.cpp"]
-+
+ 
  if CONFIG["FUZZING"]:
      EXPORTS.mozilla.dom += [
-         "FuzzingFunctions.h",
 diff --git a/dom/base/nsGlobalWindowInner.cpp b/dom/base/nsGlobalWindowInner.cpp
-index 0545014921..1cc5156ae0 100644
 --- a/dom/base/nsGlobalWindowInner.cpp
 +++ b/dom/base/nsGlobalWindowInner.cpp
-@@ -88,6 +88,7 @@
- #include "mozilla/TimeStamp.h"
+@@ -89,6 +89,7 @@
  #include "mozilla/UniquePtr.h"
+ #include "mozilla/Utf16.h"
  #include "mozilla/dom/AudioContext.h"
 +#include "AudioFingerprintManager.h"
  #include "mozilla/dom/AutoEntryScript.h"
  #include "mozilla/dom/BarProps.h"
  #include "mozilla/dom/BindingDeclarations.h"
-@@ -7721,6 +7722,29 @@ void nsGlobalWindowInner::ForgetSharedWorker(SharedWorker* aSharedWorker) {
-   mSharedWorkers.RemoveElement(aSharedWorker);
+@@ -7809,6 +7810,29 @@
+   }
  }
  
 +
@@ -173,10 +169,9 @@ index 0545014921..1cc5156ae0 100644
      bool aGranted) {
    // Invalidate cached StorageAllowed field so that calls to GetLocalStorage
 diff --git a/dom/base/nsGlobalWindowInner.h b/dom/base/nsGlobalWindowInner.h
-index 43b3ef9521..a1a0fc5d59 100644
 --- a/dom/base/nsGlobalWindowInner.h
 +++ b/dom/base/nsGlobalWindowInner.h
-@@ -674,6 +674,9 @@ class nsGlobalWindowInner final : public mozilla::dom::EventTarget,
+@@ -677,6 +677,9 @@
  
    mozilla::dom::Worklet* GetPaintWorklet(mozilla::ErrorResult& aRv);
  
@@ -187,7 +182,6 @@ index 43b3ef9521..a1a0fc5d59 100644
  
    mozilla::dom::IntlUtils* GetIntlUtils(mozilla::ErrorResult& aRv);
 diff --git a/dom/media/webaudio/AnalyserNode.cpp b/dom/media/webaudio/AnalyserNode.cpp
-index 3c80514a1d..befe6ee2bc 100644
 --- a/dom/media/webaudio/AnalyserNode.cpp
 +++ b/dom/media/webaudio/AnalyserNode.cpp
 @@ -11,6 +11,11 @@
@@ -202,7 +196,7 @@ index 3c80514a1d..befe6ee2bc 100644
  
  namespace mozilla {
  
-@@ -214,6 +219,24 @@ void AnalyserNode::GetFloatFrequencyData(const Float32Array& aArray) {
+@@ -214,6 +219,24 @@
      return;
    }
  
@@ -227,7 +221,7 @@ index 3c80514a1d..befe6ee2bc 100644
    aArray.ProcessData([&](const Span<float>& aData, JS::AutoCheckCannotGC&&) {
      size_t length = std::min(size_t(aData.Length()), mOutputBuffer.Length());
  
-@@ -230,6 +253,24 @@ void AnalyserNode::GetByteFrequencyData(const Uint8Array& aArray) {
+@@ -230,6 +253,24 @@
      return;
    }
  
@@ -252,7 +246,7 @@ index 3c80514a1d..befe6ee2bc 100644
    const double rangeScaleFactor = 1.0 / (mMaxDecibels - mMinDecibels);
  
    aArray.ProcessData([&](const Span<uint8_t>& aData, JS::AutoCheckCannotGC&&) {
-@@ -253,6 +294,24 @@ void AnalyserNode::GetFloatTimeDomainData(const Float32Array& aArray) {
+@@ -253,6 +294,24 @@
      size_t length = std::min(aData.Length(), size_t(FftSize()));
  
      GetTimeDomainData(aData.Elements(), length);
@@ -277,7 +271,7 @@ index 3c80514a1d..befe6ee2bc 100644
    });
  }
  
-@@ -267,6 +326,24 @@ void AnalyserNode::GetByteTimeDomainData(const Uint8Array& aArray) {
+@@ -267,6 +326,24 @@
  
      GetTimeDomainData(tmpBuffer.Elements(), length);
  
@@ -303,7 +297,6 @@ index 3c80514a1d..befe6ee2bc 100644
      for (size_t i = 0; i < length; ++i) {
        const float value = tmpBuffer[i];
 diff --git a/dom/media/webaudio/AudioBuffer.cpp b/dom/media/webaudio/AudioBuffer.cpp
-index 7e684a02e5..5d36f2910d 100644
 --- a/dom/media/webaudio/AudioBuffer.cpp
 +++ b/dom/media/webaudio/AudioBuffer.cpp
 @@ -19,6 +19,9 @@
@@ -316,7 +309,7 @@ index 7e684a02e5..5d36f2910d 100644
  
  namespace mozilla::dom {
  
-@@ -301,6 +304,27 @@ bool AudioBuffer::RestoreJSChannelData(JSContext* aJSContext) {
+@@ -301,6 +304,27 @@
        MOZ_ASSERT(!isShared);  // Was created as unshared above
        CopyChannelDataToFloat(mSharedChannels, i, 0, jsData, Length());
      }
@@ -344,7 +337,7 @@ index 7e684a02e5..5d36f2910d 100644
      mJSChannels[i] = array;
    }
  
-@@ -352,6 +376,24 @@ void AudioBuffer::CopyFromChannel(const Float32Array& aDestination,
+@@ -352,6 +376,24 @@
                                   JS::AutoCheckCannotGC&&) {
        CopyChannelDataToFloat(mSharedChannels, aChannelNumber, aBufferOffset,
                               aData.Elements(), calculateCount(aData.Length()));
@@ -363,17 +356,16 @@ index 7e684a02e5..5d36f2910d 100644
 +        uint32_t seed = AudioFingerprintManager::GetSeed(userContextId);
 +        if (seed != 0) {
 +          AudioFingerprintManager::ApplyTransformation(
-+              aData.Elements(), calculateCount(aData.Length()), seed);
++              aData.Elements(), calculateCount(aData.Length()), seed, aBufferOffset);
 +        }
 +      }
      });
      return;
    }
 diff --git a/dom/media/webaudio/moz.build b/dom/media/webaudio/moz.build
-index b962c175f1..0bafa2f0a7 100644
 --- a/dom/media/webaudio/moz.build
 +++ b/dom/media/webaudio/moz.build
-@@ -155,3 +155,6 @@ LOCAL_INCLUDES += [".."]
+@@ -152,3 +152,6 @@
  
  # DOM Mask
  LOCAL_INCLUDES += ["/camoucfg"]

@@ -1,8 +1,7 @@
 diff --git a/uriloader/exthandler/HandlerList.sys.mjs b/uriloader/exthandler/HandlerList.sys.mjs
-index e95d627..cd0096e 100644
 --- a/uriloader/exthandler/HandlerList.sys.mjs
 +++ b/uriloader/exthandler/HandlerList.sys.mjs
-@@ -9,196 +9,7 @@ export const kHandlerList = {
+@@ -9,196 +9,7 @@
      schemes: {
        mailto: {
          handlers: [

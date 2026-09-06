@@ -1,17 +1,18 @@
 diff --git a/security/manager/ssl/nsNSSComponent.cpp b/security/manager/ssl/nsNSSComponent.cpp
 --- a/security/manager/ssl/nsNSSComponent.cpp
 +++ b/security/manager/ssl/nsNSSComponent.cpp
-@@ -9,2 +9,3 @@
+@@ -6,6 +6,7 @@
+ #include "nsNSSComponent.h"
+ 
  #include "BinaryPath.h"
 +#include "CamouTLSOverride.hpp"
  #include "CryptoTask.h"
-@@ -1616,6 +1617,14 @@ nsresult nsNSSComponent::InitializeNSS() {
+ #include "EnterpriseRoots.h"
+ #include "ExtendedValidation.h"
+@@ -1568,6 +1569,14 @@
    // Register an observer so we can inform NSS when these prefs change
    Preferences::AddStrongObserver(this, "security.");
--
--  rv = CommonInit();
--
-+
+ 
 +  // Camoufox TLS Override
 +  // Apply CAMOU_TLS_* environment variable overrides AFTER NSS is fully
 +  // initialized but BEFORE any connections are attempted. This ensures
@@ -20,14 +21,17 @@ diff --git a/security/manager/ssl/nsNSSComponent.cpp b/security/manager/ssl/nsNS
 +  CamouTLSOverride::ApplyAll();
 +  // End Camoufox TLS Override
 +
-+  rv = CommonInit();
-+
+   rv = CommonInit();
+ 
    MOZ_DIAGNOSTIC_ASSERT(NS_SUCCEEDED(rv));
 diff --git a/security/manager/ssl/moz.build b/security/manager/ssl/moz.build
 --- a/security/manager/ssl/moz.build
 +++ b/security/manager/ssl/moz.build
-@@ -199,3 +199,4 @@
+@@ -235,6 +235,7 @@
+ 
  LOCAL_INCLUDES += [
      "!/dist/public/nss",
 +    "/camoucfg",
      "/dom/base",
+     "/dom/crypto",
+     "/netwerk/base",

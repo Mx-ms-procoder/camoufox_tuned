@@ -77,6 +77,7 @@ pageTypes.Size = {
 pageTypes.Viewport = {
   viewportSize: pageTypes.Size,
   deviceScaleFactor: t.Optional(t.Number),
+  isMobile: t.Optional(t.Boolean),
 };
 
 pageTypes.DOMQuad = {

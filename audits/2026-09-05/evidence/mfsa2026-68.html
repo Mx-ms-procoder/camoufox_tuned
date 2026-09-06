@@ -1,0 +1,2161 @@
+
+
+
+
+
+
+
+
+
+
+
+
+<!doctype html>
+
+<html class="windows no-js" lang="en" dir="ltr" data-country-code="DE" data-needs-consent="True" data-latest-firefox="155.0.1" data-esr-versions="140.15.0 153.2.0" data-gtm-container-id="GTM-MW3R8V"  data-stub-attribution-rate="1.0" data-sentry-dsn="https://c3ab8514873549d5b3785ebc7fb83c80@o1069899.ingest.sentry.io/6260331" >
+  <head>
+    <meta charset="utf-8">
+
+    
+
+
+
+<script data-cfasync="false" src="https://transcend-cdn.com/cm/d556c3a1-e57c-4bdf-a490-390a1aebf6dd/airgap.js"></script>
+
+
+    <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/site.a6a07233d547.js"></script>
+
+    
+    <!--<![endif]-->
+
+    <!--[if IE 9]>
+    <script src="https://www.mozilla.org/media/js/site-ie.419ec4b57d17.js"></script>
+    <![endif]-->
+
+<!--
+
+
+             _.-~-.
+           7''  Q..\
+        _7         (_
+      _7  _/    _q.  /
+    _7 . ___  /VVvv-'_                                            .
+   7/ / /~- \_\\      '-._     .-'                      /       //
+  ./ ( /-~-/||'=.__  '::. '-~'' {             ___   /  //     ./{
+ V   V-~-~| ||   __''_   ':::.   ''~-~.___.-'' _/  // / {_   /  {  /
+  VV/-~-~-|/ \ .'__'. '.    '::                     _ _ _        ''.
+  / /~~~~||VVV/ /  \ )  \        _ __ ___   ___ ___(_) | | __ _   .::'
+ / (~-~-~\\.-' /    \'   \::::. | '_ ` _ \ / _ \_  / | | |/ _` | :::'
+/..\    /..\__/      '     '::: | | | | | | (_) / /| | | | (_| | ::'
+vVVv    vVVv                 ': |_| |_| |_|\___/___|_|_|_|\__,_| ''
+
+Hi there, nice to meet you!
+
+Interested in having a direct impact on hundreds of millions of users? Join
+Mozilla, and become part of a global community that’s helping to build a
+brighter future for the Web.
+
+Visit https://www.mozilla.org/careers to learn about our current job openings.
+Visit https://www.mozilla.org/contribute for more ways to get involved and
+help support Mozilla.
+-->
+
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    
+
+    
+    <title>Security Vulnerabilities fixed in Firefox 153 — Mozilla</title>
+    <meta name="description" content="">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Mozilla">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:url" content="https://www.mozilla.org/en-US/security/advisories/mfsa2026-68/">
+    <meta property="og:image" content="https://www.mozilla.org/media/img/m24/og.3a69dffad83e.png">
+    <meta property="og:title" content="Security Vulnerabilities fixed in Firefox 153">
+    <meta property="og:description" content="">
+    <meta property="fb:page_id" content="262134952380">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:site" content="@mozilla">
+    <meta name="twitter:domain" content="mozilla.org">
+    <meta name="twitter:app:name:googleplay" content="Firefox">
+    <meta name="twitter:app:id:googleplay" content="org.mozilla.firefox">
+    <meta name="twitter:app:name:iphone" content="Firefox">
+    <meta name="twitter:app:id:iphone" content="989804926">
+    <meta name="twitter:app:name:ipad" content="Firefox">
+    <meta name="twitter:app:id:ipad" content="989804926">
+    <link rel="apple-touch-icon" type="image/png" sizes="180x180" href="https://www.mozilla.org/media/img/favicons/mozilla/apple-touch-icon.05aa000f6748.png">
+    <link rel="icon" type="image/png" sizes="196x196" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon-196x196.e143075360ea.png">
+    <link rel="shortcut icon" href="https://www.mozilla.org/media/img/favicons/mozilla/favicon.d0be64e474b1.ico">
+    <link rel="canonical" href="https://www.mozilla.org/en-US/security/advisories/mfsa2026-68/">
+    
+    <link rel="alternate" hreflang="en" href="https://www.mozilla.org/en-US/security/advisories/mfsa2026-68/" title="English">
+        <link rel="alternate" hreflang="en-US" href="https://www.mozilla.org/en-US/security/advisories/mfsa2026-68/" title="English (USA)">
+        
+    
+    
+    <link href="https://mastodon.social/@mozilla" rel="me">
+
+    <!--[if lt IE 9]>
+      
+      <script src="https://www.mozilla.org/media/js/ie/libs/html5shiv.a94a0b700fa2.js"></script>
+    <![endif]-->
+
+    <!--[if IE]>
+      
+      
+        <link href="https://www.mozilla.org/media/css/common-old-ie.4d14f7a84a19.css" rel="stylesheet" type="text/css">
+      
+    <![endif]-->
+
+    <!--[if !IE]><!-->
+    
+    
+  
+      <link href="https://www.mozilla.org/media/css/protocol-mozilla.54ea44c214ed.css" rel="stylesheet" type="text/css">
+      
+        <link href="https://www.mozilla.org/media/css/m24-navigation-and-footer.038277dadfff.css" rel="stylesheet" type="text/css">
+      
+      
+    
+  <link href="https://www.mozilla.org/media/css/basic-article.1dad27afc4ac.css" rel="stylesheet" type="text/css">
+
+
+    
+    
+  <link href="https://www.mozilla.org/media/css/security.c3ff9c33d544.css" rel="stylesheet" type="text/css">
+
+    <!--<![endif]-->
+
+    
+      
+    
+
+    
+    
+      <!--[if IE 9]><!-->
+        
+
+<!--
+Read more about our custom configuration and use of Google Analytics here:
+https://bugzilla.mozilla.org/show_bug.cgi?id=1122305#c8
+-->
+
+<!-- Google Tag Manager -->
+<!-- Customized for Mozilla.org-->
+<!-- Region Container: NONE -->
+<!-- Rollup Container: System Filtered -->
+<!-- Site Container: NONE -->
+
+
+    <script src="https://www.mozilla.org/media/js/gtm-snippet.cc9550e6b401.js"></script>
+
+<!-- End Google Tag Manager -->
+      <!--<![endif]-->
+    
+  </head>
+
+  <body class="html-ltr mzp-t-mozilla " >
+    <div id="strings"
+      data-global-close="Close"
+      data-global-next="Next"
+      data-global-previous="Previous"
+      ></div>
+
+    
+      
+
+<aside class="moz-consent-banner" id="moz-consent-banner" role="region" aria-label="Cookie Banner" data-nosnippet="true" data-testid="consent-banner">
+  <div class="moz-consent-banner-content">
+    <h2 class="moz-consent-banner-heading">Help us improve your Mozilla experience</h2>
+    <div class="moz-consent-banner-copy">
+      <p>In addition to Cookies necessary for this site to function, we’d like your permission to set some additional Cookies to better understand your browsing needs and improve your experience. Rest assured — we value your privacy.</p>
+      <div class="moz-consent-banner-controls">
+        <button type="button" id="moz-consent-banner-button-accept" class="moz-consent-banner-button moz-consent-banner-button-accept" data-testid="consent-banner-accept-button">
+          Accept All Additional Cookies
+        </button>
+        <button type="button" id="moz-consent-banner-button-reject" class="moz-consent-banner-button moz-consent-banner-button-reject" data-testid="consent-banner-reject-button">
+          Reject All Additional Cookies
+        </button>
+        <a href="/en-US/privacy/websites/cookie-settings/">
+          Cookie settings
+        </a>
+      </div>
+    </div>
+  </div>
+</aside>
+    
+
+    
+      
+
+
+  
+
+ 
+
+
+  
+
+
+
+
+
+  
+
+
+
+ <nav class="m24-navigation-refresh enable-main-nav-sticky m24-mzp-is-sticky" aria-label="Primary">
+  <div class="m24-c-navigation-l-content">
+    <div class="m24-c-navigation-container">
+      <button class="m24-c-navigation-menu-button" type="button" aria-controls="m24-c-navigation-items" data-testid="m24-navigation-menu-button">Menu</button>
+      <a class="m24-c-navigation-logo-link" href="/en-US/" data-link-text="mozilla home icon" data-link-position="nav">
+        <img class="m24-c-navigation-logo-image" src="https://www.mozilla.org/media/img/logos/m24/lockup-black.f2ddba3f0724.svg" alt="Mozilla" width="101" height="24">
+      </a>
+      <div class="m24-c-navigation-items" id="m24-c-navigation-items" data-testid="m24-navigation-menu-items">
+        <div class="m24-c-navigation-menu">
+          <div class="m24-c-menu m24-mzp-is-basic">
+            <ul class="m24-c-menu-category-list">
+              
+
+
+
+<li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+  <a class="m24-c-menu-title" href="/en-US/products/" aria-haspopup="true" aria-controls="m24-c-menu-panel-products" data-testid="m24-navigation-link-products">Products</a>
+  <div class="m24-c-menu-panel" id="m24-c-menu-panel-products" data-testid="m24-navigation-panel-products">
+    <div class="m24-c-menu-panel-container" data-testid="m24-navigation-menu-products">
+      <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-products">Close Products menu</button>
+      <div class="m24-c-menu-panel-content">
+        <ul class="m24-mzp-l-content">
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.firefox.com?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox browsers" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-firefox">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/browser/logo.eb1324e44442.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox browsers</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="/en-US/products/vpn/" data-link-text="Mozilla VPN" data-link-position="topnav - products" data-testid="m24-navigation-menu-link-products-vpn">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/mozilla/vpn/logo.c648f487bfb8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla VPN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              
+                
+              
+              <a class="m24-c-menu-item-link" href="/en-US/products/monitor/" data-link-text="Mozilla Monitor" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/monitor/logo.d97e5516f9e6.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Mozilla Monitor</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://relay.firefox.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Firefox Relay" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/protocol/img/logos/firefox/relay/logo.d42a8b52e44c.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Firefox Relay</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://developer.mozilla.org/plus?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="MDN Plus" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/mdn/mdn-plus-logo.c615b46ca4ce.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">MDN Plus</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://www.thunderbird.net/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Thunderbird" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/thunderbird/logo-thunderbird.121e9c0fed45.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Thunderbird</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://soloist.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Solo" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/solo/logo-solo.643cbd69b0d8.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Solo</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://0din.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="0DIN" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/0din/logo-0din.50589c5926d2.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">0DIN</h2>
+              </a>
+            </section>
+          </li>
+          <li>
+            <section class="m24-c-menu-item mzp-has-icon">
+              <a class="m24-c-menu-item-link" href="https://tabstack.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=products" data-link-text="Tabstack" data-link-position="topnav - products">
+                <img loading="lazy" src="https://www.mozilla.org/media/img/logos/tabstack/logo-tabstack.4551b75d8e6b.svg" class="m24-c-menu-item-icon" width="32" height="32" alt="">
+                <h2 class="m24-c-menu-item-title">Tabstack</h2>
+              </a>
+            </section>
+          </li>
+        </ul>
+        <p class="m24-c-menu-category-link">
+          <a href="/en-US/products/" data-link-text="Go to all browsers and products" data-link-position="topnav - products">
+            All products
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+          </a>
+        </p>
+      </div>
+    </div><!-- close .m24-c-menu-panel-container -->
+  </div><!-- close .m24-c-menu-panel -->
+</li><!-- close products -->
+              
+
+ 
+
+ <li class="m24-c-menu-category mzp-has-drop-down mzp-js-expandable">
+   <a class="m24-c-menu-title" href="/en-US/about/" aria-haspopup="true" aria-controls="m24-c-menu-panel-about" data-testid="m24-navigation-link-about-us">About us</a>
+   <div class="m24-c-menu-panel" id="m24-c-menu-panel-about" data-testid="m24-navigation-menu-about-us">
+     <div class="m24-c-menu-panel-container">
+       <button class="m24-c-menu-button-close" type="button" aria-controls="m24-c-menu-panel-about">Close About us menu</button>
+       <div class="m24-c-menu-panel-content multi-column">
+        <div class="m24-mzp-l-content-container">
+          <p>Our Mission</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/" data-link-text="About Mozilla" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">About Mozilla</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/about/manifesto/" data-link-text="The Mozilla manifesto" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">The Mozilla Manifesto</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/contribute/" data-link-text="Get Involved" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Get Involved</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://blog.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Blog" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Blog</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+        <div class="m24-mzp-l-content-container">
+          <p>Our Work</p>
+          <ul class="m24-mzp-l-content">
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Foundation" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Foundation</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://www.mozilla.ai/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla.ai" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla.ai</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://mozilla.vc/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Ventures" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Ventures</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="/en-US/advertising/" data-link-text="Mozilla Ads" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Advertising</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://builders.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla Builders" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla Builders</h2>
+                </a>
+              </section>
+            </li>
+            <li>
+              <section class="m24-c-menu-item">
+                <a class="m24-c-menu-item-link" href="https://newproducts.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=nav&amp;utm_content=about-us" data-link-text="Mozilla New Products" data-link-position="topnav - about">
+                  <h2 class="m24-c-menu-item-title">Mozilla New Products</h2>
+                </a>
+              </section>
+            </li>
+           </ul>
+        </div>
+       </div>
+     </div><!-- close .m24-c-menu-panel-container -->
+   </div><!-- close .m24-c-menu-panel -->
+ </li><!-- close about us -->
+            </ul>
+          </div>
+        </div><!-- close .m24-c-navigation-menu -->
+      </div><!-- close .m24-c-navigation-items -->
+      <blink class="spacer-gif"></blink>
+    </div><!-- close .m24-c-navigation-container -->
+  </div><!-- close .m24-c-navigation-l-content -->
+</nav>
+
+    
+
+    
+
+    <div id="outer-wrapper">
+      
+  
+  <div id="main-content" class="mzp-l-content mzp-has-sidebar mzp-l-sidebar-left">
+    
+      <aside class="mzp-l-sidebar" aria-label="Menu">
+        
+  <nav class="mzp-c-sidemenu">
+
+    <div class="mzp-c-sidemenu-summary mzp-js-toggle" data-testid="sidebar-menu-toggle">
+      <h2 class="mzp-c-sidemenu-label">Menu</h2>
+      <ul>
+        <li>Mozilla Security</li>
+        
+          
+            
+          
+            
+          
+            
+          
+            
+          
+            
+          
+            
+          
+        
+          
+            
+          
+            
+          
+            
+          
+        
+          
+            
+          
+            
+          
+            
+          
+            
+          
+        
+      </ul>
+    </div>
+    <section class="mzp-c-sidemenu-main" id="sidebar-menu" data-testid="sidebar-menu-main">
+      
+
+        <h2 class="mzp-c-sidemenu-title ">
+          <a href="/en-US/security/">Mozilla Security</a>
+        </h2>
+
+        <ul>
+        
+          
+        
+          
+          <li >
+            <a href="/en-US/security/advisories/">Advisories</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/security/known-vulnerabilities/">Known Vulnerabilities</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="https://blog.mozilla.com/security/">Mozilla Security Blog</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/security/bug-bounty/">Security Bug Bounty</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/security/third-party-software-injection/">Third-party Injection Policy</a>
+          </li>
+          
+        
+        </ul>
+      
+
+        <h2 class="mzp-c-sidemenu-title ">
+          <a href="/en-US/security/client-bug-bounty/">Client Bug Bounty</a>
+        </h2>
+
+        <ul>
+        
+          
+        
+          
+          <li >
+            <a href="/en-US/security/bug-bounty/faq/">Frequently Asked Questions</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/security/bug-bounty/hall-of-fame/">Hall of Fame</a>
+          </li>
+          
+        
+        </ul>
+      
+
+        <h2 class="mzp-c-sidemenu-title ">
+          <a href="/en-US/security/web-bug-bounty/">Web Bug Bounty</a>
+        </h2>
+
+        <ul>
+        
+          
+        
+          
+          <li >
+            <a href="/en-US/security/bug-bounty/web-eligible-sites/">Eligible Websites</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/security/bug-bounty/faq-webapp/">Frequently Asked Questions</a>
+          </li>
+          
+        
+          
+          <li >
+            <a href="/en-US/security/bug-bounty/web-hall-of-fame/">Hall of Fame</a>
+          </li>
+          
+        
+        </ul>
+      
+    </section>
+  </nav>
+
+        
+        
+      </aside>
+    
+
+    <main class="mzp-l-main">
+      <article class="mzp-c-article">
+        
+  <div class="advisory">
+    <header>
+      <h1 class="mzp-c-article-title">Mozilla Foundation Security Advisory 2026-68</h1>
+    </header>
+
+    <h2>Security Vulnerabilities fixed in Firefox 153</h2>
+
+    <dl class="summary">
+      
+        <dt>Announced</dt>
+        <dd>July 21, 2026</dd>
+      
+      
+      
+      
+        <dt>Impact</dt>
+        <dd><span class="level high">high</span></dd>
+      
+      <dt>Products</dt>
+      <dd>Firefox</dd>
+      <dt>Fixed in</dt>
+      <dd>
+        <ul>
+          
+            <li>Firefox 153</li>
+          
+        </ul>
+      </dd>
+      
+    </dl>
+
+    
+
+<section class="cve">
+  <h4 id="CVE-2026-16349" class="level-heading">
+    <a href="#CVE-2026-16349"><span class="anchor">#</span>CVE-2026-16349: Same-origin policy bypass in the DOM: Navigation component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Tran Quac</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2034682">Bug 2034682</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16350" class="level-heading">
+    <a href="#CVE-2026-16350"><span class="anchor">#</span>CVE-2026-16350: Incorrect boundary conditions in the Audio/Video: cubeb component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Tomoya Nakanishi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2042033">Bug 2042033</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16362" class="level-heading">
+    <a href="#CVE-2026-16362"><span class="anchor">#</span>CVE-2026-16362: Use-after-free in the WebRTC: Audio/Video component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>crixer</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2043188">Bug 2043188</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16351" class="level-heading">
+    <a href="#CVE-2026-16351"><span class="anchor">#</span>CVE-2026-16351: Sandbox escape due to use-after-free in the DOM: Navigation component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Yaqoub Aldurayhim</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2045468">Bug 2045468</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16352" class="level-heading">
+    <a href="#CVE-2026-16352"><span class="anchor">#</span>CVE-2026-16352: Sandbox escape due to use-after-free in the Disability Access APIs component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Oskar L</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2046416">Bug 2046416</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16363" class="level-heading">
+    <a href="#CVE-2026-16363"><span class="anchor">#</span>CVE-2026-16363: JIT miscompilation in the JavaScript: WebAssembly component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Nebula Security</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2047689">Bug 2047689</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16364" class="level-heading">
+    <a href="#CVE-2026-16364"><span class="anchor">#</span>CVE-2026-16364: Incorrect boundary conditions in the Audio/Video: Playback component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Steven Julian</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2047802">Bug 2047802</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16365" class="level-heading">
+    <a href="#CVE-2026-16365"><span class="anchor">#</span>CVE-2026-16365: Privilege escalation in the DOM: Workers component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Khanh Nguyen</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2049149">Bug 2049149</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16366" class="level-heading">
+    <a href="#CVE-2026-16366"><span class="anchor">#</span>CVE-2026-16366: Privilege escalation in the DOM: Navigation component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Khanh Nguyen</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2049181">Bug 2049181</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16353" class="level-heading">
+    <a href="#CVE-2026-16353"><span class="anchor">#</span>CVE-2026-16353: Invalid pointer in the DOM: Bindings (WebIDL) component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>fedek</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2049523">Bug 2049523</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16354" class="level-heading">
+    <a href="#CVE-2026-16354"><span class="anchor">#</span>CVE-2026-16354: Information disclosure in the Graphics: ImageLib component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>satyamasd</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2050626">Bug 2050626</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16367" class="level-heading">
+    <a href="#CVE-2026-16367"><span class="anchor">#</span>CVE-2026-16367: Sandbox escape due to invalid pointer in the Disability Access APIs component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Oskar L</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2050627">Bug 2050627</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16368" class="level-heading">
+    <a href="#CVE-2026-16368"><span class="anchor">#</span>CVE-2026-16368: Incorrect boundary conditions in the JavaScript: WebAssembly component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Nebula Security</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2051015">Bug 2051015</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16369" class="level-heading">
+    <a href="#CVE-2026-16369"><span class="anchor">#</span>CVE-2026-16369: Integer overflow in the JavaScript: WebAssembly component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Amy Burnett of OpenAI</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2051854">Bug 2051854</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16355" class="level-heading">
+    <a href="#CVE-2026-16355"><span class="anchor">#</span>CVE-2026-16355: JIT miscompilation in the JavaScript Engine: JIT component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Amy Burnett of OpenAI</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2052207">Bug 2052207</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16356" class="level-heading">
+    <a href="#CVE-2026-16356"><span class="anchor">#</span>CVE-2026-16356: Sandbox escape due to use-after-free in the Disability Access APIs component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Oskar L</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2052562">Bug 2052562</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16357" class="level-heading">
+    <a href="#CVE-2026-16357"><span class="anchor">#</span>CVE-2026-16357: Incorrect boundary conditions in the Graphics component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>5up3rh3i</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2053326">Bug 2053326</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16370" class="level-heading">
+    <a href="#CVE-2026-16370"><span class="anchor">#</span>CVE-2026-16370: Mitigation bypass in the DOM: Networking component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>tiebuchen</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1996495">Bug 1996495</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16371" class="level-heading">
+    <a href="#CVE-2026-16371"><span class="anchor">#</span>CVE-2026-16371: Privilege escalation in the DOM: Navigation component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Steven Julian</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2008369">Bug 2008369</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16372" class="level-heading">
+    <a href="#CVE-2026-16372"><span class="anchor">#</span>CVE-2026-16372: Privilege escalation in the DOM: Content Processes component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Sajeeb Lohani</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2013800">Bug 2013800</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16373" class="level-heading">
+    <a href="#CVE-2026-16373"><span class="anchor">#</span>CVE-2026-16373: Information disclosure in the Privacy component in Firefox for Android</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Satoki Tsuji</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2021964">Bug 2021964</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16374" class="level-heading">
+    <a href="#CVE-2026-16374"><span class="anchor">#</span>CVE-2026-16374: Information disclosure in the Framework component in DevTools</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Tomoya Nakanishi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2027519">Bug 2027519</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16375" class="level-heading">
+    <a href="#CVE-2026-16375"><span class="anchor">#</span>CVE-2026-16375: Site isolation issue in the Networking: HTTP component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>pakhunov.anton.n</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2032140">Bug 2032140</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16376" class="level-heading">
+    <a href="#CVE-2026-16376"><span class="anchor">#</span>CVE-2026-16376: Denial-of-service in the Graphics: WebGPU component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Mihalis Haatainen</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2035733">Bug 2035733</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16377" class="level-heading">
+    <a href="#CVE-2026-16377"><span class="anchor">#</span>CVE-2026-16377: Mitigation bypass in the PDF Viewer component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Nikola Kojic</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2037770">Bug 2037770</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16378" class="level-heading">
+    <a href="#CVE-2026-16378"><span class="anchor">#</span>CVE-2026-16378: Other issue in the DOM: Copy &amp; Paste and Drag &amp; Drop component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Farhad Sajid Barbhuiya</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2038868">Bug 2038868</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16379" class="level-heading">
+    <a href="#CVE-2026-16379"><span class="anchor">#</span>CVE-2026-16379: Privilege escalation in the DOM: Content Processes component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Shu Takahashi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2039452">Bug 2039452</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16358" class="level-heading">
+    <a href="#CVE-2026-16358"><span class="anchor">#</span>CVE-2026-16358: Site isolation issue in the Graphics: WebRender component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Hcamael</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2040119">Bug 2040119</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16380" class="level-heading">
+    <a href="#CVE-2026-16380"><span class="anchor">#</span>CVE-2026-16380: Mitigation bypass in the Networking component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Rintaro Kawasugi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2040386">Bug 2040386</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16381" class="level-heading">
+    <a href="#CVE-2026-16381"><span class="anchor">#</span>CVE-2026-16381: Same-origin policy bypass in the Networking: DNS component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Rintaro Kawasugi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2041001">Bug 2041001</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16382" class="level-heading">
+    <a href="#CVE-2026-16382"><span class="anchor">#</span>CVE-2026-16382: Mitigation bypass in the DOM: Service Workers component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Yaqoub Aldurayhim</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2041864">Bug 2041864</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16383" class="level-heading">
+    <a href="#CVE-2026-16383"><span class="anchor">#</span>CVE-2026-16383: Mitigation bypass in the DOM: Networking component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Ibuki Sato and Tomoya Nakanishi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2041902">Bug 2041902</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16384" class="level-heading">
+    <a href="#CVE-2026-16384"><span class="anchor">#</span>CVE-2026-16384: Information disclosure due to uninitialized memory in the Graphics: WebGPU component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>5up3rh3i</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2041911">Bug 2041911</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16385" class="level-heading">
+    <a href="#CVE-2026-16385"><span class="anchor">#</span>CVE-2026-16385: Information disclosure due to uninitialized memory in the Graphics: WebGPU component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>5up3rh3i</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2041912">Bug 2041912</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16386" class="level-heading">
+    <a href="#CVE-2026-16386"><span class="anchor">#</span>CVE-2026-16386: Information disclosure due to uninitialized memory in the Graphics: WebGPU component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>5up3rh3i</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2041916">Bug 2041916</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16387" class="level-heading">
+    <a href="#CVE-2026-16387"><span class="anchor">#</span>CVE-2026-16387: Site isolation issue in the Networking component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Atsushi Sada</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2043200">Bug 2043200</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16388" class="level-heading">
+    <a href="#CVE-2026-16388"><span class="anchor">#</span>CVE-2026-16388: Sandbox escape in the DOM: Networking component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Yaqoub Aldurayhim</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2043845">Bug 2043845</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16389" class="level-heading">
+    <a href="#CVE-2026-16389"><span class="anchor">#</span>CVE-2026-16389: Incorrect boundary conditions, integer overflow in the Libraries component in NSS</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Tomoya Nakanishi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2043887">Bug 2043887</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16390" class="level-heading">
+    <a href="#CVE-2026-16390"><span class="anchor">#</span>CVE-2026-16390: Mitigation bypass in the Enterprise Policies component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Souma Ohsawa</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2044527">Bug 2044527</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16391" class="level-heading">
+    <a href="#CVE-2026-16391"><span class="anchor">#</span>CVE-2026-16391: Information disclosure in the Storage: IndexedDB component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Tomoya Nakanishi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2044536">Bug 2044536</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16392" class="level-heading">
+    <a href="#CVE-2026-16392"><span class="anchor">#</span>CVE-2026-16392: JIT miscompilation in the JavaScript Engine: JIT component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Gary Kwong</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2044606">Bug 2044606</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16393" class="level-heading">
+    <a href="#CVE-2026-16393"><span class="anchor">#</span>CVE-2026-16393: Incorrect boundary conditions in the Graphics: WebGPU component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Atsushi Sada</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2045410">Bug 2045410</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16359" class="level-heading">
+    <a href="#CVE-2026-16359"><span class="anchor">#</span>CVE-2026-16359: Incorrect boundary conditions in the Audio/Video: GMP component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Jacolon Walker</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2045424">Bug 2045424</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16394" class="level-heading">
+    <a href="#CVE-2026-16394"><span class="anchor">#</span>CVE-2026-16394: Mitigation bypass in the DOM: Security component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Nithissh</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2046748">Bug 2046748</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16395" class="level-heading">
+    <a href="#CVE-2026-16395"><span class="anchor">#</span>CVE-2026-16395: Integer overflow in the Audio/Video component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Steven Julian</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2047221">Bug 2047221</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16396" class="level-heading">
+    <a href="#CVE-2026-16396"><span class="anchor">#</span>CVE-2026-16396: Privilege escalation in WebExtensions</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Quy Pham</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2047240">Bug 2047240</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16397" class="level-heading">
+    <a href="#CVE-2026-16397"><span class="anchor">#</span>CVE-2026-16397: Clickjacking issue in the WebExtensions component in Firefox for Android</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Hafiizh</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2047608">Bug 2047608</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16398" class="level-heading">
+    <a href="#CVE-2026-16398"><span class="anchor">#</span>CVE-2026-16398: Site isolation issue in the Graphics component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Steven Julian</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2048345">Bug 2048345</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16399" class="level-heading">
+    <a href="#CVE-2026-16399"><span class="anchor">#</span>CVE-2026-16399: Site isolation issue in the DOM: Navigation component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Yaqoub Aldurayhim</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2049981">Bug 2049981</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16400" class="level-heading">
+    <a href="#CVE-2026-16400"><span class="anchor">#</span>CVE-2026-16400: Information disclosure in the DOM: Security component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Rintaro Kawasugi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2050430">Bug 2050430</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16401" class="level-heading">
+    <a href="#CVE-2026-16401"><span class="anchor">#</span>CVE-2026-16401: Privilege escalation in the Data Loss Prevention component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Brian Carpenter</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2052565">Bug 2052565</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16402" class="level-heading">
+    <a href="#CVE-2026-16402"><span class="anchor">#</span>CVE-2026-16402: Integer overflow in the Graphics: ImageLib component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Kai Martin</dd>
+    <dt>Impact</dt>
+    <dd><span class="level moderate">moderate</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2052703">Bug 2052703</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16403" class="level-heading">
+    <a href="#CVE-2026-16403"><span class="anchor">#</span>CVE-2026-16403: Spoofing issue in the Address Bar component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Renwa</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=1972244">Bug 1972244</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16404" class="level-heading">
+    <a href="#CVE-2026-16404"><span class="anchor">#</span>CVE-2026-16404: Spoofing issue in Firefox for Android</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Khiem Tran</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2020253">Bug 2020253</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16405" class="level-heading">
+    <a href="#CVE-2026-16405"><span class="anchor">#</span>CVE-2026-16405: Information disclosure in the Networking: WebSockets component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Yaqoub Aldurayhim</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2036591">Bug 2036591</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16406" class="level-heading">
+    <a href="#CVE-2026-16406"><span class="anchor">#</span>CVE-2026-16406: Mitigation bypass in the Networking component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Rintaro Kawasugi</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2040382">Bug 2040382</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16407" class="level-heading">
+    <a href="#CVE-2026-16407"><span class="anchor">#</span>CVE-2026-16407: Mitigation bypass in the DOM: Service Workers component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>bug2own</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2044063">Bug 2044063</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16408" class="level-heading">
+    <a href="#CVE-2026-16408"><span class="anchor">#</span>CVE-2026-16408: Integer overflow in the Audio/Video: Playback component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>5up3rh3i</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2050477">Bug 2050477</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16409" class="level-heading">
+    <a href="#CVE-2026-16409"><span class="anchor">#</span>CVE-2026-16409: Invalid pointer in the Security: PSM component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Artur Cygan of Trail of Bits in partnership with OpenAI</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2052134">Bug 2052134</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16410" class="level-heading">
+    <a href="#CVE-2026-16410"><span class="anchor">#</span>CVE-2026-16410: JIT miscompilation in the JavaScript Engine: JIT component</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Amy Burnett of OpenAI</dd>
+    <dt>Impact</dt>
+    <dd><span class="level low">low</span></dd>
+  </dl>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/show_bug.cgi?id=2053680">Bug 2053680</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16411" class="level-heading">
+    <a href="#CVE-2026-16411"><span class="anchor">#</span>CVE-2026-16411: Memory safety bugs fixed in Firefox 153</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>C.M.Chang, Christian Holler, David Parks, Dennis Jackson, Gabriele Svelto, Hafiizh, Henrik Skupin, Jan de Mooij, Jens Stutte, Paul Theriault, Randell Jesup, Rob Wu, Tom Ritter, Tom Schuster and the Mozilla Fuzzing Team</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+    <h5>Description</h5>
+    <p>Memory safety bugs present in Firefox 152. Some of these bugs showed evidence of memory corruption and we presume that with enough effort some of these could have been exploited to run arbitrary code.</p>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2048936%2C2049804">High-severity memory safety bugs fixed in Firefox 153</a></li><li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=1420800%2C1598946%2C1767921%2C2013993%2C2025417%2C2027325%2C2027364%2C2029433%2C2029807%2C2029901%2C2029922%2C2030102%2C2030563%2C2032110%2C2037801%2C2042756%2C2044625%2C2045609%2C2047920%2C2048491%2C2048492%2C2048800%2C2050534%2C2050662%2C2050871">Moderate-severity memory safety bugs fixed in Firefox 153</a></li><li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2006467%2C2027346%2C2027349%2C2027353%2C2027362%2C2027371%2C2027373%2C2028954%2C2029694%2C2036906%2C2038964%2C2039460%2C2040522%2C2040834%2C2043275%2C2045394%2C2045606%2C2052060">Low-severity memory safety bugs fixed in Firefox 153</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16412" class="level-heading">
+    <a href="#CVE-2026-16412"><span class="anchor">#</span>CVE-2026-16412: Memory safety bugs fixed in Firefox ESR 140.13 and Firefox 153</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Christian Holler, Frederik Braun, Justin Link, Simon Friedberger, Tom Ritter, Tom Schuster and the Mozilla Fuzzing Team</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+    <h5>Description</h5>
+    <p>Memory safety bugs present in Firefox ESR 140.12 and Firefox 152. Some of these bugs showed evidence of memory corruption and we presume that with enough effort some of these could have been exploited to run arbitrary code.</p>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2043035%2C2045057%2C2045187%2C2045402%2C2045417%2C2045482%2C2045611%2C2045618%2C2045756%2C2046917%2C2047718">High-severity memory safety bugs fixed in Firefox ESR 140.13 and Firefox 153</a></li><li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2005113%2C2025369%2C2026301%2C2028663%2C2029761%2C2042242%2C2043271%2C2043300%2C2044612%2C2045378%2C2045406%2C2045407%2C2045616%2C2045626%2C2045730%2C2045732%2C2045769%2C2045771%2C2047957%2C2048934%2C2049818%2C2049822%2C2050151%2C2050368%2C2051653%2C2051658">Moderate-severity memory safety bugs fixed in Firefox ESR 140.13 and Firefox 153</a></li><li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2045413%2C2053635%2C2053637">Low-severity memory safety bugs fixed in Firefox ESR 140.13 and Firefox 153</a></li>
+    </ul>
+  
+</section>
+
+
+
+<section class="cve">
+  <h4 id="CVE-2026-16360" class="level-heading">
+    <a href="#CVE-2026-16360"><span class="anchor">#</span>CVE-2026-16360: Memory safety bugs fixed in Firefox ESR 115.38, Firefox ESR 140.13 and Firefox 153</a>
+  </h4>
+  <dl class="summary">
+    <dt>Reporter</dt>
+    <dd>Andrew McCreight, Jan de Mooij, Tom Ritter, Vincent Hilla and the Mozilla Fuzzing Team</dd>
+    <dt>Impact</dt>
+    <dd><span class="level high">high</span></dd>
+  </dl>
+  
+    <h5>Description</h5>
+    <p>Memory safety bugs present in Firefox ESR 115.37, Firefox ESR 140.12 and Firefox 152. Some of these bugs showed evidence of memory corruption and we presume that with enough effort some of these could have been exploited to run arbitrary code.</p>
+  
+  
+    <h5>References</h5>
+    <ul>
+      <li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2022635%2C2028004%2C2035756%2C2045184%2C2045185%2C2045198%2C2045392%2C2045395%2C2045396%2C2045397%2C2045405%2C2045414%2C2045415%2C2045451%2C2045454%2C2045508%2C2045510%2C2045513%2C2045515%2C2045518%2C2045604%2C2045607%2C2045612%2C2045617%2C2045619%2C2045624%2C2045625%2C2045729%2C2045737%2C2045741%2C2045742%2C2045763%2C2045767%2C2045770%2C2045772%2C2045773%2C2045783%2C2045833%2C2045848%2C2045865%2C2045875%2C2045957%2C2047723%2C2047729%2C2048795%2C2048799%2C2048801%2C2049392%2C2049397%2C2049398%2C2049399%2C2049404%2C2049405%2C2049407%2C2049812%2C2050657%2C2050668%2C2050990%2C2053166%2C2053273%2C2053576%2C2053583%2C2053587">High-severity memory safety bugs fixed in Firefox ESR 115.38, Firefox ESR 140.13 and Firefox 153</a></li><li><a href="https://bugzilla.mozilla.org/buglist.cgi?bug_id=2043739%2C2045281%2C2045614%2C2045744%2C2045775%2C2047719%2C2049805%2C2051666">Moderate-severity memory safety bugs fixed in Firefox ESR 115.38, Firefox ESR 140.13 and Firefox 153</a></li>
+    </ul>
+  
+</section>
+
+  </div>
+
+      </article>
+    </main>
+  </div>
+
+  
+
+
+      
+        
+
+
+
+
+  
+
+ <footer class="moz24-footer" id="colophon" role="contentinfo">
+  
+  <div class="moz24-footer-content">
+    
+    <div class="moz24-footer-primary">
+      <div class="moz24-footer-sections-container">
+        <div class="moz24-footer-advertising">
+          <div class="moz24-footer-advertising-wrapper">
+            <h2>
+              <img src="https://www.mozilla.org/media/img/logos/mozilla/ads/Mozilla_Ads_Logo.6ed26d0eac2b.svg" alt="Mozilla Ads" width="250" height="33" class="moz24-footer-advertising-logo">
+            </h2>
+            
+              <p>Add trust to your ad buy.</p>
+            
+            <a class="moz24-footer-advertising-link" href="/en-US/advertising/" data-link-position="footer" data-link-text="Learn more">
+              <span class="mzp-c-button-icon-text">Learn more <span>about Mozilla Ads</span></span>
+              <span class="mzp-c-button-icon-end">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><path fill="currentColor" d="m7.24 1.36 5.89 5.89H0v1.5h13.13l-5.89 5.89L8.3 15.7 16 8 8.3.3z"/></svg>
+              </span>
+            </a>
+          </div>
+        </div>
+        <div class="moz24-footer-links">
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-company">
+              Company
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-company">
+              <li><a href="/en-US/about/leadership/" data-link-position="footer" data-link-text="Leadership">Leadership</a></li>
+              <li><a href="https://blog.mozilla.org/category/mozilla/news/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Press Center">Press Center</a></li>
+              <li><a href="/en-US/careers/" data-link-position="footer" data-link-text="Careers">Careers</a></li>
+              <li><a href="https://shop.mozilla.com/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=company" data-link-position="footer" data-link-text="Merch Store">Merch Store</a></li>
+              <li><a href="/en-US/contact/" data-link-position="footer" data-link-text="Contact">Contact</a></li>
+            
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-support">
+              Support
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-support">
+              <li><a href="https://support.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Product Help">Product Help</a></li>
+              <li><a href="https://bugzilla.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="File a Bug">File a Bug</a></li>
+              <li><a href="https://pontoon.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=support" data-link-position="footer" data-link-text="Localise Mozilla">Localize Mozilla</a></li>
+              <li><a href="/en-US/security/" data-link-position="footer" data-link-text="Security">Security</a></li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 class="moz24-footer-label" data-testid="footer-heading-developers">
+              Developers
+            </h2>
+            <ul class="moz24-footer-primary-list" data-testid="footer-list-developers">
+              <li><a href="https://www.firefox.com/channel/desktop/developer/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Developer Edition">Developer Edition</a></li>
+              <li><a href="https://www.firefox.com/browsers/enterprise/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox for Enterprise">Enterprise</a></li>
+              <li><a href="https://firefox-source-docs.mozilla.org/devtools-user/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer&utm_content=developers" rel="external" data-link-position="footer" data-link-text="Tools">Tools</a></li>
+              <li><a href="https://developer.mozilla.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="MDN">MDN</a></li>
+              <li><a href="https://www.firefox.com/firefox/155.0.1/releasenotes/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" data-link-position="footer" data-link-text="Firefox Release Notes">Firefox Release Notes</a></li>
+            </ul>
+          </section>
+        </div>
+        <div class="moz24-footer-socials">
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Mozilla</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/mozilla.org" data-link-position="footer" data-link-text="Bluesky (@mozilla.org)" translate="no">Bluesky<span> (@mozilla.org)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/mozilla/" data-link-position="footer" data-link-text="Instagram (@mozilla)">Instagram<span> (@mozilla)</span></a></li>
+              <li><a class="linkedin" href="https://www.linkedin.com/company/mozilla-corporation/" data-link-position="footer" data-link-text="LinkedIn (@mozilla)">LinkedIn<span> (@mozilla)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@mozilla" data-link-position="footer" data-link-text="TikTok (@mozilla)">TikTok<span> (@mozilla)</span></a></li>
+              <li><a class="spotify" href="https://open.spotify.com/show/0vT7LJMeVDxyQ2ZamHKu08?si=_uDRD6bRR_6M5YZyISGXgA" data-link-position="footer" data-link-text="Spotify (@mozilla)">Spotify<span> (@mozilla)</span></a></li>
+            </ul>
+          </div>
+          <div class="moz24-footer-refresh-social-wrapper">
+            <h2 class="moz24-footer-heading-social">Follow @Firefox</h2>
+            <ul class="moz24-footer-social-links">
+              <li><a class="bluesky" href="https://bsky.app/profile/firefox.com" data-link-position="footer" data-link-text="Bluesky (@firefox.com)" translate="no">Bluesky<span> (@firefox.com)</span></a></li>
+              <li><a class="instagram" href="https://www.instagram.com/firefox/" data-link-position="footer" data-link-text="Instagram (@firefox)">Instagram<span> (@firefox)</span></a></li>
+              <li><a class="youtube" href="https://www.youtube.com/user/firefoxchannel" data-link-position="footer" data-link-text="YouTube (@firefoxchannel)">YouTube<span> (@firefoxchannel)</span></a></li>
+              <li><a class="tiktok" href="https://www.tiktok.com/@firefox" data-link-position="footer" data-link-text="TikTok (@firefox)">TikTok<span> (@firefox)</span></a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="moz24-footer-actions">
+      <a class="moz24-footer-donate" href="https://www.mozillafoundation.org/?form=moco-donate-footer" data-link-text="Donate">
+        <span class="mzp-c-button-icon-start">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><g clip-path="url(#a)"><path fill="currentColor" d="M14.8 8.25c.77-.77 1.2-1.8 1.2-2.9a4.094 4.094 0 0 0-4.1-4.1c-1.1 0-2.12.43-2.9 1.2L7.99 3.46 6.98 2.45c-.77-.77-1.8-1.2-2.9-1.2a4.094 4.094 0 0 0-4.1 4.1c0 1.1.43 2.12 1.2 2.9l6.8 6.8 6.8-6.8zM1.5 5.35c0-.7.27-1.35.76-1.83.49-.49 1.14-.76 1.84-.76s1.34.27 1.84.76l2.07 2.07 2.07-2.07c.98-.98 2.69-.98 3.67 0a2.595 2.595 0 0 1 0 3.67l-5.74 5.74-5.75-5.74c-.49-.49-.76-1.14-.76-1.84"/></g><defs><clipPath id="a"><path d="M0 0h16v16H0z"/></clipPath></defs></svg>
+        </span>
+        <span class="mzp-c-button-icon-text">Donate</span>
+      </a>
+      <div class="moz24-footer-language">
+        
+   <form id="lang_form" class="moz24-c-language-switcher" method="get" action="#">
+    <a class="mzp-c-language-switcher-link" href="/locales/">All languages</a>
+    <label for="page-language-select">Language</label>
+     <select id="page-language-select" class="mzp-js-language-switcher-select" name="lang" dir="ltr" data-testid="footer-language-select">
+       
+         <option lang="en-CA" value="en-CA">English (Canadian)</option>
+       
+         <option lang="en-GB" value="en-GB">English (British)</option>
+       
+         <option lang="en-US" value="en-US" selected>English</option>
+       
+     </select>
+   </form>
+ 
+       </div>
+    </div>
+    
+    <div class="moz24-footer-secondary">
+      <div class="moz24-footer-legal">
+        <p class="moz24-footer-license" rel="license">
+          
+          
+            Donate to the not-for-profit <a href="https://www.mozillafoundation.org/?utm_source=www.mozilla.org&amp;utm_medium=referral&amp;utm_campaign=footer" rel="external noopener" data-link-position="footer" data-link-text="Mozilla Foundation">Mozilla Foundation</a>.<br>
+          
+          Portions of this content are ©1998–2026 by individual mozilla.org contributors. Content available under a <a rel="license" href="/en-US/foundation/licensing/website-content/">Creative Commons license</a>.
+        </p>
+        <ul class="moz24-footer-terms">
+        
+          <li><a href="/en-US/privacy/websites/" data-link-position="footer" data-link-text="Privacy">Website Privacy Notice</a></li>
+          <li>
+            
+            <a href="/en-US/privacy/websites/cookie-settings/" data-link-position="footer" data-link-text="Cookies">Cookies</a>
+          </li>
+          <li><a href="/en-US/about/legal/" data-link-position="footer" data-link-text="Legal">Legal</a></li>
+          <li><a href="/en-US/about/governance/policies/participation/" data-link-position="footer" data-link-text="Community Participation Guidelines">Community Participation Guidelines</a></li>
+          
+            <li><a href="/en-US/about/this-site/" data-link-position="footer" data-link-text="About this site">About this site</a></li>
+          
+        
+        </ul>
+      </div>
+    </div>
+    <img loading="lazy" class="moz24-footer-logo-image-bottom" src="https://www.mozilla.org/media/img/logos/m24/wordmark-white.2d673bb5b33a.svg" alt="" width="1376" height="285">
+  </div>
+</footer>
+
+
+  
+
+
+      
+
+      
+      
+    </div>
+
+    
+    
+      
+        <!--[if !IE]><!-->
+          
+          <script src="https://www.mozilla.org/media/js/sentry.9f2fe29330f6.js"></script>
+        <!--<![endif]-->
+      
+    
+
+    
+  
+      <!--[if !IE]><!-->
+        
+        <script src="https://www.mozilla.org/media/js/lib.f86d9ecbd086.js"></script>
+        <script src="https://www.mozilla.org/media/js/fxa.8c097c9145ff.js"></script>
+        <script src="https://www.mozilla.org/media/js/data.44609f062226.js"></script>
+        
+          <script src="https://www.mozilla.org/media/js/m24-ui.30741fa9d521.js"></script>
+        
+      <!--<![endif]-->
+
+      <!--[if IE 9]>
+        
+        <script src="https://www.mozilla.org/media/js/lib-ie.cf16e08599c3.js"></script>
+      <![endif]-->
+    
+  <!--[if !IE]><!-->
+    <script src="https://www.mozilla.org/media/js/basic-article.10832c852234.js"></script>
+    <script src="https://www.mozilla.org/media/js/newsletter.d35e22990f3b.js"></script>
+  <!--<![endif]-->
+
+
+    
+    
+
+    <!--[if !IE]><!-->
+    
+    
+      
+    
+
+    
+
+    
+    <!--<![endif]-->
+
+    
+    <!--[if IE 9]><!-->
+      
+      <script src="https://www.mozilla.org/media/js/consent-banner.52b78cd4ba21.js"></script>
+    <!--<![endif]-->
+    
+  </body>
+</html>

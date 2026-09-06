@@ -1,8 +1,7 @@
 diff --git a/browser/components/asrouter/content/asrouter-admin.bundle.js b/browser/components/asrouter/content/asrouter-admin.bundle.js
-index 7d0ed87430..ea7ed22ade 100644
 --- a/browser/components/asrouter/content/asrouter-admin.bundle.js
 +++ b/browser/components/asrouter/content/asrouter-admin.bundle.js
-@@ -1154,7 +1154,7 @@ class ASRouterAdminInner extends (react__WEBPACK_IMPORTED_MODULE_1___default().P
+@@ -1287,7 +1287,7 @@
          label = /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_1___default().createElement("span", null, "remote settings (", /*#__PURE__*/react__WEBPACK_IMPORTED_MODULE_1___default().createElement("a", {
            className: "small-text",
            target: "_blank",

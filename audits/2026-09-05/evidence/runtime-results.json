@@ -1,0 +1,375 @@
+{
+  "executable": "C:/Users/maxim/AppData/Local/camoufox/camoufox/Cache/camoufox.exe",
+  "executable_sha256": "2f0d7c2015477a9a76fe317d1d43502c5eb1c4816f4b3afba2158293fe22be43",
+  "runs": [
+    {
+      "seed": 0,
+      "browserVersion": "152.0.4-beta.27",
+      "result": {
+        "navigator": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "appVersion": "5.0 (Windows)",
+          "platform": "Win32",
+          "hardwareConcurrency": 8,
+          "language": "de",
+          "languages": [
+            "de",
+            "en-US",
+            "en"
+          ],
+          "webdriver": false,
+          "webdriverIn": true,
+          "webdriverType": "boolean",
+          "setters": []
+        },
+        "locale": {
+          "default": {
+            "locale": "de-DE",
+            "calendar": "gregory",
+            "numberingSystem": "latn",
+            "timeZone": "Europe/Berlin",
+            "year": "numeric",
+            "month": "numeric",
+            "day": "numeric"
+          },
+          "explicitJapanese": {
+            "locale": "ja-JP",
+            "calendar": "gregory",
+            "numberingSystem": "latn",
+            "timeZone": "Europe/Berlin",
+            "year": "numeric",
+            "month": "numeric",
+            "day": "numeric"
+          },
+          "explicitEnglish": {
+            "locale": "en-US",
+            "numberingSystem": "latn",
+            "style": "decimal",
+            "minimumIntegerDigits": 1,
+            "minimumFractionDigits": 0,
+            "maximumFractionDigits": 3,
+            "useGrouping": "auto",
+            "notation": "standard",
+            "signDisplay": "auto",
+            "roundingIncrement": 1,
+            "roundingMode": "halfExpand",
+            "roundingPriority": "auto",
+            "trailingZeroDisplay": "auto"
+          },
+          "janOffset": -60,
+          "julyOffset": -120
+        },
+        "screen": {
+          "width": 1920,
+          "height": 1080,
+          "availWidth": 1920,
+          "availHeight": 1040,
+          "dpr": 1,
+          "outerWidth": 800,
+          "innerWidth": 800,
+          "cssWidth": false,
+          "css800": true
+        },
+        "animation": {
+          "requested": 1000,
+          "computed": 0,
+          "activeDuration": 0
+        },
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "Accept-Language": "de,en-US;q=0.9,en;q=0.8",
+          "Accept-Encoding": "gzip, deflate, br, zstd"
+        },
+        "worker": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "appVersion": "5.0 (Windows)",
+          "platform": "Win32",
+          "hardwareConcurrency": 8,
+          "language": "de",
+          "languages": [
+            "de",
+            "en-US",
+            "en"
+          ],
+          "timezone": "Europe/Berlin",
+          "offset": -60
+        },
+        "audio": {
+          "offsetMismatches": 0,
+          "fullSliceMatchesAfter": true,
+          "beforeHash": "4170c081ba75ef370b346f781db8c77bc712af7ca199409171e0a761da87261e",
+          "afterHash": "4170c081ba75ef370b346f781db8c77bc712af7ca199409171e0a761da87261e"
+        },
+        "webgl": {
+          "error": 0,
+          "directHash": "6a5fc0c57393484d59032f3e9b9c6ef109bc72d02450c1baf2d1f615b10a5f81",
+          "pboHash": "6a5fc0c57393484d59032f3e9b9c6ef109bc72d02450c1baf2d1f615b10a5f81",
+          "directPboMismatches": 0,
+          "zeroSizeWrites": 0,
+          "packWritesOutsideRequestedRectangle": 0,
+          "exportHash": "49409b6fe6e3b44e66f8409c595584e2774b29d12ba97eee86a01e36aa9f88e7",
+          "identicalRedrawHash": "6a5fc0c57393484d59032f3e9b9c6ef109bc72d02450c1baf2d1f615b10a5f81"
+        },
+        "canvas": {
+          "hash": "a407e04f61496f280f4d6fb8400467aa37107ecd1e0177d9087722f5c172c17d",
+          "exportHash": "bda2c956cd2c5b825f3c39e7b737f39aadd024b8b743c1b926def8fdc09192a1"
+        },
+        "initMarker": null,
+        "webrtc": {
+          "localOfferAccepted": true
+        }
+      },
+      "routed_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "Accept-Language": "de,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd"
+      }
+    },
+    {
+      "seed": 111,
+      "browserVersion": "152.0.4-beta.27",
+      "result": {
+        "navigator": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "appVersion": "5.0 (Windows)",
+          "platform": "Win32",
+          "hardwareConcurrency": 8,
+          "language": "de",
+          "languages": [
+            "de",
+            "en-US",
+            "en"
+          ],
+          "webdriver": false,
+          "webdriverIn": true,
+          "webdriverType": "boolean",
+          "setters": []
+        },
+        "locale": {
+          "default": {
+            "locale": "de-DE",
+            "calendar": "gregory",
+            "numberingSystem": "latn",
+            "timeZone": "Europe/Berlin",
+            "year": "numeric",
+            "month": "numeric",
+            "day": "numeric"
+          },
+          "explicitJapanese": {
+            "locale": "ja-JP",
+            "calendar": "gregory",
+            "numberingSystem": "latn",
+            "timeZone": "Europe/Berlin",
+            "year": "numeric",
+            "month": "numeric",
+            "day": "numeric"
+          },
+          "explicitEnglish": {
+            "locale": "en-US",
+            "numberingSystem": "latn",
+            "style": "decimal",
+            "minimumIntegerDigits": 1,
+            "minimumFractionDigits": 0,
+            "maximumFractionDigits": 3,
+            "useGrouping": "auto",
+            "notation": "standard",
+            "signDisplay": "auto",
+            "roundingIncrement": 1,
+            "roundingMode": "halfExpand",
+            "roundingPriority": "auto",
+            "trailingZeroDisplay": "auto"
+          },
+          "janOffset": -60,
+          "julyOffset": -120
+        },
+        "screen": {
+          "width": 1920,
+          "height": 1080,
+          "availWidth": 1920,
+          "availHeight": 1040,
+          "dpr": 1,
+          "outerWidth": 800,
+          "innerWidth": 800,
+          "cssWidth": false,
+          "css800": true
+        },
+        "animation": {
+          "requested": 1000,
+          "computed": 0,
+          "activeDuration": 0
+        },
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "Accept-Language": "de,en-US;q=0.9,en;q=0.8",
+          "Accept-Encoding": "gzip, deflate, br, zstd"
+        },
+        "worker": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "appVersion": "5.0 (Windows)",
+          "platform": "Win32",
+          "hardwareConcurrency": 8,
+          "language": "de",
+          "languages": [
+            "de",
+            "en-US",
+            "en"
+          ],
+          "timezone": "Europe/Berlin",
+          "offset": -60
+        },
+        "audio": {
+          "offsetMismatches": 128,
+          "fullSliceMatchesAfter": true,
+          "beforeHash": "61cda450bf38e86d391adc96c1303e053ae940cf5dd45927979f0e009d43e918",
+          "afterHash": "93c31f128c50054186033797bd5327e437bc4e10d7982866340479bd94ee707a"
+        },
+        "webgl": {
+          "error": 0,
+          "directHash": "4a36b14999ffeb8da9b8e5c1f8e0efbeb18b44f49f0cb423f811966d22640f0e",
+          "pboHash": "6a5fc0c57393484d59032f3e9b9c6ef109bc72d02450c1baf2d1f615b10a5f81",
+          "directPboMismatches": 1160,
+          "zeroSizeWrites": 0,
+          "packWritesOutsideRequestedRectangle": 20,
+          "exportHash": "824a61f466cfa964f1c4ab568afe96a79726395077a03d0313ddc6ba9b2a275e",
+          "identicalRedrawHash": "4a36b14999ffeb8da9b8e5c1f8e0efbeb18b44f49f0cb423f811966d22640f0e"
+        },
+        "canvas": {
+          "hash": "921d3350eb9336e1f80ad21c8b84bf38eb2d37c1de198012de5b125ab5c75238",
+          "exportHash": "5afb04e761d67333955deeb03175ebe7ec2a9ffb837692ca0219c7b49d779c95"
+        },
+        "initMarker": null,
+        "webrtc": {
+          "localOfferAccepted": true
+        }
+      },
+      "routed_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "Accept-Language": "de,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd"
+      }
+    },
+    {
+      "seed": 222,
+      "browserVersion": "152.0.4-beta.27",
+      "result": {
+        "navigator": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "appVersion": "5.0 (Windows)",
+          "platform": "Win32",
+          "hardwareConcurrency": 8,
+          "language": "de",
+          "languages": [
+            "de",
+            "en-US",
+            "en"
+          ],
+          "webdriver": false,
+          "webdriverIn": true,
+          "webdriverType": "boolean",
+          "setters": []
+        },
+        "locale": {
+          "default": {
+            "locale": "de-DE",
+            "calendar": "gregory",
+            "numberingSystem": "latn",
+            "timeZone": "Europe/Berlin",
+            "year": "numeric",
+            "month": "numeric",
+            "day": "numeric"
+          },
+          "explicitJapanese": {
+            "locale": "ja-JP",
+            "calendar": "gregory",
+            "numberingSystem": "latn",
+            "timeZone": "Europe/Berlin",
+            "year": "numeric",
+            "month": "numeric",
+            "day": "numeric"
+          },
+          "explicitEnglish": {
+            "locale": "en-US",
+            "numberingSystem": "latn",
+            "style": "decimal",
+            "minimumIntegerDigits": 1,
+            "minimumFractionDigits": 0,
+            "maximumFractionDigits": 3,
+            "useGrouping": "auto",
+            "notation": "standard",
+            "signDisplay": "auto",
+            "roundingIncrement": 1,
+            "roundingMode": "halfExpand",
+            "roundingPriority": "auto",
+            "trailingZeroDisplay": "auto"
+          },
+          "janOffset": -60,
+          "julyOffset": -120
+        },
+        "screen": {
+          "width": 1920,
+          "height": 1080,
+          "availWidth": 1920,
+          "availHeight": 1040,
+          "dpr": 1,
+          "outerWidth": 800,
+          "innerWidth": 800,
+          "cssWidth": false,
+          "css800": true
+        },
+        "animation": {
+          "requested": 1000,
+          "computed": 0,
+          "activeDuration": 0
+        },
+        "headers": {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "Accept-Language": "de,en-US;q=0.9,en;q=0.8",
+          "Accept-Encoding": "gzip, deflate, br, zstd"
+        },
+        "worker": {
+          "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+          "appVersion": "5.0 (Windows)",
+          "platform": "Win32",
+          "hardwareConcurrency": 8,
+          "language": "de",
+          "languages": [
+            "de",
+            "en-US",
+            "en"
+          ],
+          "timezone": "Europe/Berlin",
+          "offset": -60
+        },
+        "audio": {
+          "offsetMismatches": 128,
+          "fullSliceMatchesAfter": true,
+          "beforeHash": "ae1f4f6d0bfb05aa9236ca5c476b0a9832f29677ae629949385ec0d2df2ceba3",
+          "afterHash": "0ac12bc0667a5c4b84effaae8783005aff551defdbe326a27d9e3886f8db0458"
+        },
+        "webgl": {
+          "error": 0,
+          "directHash": "9153e1bb00e267754f790998cb9ba9cb0af251c2449e887984dd7488a51ad71d",
+          "pboHash": "6a5fc0c57393484d59032f3e9b9c6ef109bc72d02450c1baf2d1f615b10a5f81",
+          "directPboMismatches": 1211,
+          "zeroSizeWrites": 0,
+          "packWritesOutsideRequestedRectangle": 27,
+          "exportHash": "c6cb71dd276b4173bbd629351fd2b32c3e781a33f9eb8328eaf9724d370cf484",
+          "identicalRedrawHash": "9153e1bb00e267754f790998cb9ba9cb0af251c2449e887984dd7488a51ad71d"
+        },
+        "canvas": {
+          "hash": "8e7e74786aea248482d95bebf013489040551be04574d59e68c39a3b903e7680",
+          "exportHash": "6d9e7cb3a212c9b12c0b4e9096840302d4b2a60309680dcf24ebb7d37b40b534"
+        },
+        "initMarker": null,
+        "webrtc": {
+          "localOfferAccepted": true
+        }
+      },
+      "routed_headers": {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:152.0) Gecko/20100101 Firefox/152.0",
+        "Accept-Language": "de,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br, zstd"
+      }
+    }
+  ]
+}

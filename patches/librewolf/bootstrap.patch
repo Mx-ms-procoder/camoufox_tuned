@@ -1,8 +1,7 @@
 diff --git a/python/mozversioncontrol/mozversioncontrol/repo/source.py b/python/mozversioncontrol/mozversioncontrol/repo/source.py
-index 59c1d5fbd238..410177d94d89 100644
 --- a/python/mozversioncontrol/mozversioncontrol/repo/source.py
 +++ b/python/mozversioncontrol/mozversioncontrol/repo/source.py
-@@ -91,7 +91,7 @@ class SrcRepository(Repository):
+@@ -111,7 +111,7 @@
          for root, dirs, files in os.walk(self.path):
              base = os.path.relpath(root, self.path)
              for name in files:
