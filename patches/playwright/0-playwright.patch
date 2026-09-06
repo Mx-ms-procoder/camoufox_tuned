@@ -810,43 +810,6 @@ diff --git a/dom/base/Document.h b/dom/base/Document.h
 diff --git a/dom/base/Navigator.cpp b/dom/base/Navigator.cpp
 --- a/dom/base/Navigator.cpp
 +++ b/dom/base/Navigator.cpp
-@@ -347,16 +347,15 @@
-  * for more detail.
-  */
- /* static */
--void Navigator::GetAcceptLanguages(nsTArray<nsString>& aLanguages,
--                                   const nsCString* aLanguageOverride) {
-+void Navigator::GetAcceptLanguages(const nsString* aLanguageOverride, nsTArray<nsString>& aLanguages) {
-   MOZ_ASSERT(NS_IsMainThread());
- 
-   aLanguages.Clear();
- 
-   // E.g. "de-de, en-us,en".
-   nsAutoCString acceptLang;
--  if (aLanguageOverride) {
--    acceptLang.Assign(aLanguageOverride->get());
-+  if (aLanguageOverride && aLanguageOverride->Length()) {
-+    acceptLang = NS_ConvertUTF16toUTF8(*aLanguageOverride);
-   } else {
-     intl::LocaleService::GetInstance()->GetAcceptLanguages(acceptLang);
-   }
-@@ -416,13 +415,14 @@
-     const nsCString& languageOverride = bc->Top()->GetLanguageOverride();
- 
-     if (!languageOverride.IsEmpty()) {
--      GetAcceptLanguages(aLanguages, &languageOverride);
-+      nsString languageOverrideWide = NS_ConvertUTF8toUTF16(languageOverride);
-+      GetAcceptLanguages(&languageOverrideWide, aLanguages);
- 
-       return;
-     }
-   }
- 
--  GetAcceptLanguages(aLanguages, nullptr);
-+  GetAcceptLanguages(nullptr, aLanguages);
- 
-   // The returned value is cached by the binding code. The window listens to the
-   // accept languages change and will clear the cache when needed. It has to
 @@ -2371,7 +2371,8 @@
    }
  #endif
@@ -857,19 +820,6 @@ diff --git a/dom/base/Navigator.cpp b/dom/base/Navigator.cpp
  }
  
  AutoplayPolicy Navigator::GetAutoplayPolicy(AutoplayPolicyMediaType aType) {
-diff --git a/dom/base/Navigator.h b/dom/base/Navigator.h
---- a/dom/base/Navigator.h
-+++ b/dom/base/Navigator.h
-@@ -227,8 +227,7 @@
- 
-   StorageManager* Storage();
- 
--  static void GetAcceptLanguages(nsTArray<nsString>& aLanguages,
--                                 const nsCString* aLanguageOverride);
-+  static void GetAcceptLanguages(const nsString* aLanguageOverride, nsTArray<nsString>& aLanguages);
- 
-   dom::MediaCapabilities* MediaCapabilities();
-   dom::MediaSession* MediaSession();
 diff --git a/dom/base/nsContentUtils.cpp b/dom/base/nsContentUtils.cpp
 --- a/dom/base/nsContentUtils.cpp
 +++ b/dom/base/nsContentUtils.cpp
@@ -1742,25 +1692,6 @@ diff --git a/dom/webidl/Window.webidl b/dom/webidl/Window.webidl
 diff --git a/dom/workers/RuntimeService.cpp b/dom/workers/RuntimeService.cpp
 --- a/dom/workers/RuntimeService.cpp
 +++ b/dom/workers/RuntimeService.cpp
-@@ -1139,7 +1139,7 @@
-   AssertIsOnMainThread();
- 
-   nsTArray<nsString> languages;
--  Navigator::GetAcceptLanguages(languages, nullptr);
-+  Navigator::GetAcceptLanguages(nullptr, languages);
- 
-   RuntimeService* runtime = RuntimeService::GetService();
-   if (runtime) {
-@@ -1316,8 +1316,7 @@
-       }
- 
-       // The navigator overridden properties should have already been read.
--
--      Navigator::GetAcceptLanguages(mNavigatorProperties.mLanguages, nullptr);
-+      Navigator::GetAcceptLanguages(nullptr, mNavigatorProperties.mLanguages);
-       mNavigatorPropertiesLoaded = true;
-     }
- 
 @@ -2013,6 +2012,13 @@
    }
  }
@@ -2675,18 +2606,6 @@ diff --git a/toolkit/components/browser/nsIWebBrowserChrome.idl b/toolkit/compon
      // Prevents new window animations on MacOS and Windows. Currently
      // ignored for Linux.
      const unsigned long CHROME_SUPPRESS_ANIMATION     = 1 << 24;
-diff --git a/toolkit/components/resistfingerprinting/nsUserCharacteristics.cpp b/toolkit/components/resistfingerprinting/nsUserCharacteristics.cpp
---- a/toolkit/components/resistfingerprinting/nsUserCharacteristics.cpp
-+++ b/toolkit/components/resistfingerprinting/nsUserCharacteristics.cpp
-@@ -877,7 +877,7 @@
-   // sufficient to only collect this information as the other properties are
-   // just reformats of Navigator::GetAcceptLanguages.
-   nsTArray<nsString> languages;
--  dom::Navigator::GetAcceptLanguages(languages, nullptr);
-+  dom::Navigator::GetAcceptLanguages(nullptr, languages);
-   nsCString output = "["_ns;
- 
-   for (const auto& language : languages) {
 diff --git a/toolkit/components/startup/nsAppStartup.cpp b/toolkit/components/startup/nsAppStartup.cpp
 --- a/toolkit/components/startup/nsAppStartup.cpp
 +++ b/toolkit/components/startup/nsAppStartup.cpp
